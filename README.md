@@ -35,6 +35,7 @@ deeper metadata analysis waits until those files are locally available.
 
 - Read-only library discovery and incremental scanning
 - Guided first-library setup with live progress, pause, resume, and an inventory report
+- Read-only local Photo Map built from embedded GPS coordinates
 - Remembered library switching and suggested Windows photo locations
 - Separate SQLite index for every selected photo library
 - Camera RAW inventory with an explicit preview-unavailable state
@@ -45,6 +46,7 @@ deeper metadata analysis waits until those files are locally available.
 - Reversible review bin and people-review history
 - Local face profiles that never confirm identities automatically
 - Per-user data storage, separate from application source and photo folders
+- Library health, verified backups, and resumable local OCR from the viewer
 
 ## Quick start
 
@@ -142,7 +144,7 @@ file and folder dates, existing XMP keywords, curated tags, Windows OCR, and
 locally reviewed people. RAW files are inventoried and searchable, but the
 browser viewer does not decode them yet. Audio files such as WAV are outside the
 photo-library inventory.
-Semantic image embeddings, richer duplicate detection, and a map experience are
+Semantic image embeddings and richer duplicate detection are
 planned as independent workers so models can evolve without rewriting photos or
 rebuilding the basic inventory.
 

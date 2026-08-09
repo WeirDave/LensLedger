@@ -6,6 +6,21 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.18.0 — 2026-08-09
+
+- Add a read-only, fully local Photo Map built from embedded EXIF GPS coordinates.
+- Extract locations during incremental scans and cluster nearby photos without
+  contacting an external map or tile service.
+- Add a Library Health & OCR panel with database integrity, catalog, map,
+  people-review, Review Bin, and text-recognition status.
+- Make Windows OCR pausable and resumable, and remember completed images even
+  when no visible text was found.
+- Create verified database backups directly from the viewer.
+- Expand automated coverage to include HTTP endpoints, CSRF rejection, path
+  confinement, metadata publish/restore, Review Bin recovery, background OCR,
+  GPS migration, mapping, diagnostics, and database backup verification.
+- Rename the search scope label from “Search in” to the clearer “Search scope.”
+
 ## 0.17.0 — 2026-08-09
 
 - Add a guided first-run experience that suggests likely photo folders, explains
