@@ -29,6 +29,7 @@ jobs:
             face_learning.py \
             generate_face_suggestions.py \
             generate_historical_folder_tags.py \
+            lensledger_updater.py \
             library_config.py \
             metadata_reader.py \
             photo_index.py \
@@ -36,6 +37,7 @@ jobs:
             semantic_index.py \
             product.py \
             windows_ocr.ps1 \
+            "Install LensLedger.cmd" \
             "Start LensLedger.cmd" \
             requirements.txt \
             requirements-semantic.txt \

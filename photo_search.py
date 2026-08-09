@@ -8,11 +8,13 @@ import datetime as dt
 import html
 import json
 import mimetypes
+import os
 import re
 import secrets
 import shutil
 import sqlite3
 import subprocess
+import sys
 import threading
 import urllib.parse
 import webbrowser
@@ -27,6 +29,7 @@ from library_config import (
     choose_library_folder, library_db_path, load_library_config, load_library_state,
     save_library_state, suggested_library_roots,
 )
+from lensledger_updater import check_for_update, is_managed_install, managed_install_root, updates_root
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
     SCHEMA_VERSION, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
@@ -98,6 +101,8 @@ class SearchHandler(BaseHTTPRequestHandler):
     semantic_lock = threading.Lock()
     semantic_job: dict[str, object] = {"state": "idle", "message": ""}
     semantic_cancel = threading.Event()
+    update_lock = threading.Lock()
+    update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
 
     def db(self):
         return connect(self.db_path)
@@ -141,6 +146,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.ocr_status()
         if url.path == "/api/semantic/status":
             return self.semantic_job_status()
+        if url.path == "/api/update/status":
+            return self.update_status()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/people-review":
@@ -216,6 +223,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.start_semantic_index(body)
             if route == "/api/semantic/cancel":
                 return self.cancel_semantic_index(body)
+            if route == "/api/update/check":
+                return self.check_update(body)
+            if route == "/api/update/install":
+                return self.install_update(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -559,14 +570,14 @@ form.toolbar{{display:grid;grid-template-columns:minmax(260px,1fr) 190px auto au
 header{{min-height:88px;padding:8px 14px}}.top{{margin-bottom:6px}}.top img{{width:30px;height:30px}}.menu-toggle{{width:34px;height:34px;padding:0;background:#252c3d;font-size:20px}}.summary{{margin-left:auto}}#moveToTrash{{margin-left:8px;background:#7e3340;padding:7px 12px}}form.toolbar{{display:flex;gap:8px;align-items:end}}.search-field{{flex:0 1 480px;min-width:260px}}.scope-field{{flex:0 0 175px}}.date-field{{flex:0 0 145px}}.sort-field{{flex:0 0 145px}}.menu-panel{{display:none;position:fixed;z-index:20;top:50px;left:12px;width:250px;padding:8px;background:#202638;border:1px solid #46506a;border-radius:10px;box-shadow:0 16px 45px #000}}.menu-panel.open{{display:grid;gap:4px}}.menu-panel button{{background:transparent;text-align:left;color:var(--text);padding:10px}}.menu-panel button:hover{{background:#30384b}}.section{{position:relative;padding-top:10px;margin-top:10px}}.section-title{{display:flex;align-items:center;gap:7px;margin-bottom:8px}}.section-title h2{{margin:0}}.info-button{{width:21px;height:21px;padding:0;border-radius:50%;background:#30384b;color:#b9c7da;font-size:13px}}.help-popover{{display:none;position:absolute;z-index:10;right:0;top:34px;width:min(350px,100%);padding:11px 12px;background:#252c3d;border:1px solid #56627d;border-radius:8px;color:#dce4f0;font-size:12px;line-height:1.45;box-shadow:0 12px 30px #000}}.help-popover.open{{display:block}}.editor-compact{{display:flex;align-items:center;gap:7px;margin-top:10px;color:#b8c5d7;font-size:12px}}.editor-compact .info-button{{margin-left:auto}}.metadata-details{{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}}.metadata-details summary{{cursor:pointer;color:#d2daea;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:12px}}.metadata-grid{{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}}.metadata-grid .wide{{grid-column:1/-1}}.metadata-note{{color:var(--muted);font-size:11px;line-height:1.4;margin:8px 0}}.metadata-actions{{display:flex;justify-content:flex-end;margin-top:10px}}.status{{margin-top:8px}}.modal-backdrop{{display:none;position:fixed;z-index:30;inset:0;background:#05070bc9;place-items:center;padding:30px}}.modal-backdrop.open{{display:grid}}.modal{{width:min(680px,100%);max-height:80vh;overflow:auto;background:#1b2030;border:1px solid #46506a;border-radius:12px;padding:20px;box-shadow:0 20px 60px #000}}.modal-head{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}}.modal h2{{margin:0;font-size:19px}}.modal-close{{background:#30384b}}.modal p,.modal li{{color:#c5cede;line-height:1.5}}.trash-list{{display:grid;gap:8px}}.trash-item{{display:flex;align-items:center;gap:10px;padding:10px;background:#22293a;border-radius:8px}}.trash-item .trash-meta{{min-width:0;flex:1}}.trash-item strong,.trash-item small{{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.trash-item small{{color:var(--muted);margin-top:3px}}.trash-empty{{color:var(--muted);padding:15px 0}}
 .metadata-readout{{display:grid;gap:10px;margin-top:10px}}.metadata-group{{display:grid;gap:5px}}.metadata-group h3{{margin:0;color:var(--cyan);font-size:11px;text-transform:uppercase;letter-spacing:.06em}}.metadata-item{{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:5px 0;border-bottom:1px solid #292f40;font-size:12px}}.metadata-item dt{{color:var(--muted)}}.metadata-item dd{{margin:0;word-break:break-word}}.metadata-item a{{color:var(--cyan);text-decoration:none}}.metadata-item a:hover{{text-decoration:underline}}.metadata-empty{{color:var(--muted);font-size:12px;padding:4px 0}}
 .publish-section{{border:1px solid #465d49;border-left:3px solid #58b76b;border-radius:8px;background:#1b2822;padding:11px;margin-top:12px}}.publish-section .section-title{{margin-bottom:6px}}.publish-section label{{font-size:12px;color:#dce7df}}.publish-section textarea{{width:100%;margin-top:5px;min-height:58px}}.publish-actions{{display:flex;gap:8px;align-items:center;margin-top:9px}}.publish-actions .secondary{{margin-left:auto}}.publish-note{{margin:6px 0 0;color:#aebdaf;font-size:11px;line-height:1.4}}.modal.publish-modal{{width:min(1280px,calc(100vw - 40px))}}.preview-table{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}}.preview-table th,.preview-table td{{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #343c50;word-break:normal}}.preview-table th{{color:#9facc0}}.preview-table th:first-child,.preview-table td:first-child{{color:var(--cyan);width:220px;white-space:nowrap}}.confirm-bar{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}}.confirm-bar small{{color:var(--muted);flex:1}}.confirm-buttons{{display:flex;gap:8px;white-space:nowrap}}
-.chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}.diagnostics-panel{{display:grid;gap:13px}}.health-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}.health-summary.ocr-summary{{grid-template-columns:repeat(4,1fr)}}.health-summary div{{background:#222a3a;border-radius:8px;padding:10px}}.health-summary strong{{display:block;font-size:19px;color:var(--cyan)}}.health-summary span{{color:var(--muted);font-size:11px}}.health-paths{{display:grid;gap:5px;color:var(--muted);font-size:11px;word-break:break-all}}.job-card{{background:#111722;border:1px solid #35435f;border-radius:9px;padding:12px}}.job-card h3{{margin:0 0 5px}}.job-card p{{color:var(--muted);margin:0 0 10px}}.job-actions{{display:flex;gap:8px;align-items:center}}.job-actions input{{width:145px}}.job-actions .spacer{{flex:1}}
+.chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}.diagnostics-panel{{display:grid;gap:13px}}.health-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}.health-summary.ocr-summary{{grid-template-columns:repeat(4,1fr)}}.health-summary div{{background:#222a3a;border-radius:8px;padding:10px}}.health-summary strong{{display:block;font-size:19px;color:var(--cyan)}}.health-summary span{{color:var(--muted);font-size:11px}}.health-paths{{display:grid;gap:5px;color:var(--muted);font-size:11px;word-break:break-all}}.job-card{{background:#111722;border:1px solid #35435f;border-radius:9px;padding:12px}}.job-card h3{{margin:0 0 5px}}.job-card p{{color:var(--muted);margin:0 0 10px}}.job-actions{{display:flex;gap:8px;align-items:center}}.job-actions input{{width:145px}}.job-actions .spacer{{flex:1}}.update-panel{{display:grid;gap:13px}}.update-status-card{{background:#111722;border:1px solid #35435f;border-radius:10px;padding:16px}}.update-status-card strong{{display:block;font-size:22px;margin-bottom:5px}}.update-status-card p{{margin:0}}.update-location{{padding:10px;background:#222a3a;border-radius:8px;color:var(--muted);font-size:11px;word-break:break-all}}.update-actions{{display:flex;gap:8px;justify-content:flex-end}}
 .people-browser{{min-height:0;overflow:auto;padding:24px;background:#10141e}}.people-browser-head{{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:18px}}.people-browser-head h2{{font-size:25px;margin:0}}.people-browser-head p{{color:var(--muted);margin:5px 0 0}}.people-head-actions{{display:flex;align-items:center;gap:9px}}.people-head-actions>span{{color:#c5b7ff;background:#2b2544;border-radius:999px;padding:7px 11px;white-space:nowrap}}.people-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding-bottom:30px}}.person-card{{position:relative;overflow:hidden;background:#1b2030;border:1px solid #343d53;border-radius:12px}}.person-card:hover{{border-color:#7656b7;transform:translateY(-1px)}}.person-card a{{display:block;color:inherit;text-decoration:none}}.person-card img,.person-placeholder{{display:block;width:100%;height:180px;object-fit:cover;background:#090b10}}.person-placeholder{{display:grid;place-items:center;font-size:58px;color:#5f6880}}.person-card-info{{display:grid;gap:5px;padding:12px 12px 48px}}.person-card-info strong{{font-size:16px}}.person-card-info small{{color:var(--cyan)}}.person-card-info span{{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.edit-aliases{{position:absolute;left:12px;bottom:10px;padding:6px 9px;background:#30384b;font-size:12px}}.people-empty{{color:var(--muted)}}.people-result-bar{{position:fixed;z-index:4;top:88px;left:12px;background:#202638;border:1px solid #46506a;border-radius:9px;padding:8px 12px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 25px #000}}.people-result-bar a{{color:var(--cyan);text-decoration:none}}.alias-editor{{display:grid;gap:8px}}.alias-editor input{{width:100%}}.people-gallery-mode #moveToTrash,.people-gallery-mode #previousDay,.people-gallery-mode #nextDay,.people-gallery-mode .date-field,.people-gallery-mode .sort-field{{display:none}}.modal.people-review-modal{{width:min(1180px,calc(100vw - 36px));height:min(780px,calc(100vh - 36px));max-height:none;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr)}}.modal.people-review-modal #modalBody{{min-height:0;overflow:hidden}}.people-review{{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px}}.review-progress{{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}}.review-main{{min-height:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.7fr);gap:16px}}.review-image-wrap{{min-width:0;min-height:0;display:grid;place-items:center;background:#090b10;border-radius:10px;overflow:hidden}}.review-image-wrap img{{display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}}.review-controls{{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:5px}}.review-person{{font-size:25px;font-weight:800}}.review-confidence{{color:#d6b77d}}.review-file{{color:var(--muted);font-size:12px;word-break:break-word}}.review-question{{font-size:18px;margin-top:8px}}.review-decisions{{display:grid;grid-template-columns:1fr 1fr;gap:9px}}.review-decisions button{{padding:13px}}.review-yes{{background:#39764b}}.review-no{{background:#873d4b}}.review-correction{{display:grid;gap:7px;border-top:1px solid var(--line);padding-top:12px}}.review-correction .row input{{flex:1}}.review-footer{{display:flex;align-items:center;gap:9px}}.review-footer .review-spacer{{flex:1}}.review-complete{{height:100%;display:grid;place-items:center;text-align:center;color:#cdd6e5}}.review-complete strong{{font-size:25px;display:block;margin-bottom:8px}}
 @media(max-width:950px){{.upper{{grid-template-columns:1fr 320px}}form.toolbar{{grid-template-columns:1fr 170px auto auto}}.optional{{display:none}}}}
 .menu-panel a{{color:var(--text);padding:10px;text-decoration:none;border-radius:7px;font-weight:700}}.menu-panel a:hover{{background:#30384b}}
 </style></head><body class="{body_class}">
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span style="color:#e25c70">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>
 <form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
-<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="diagnostics">🩺 Library health &amp; OCR</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
+<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="diagnostics">🩺 Library health &amp; OCR</button><button type="button" id="updateMenu" onclick="document.getElementById('menuPanel').classList.remove('open');openUpdatePanel()">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
 {people_gallery_html}{people_result_bar}<main class="viewer"{viewer_style}><section class="upper"><div class="stage" id="stage"><div class="empty">Choose a photo from the filmstrip</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">ⓘ</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you click Preview &amp; publish for this photo. Nothing is written automatically.</div></div>
@@ -639,6 +650,13 @@ async function openDiagnosticsPanel(){{
  async function refresh(){{try{{const [diagnostics,ocr,semantic]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json()),fetch('/api/semantic/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('Meaning indexed',c.semantic_indexed),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const ocrRunning=ocr.state==='running';$('startOcr').disabled=ocrRunning;$('pauseOcr').disabled=!ocrRunning;$('semanticMessage').textContent=semantic.message||'Install requirements-semantic.txt, then build the private local index.';$('semanticMetrics').replaceChildren(metric('Indexed',semantic.indexed),metric('Remaining',semantic.remaining),metric('This pass',semantic.indexed_this_pass),metric('Errors',semantic.errors));const semanticRunning=semantic.state==='running';$('startSemantic').disabled=semanticRunning;$('pauseSemantic').disabled=!semanticRunning;if((ocrRunning||semanticRunning)&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
  $('startOcr').onclick=async()=>{{$('startOcr').disabled=true;try{{await api('/api/ocr/start',{{since:$('ocrSince').value,workers:4}});refresh()}}catch(error){{$('ocrMessage').textContent=error.message;$('startOcr').disabled=false}}}};$('pauseOcr').onclick=async()=>{{try{{await api('/api/ocr/cancel',{{}});$('ocrMessage').textContent='Pausing after active images finish…'}}catch(error){{$('ocrMessage').textContent=error.message}}}};$('startSemantic').onclick=async()=>{{$('startSemantic').disabled=true;try{{await api('/api/semantic/start',{{batch_size:16}});refresh()}}catch(error){{$('semanticMessage').textContent=error.message;$('startSemantic').disabled=false}}}};$('pauseSemantic').onclick=async()=>{{try{{await api('/api/semantic/cancel',{{}});$('semanticMessage').textContent='Pausing after the active image batch…'}}catch(error){{$('semanticMessage').textContent=error.message}}}};$('backupDatabase').onclick=async()=>{{$('backupDatabase').disabled=true;$('backupStatus').textContent='Creating verified backup…';try{{const result=await api('/api/database/backup',{{}});$('backupStatus').textContent='Saved '+result.path}}catch(error){{$('backupStatus').textContent=error.message}}finally{{$('backupDatabase').disabled=false}}}};refresh()
 }}
+async function openUpdatePanel(){{
+ const body=document.createElement('div');body.className='update-panel';const card=document.createElement('section');card.className='update-status-card';const title=document.createElement('strong');title.textContent='Checking for updates…';const message=document.createElement('p');message.textContent='Contacting GitHub for the latest verified release.';card.append(title,message);const location=document.createElement('div');location.className='update-location';const actions=document.createElement('div');actions.className='update-actions';const check=document.createElement('button');check.className='secondary';check.textContent='Check again';const install=document.createElement('button');install.textContent='Download, install & restart';install.hidden=true;actions.append(check,install);body.append(card,location,actions);openModal('LensLedger updates',body);
+ async function refresh(){{try{{const status=await fetch('/api/update/status').then(response=>response.json());message.textContent=status.message||status.state;location.textContent=status.managed_install?'Managed installation: '+status.current_install_root:'This copy will migrate safely to: '+status.managed_install_root;if(status.state==='checking'){{title.textContent='Checking for updates…';install.hidden=true;setTimeout(refresh,500);return}}if(status.state==='available'){{title.textContent='LensLedger '+status.release.version+' is available';install.hidden=false;install.disabled=false;return}}if(status.state==='current'){{title.textContent='LensLedger '+status.current_version+' is current';install.hidden=true;return}}if(status.state==='restarting'){{title.textContent='Installing and restarting…';install.hidden=true;check.disabled=true;return}}title.textContent='Update check needs attention';install.hidden=true}}catch(error){{title.textContent='Update check needs attention';message.textContent=error.message}}}}
+ check.onclick=async()=>{{check.disabled=true;try{{await api('/api/update/check',{{}});title.textContent='Checking for updates…';message.textContent='Contacting GitHub for the latest verified release.';setTimeout(refresh,250)}}catch(error){{message.textContent=error.message}}finally{{check.disabled=false}}}};
+ install.onclick=async()=>{{if(!confirm('Install the verified update and restart LensLedger now? Your photo library and catalog remain separate and will not be replaced.'))return;install.disabled=true;check.disabled=true;try{{const result=await api('/api/update/install',{{}});title.textContent='Installing and restarting…';message.textContent=result.message;location.textContent='Keep this tab open. LensLedger will reconnect after the managed installation starts.'}}catch(error){{message.textContent=error.message;install.disabled=false;check.disabled=false}}}};refresh()
+}}
+async function watchUpdateBadge(){{try{{const status=await fetch('/api/update/status').then(response=>response.json());if(status.state==='available'){{$('updateMenu').textContent='⬆ Update available · v'+status.release.version;$('updateMenu').style.color='#79dc92';return}}if(status.state==='checking')setTimeout(watchUpdateBadge,700)}}catch(error){{}}}}setTimeout(watchUpdateBadge,100);
 function metadataText(value){{if(Array.isArray(value))return value.join(', ');if(value&&typeof value==='object')return JSON.stringify(value);return value==null?'':String(value)}}
 async function previewPublish(){{if(!currentDetail?.publishable)return;try{{const preview=await api('/api/publish/preview',{{id:selectedId,description:$('publishDescription').value}});const box=document.createElement('div');const intro=document.createElement('p');intro.textContent='Review every destination below. Nothing has been written yet.';const table=document.createElement('table');table.className='preview-table';const head=document.createElement('tr');['File field','Before','After'].forEach(label=>{{const th=document.createElement('th');th.textContent=label;head.append(th)}});table.append(head);const keys=[...new Set([...Object.keys(preview.before),...Object.keys(preview.after)])];keys.forEach(key=>{{const row=document.createElement('tr');[key,metadataText(preview.before[key]),metadataText(preview.after[key])].forEach(value=>{{const cell=document.createElement('td');cell.textContent=value||'—';row.append(cell)}});table.append(row)}});const bar=document.createElement('div');bar.className='confirm-bar';const note=document.createElement('small');note.textContent='A full safety copy is created before writing, and decoded picture pixels must match afterward.';const buttons=document.createElement('div');buttons.className='confirm-buttons';const cancelButton=document.createElement('button');cancelButton.className='secondary';cancelButton.textContent='Cancel';cancelButton.onclick=()=>$('modalBackdrop').classList.remove('open');const confirmButton=document.createElement('button');confirmButton.textContent='Publish this photo';confirmButton.onclick=async()=>{{confirmButton.disabled=true;cancelButton.disabled=true;try{{const result=await api('/api/publish',{{id:selectedId,description:$('publishDescription').value,expected_after:preview.after}});$('modalBackdrop').classList.remove('open');await selectAsset(selectedId);setStatus(result.message)}}catch(e){{confirmButton.disabled=false;cancelButton.disabled=false;setStatus(e.message,true)}}}};buttons.append(cancelButton,confirmButton);bar.append(note,buttons);box.append(intro,table,bar);openModal('Publish metadata to '+currentDetail.filename,box);document.querySelector('.modal').classList.add('publish-modal')}}catch(e){{setStatus(e.message,true)}}}}
 async function restorePublished(){{if(!currentDetail?.can_restore_publish||!confirm('Restore “'+currentDetail.filename+'” from the safety backup made before its last publish?'))return;try{{const result=await api('/api/publish/restore',{{id:selectedId}});await selectAsset(selectedId);setStatus(result.message)}}catch(e){{setStatus(e.message,true)}}}}
@@ -1571,6 +1589,118 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             "counts": counts,
             "last_scan": dict(latest) if latest else None,
         })
+
+    @classmethod
+    def _begin_update_check(cls, force: bool = False) -> bool:
+        with cls.update_lock:
+            if cls.update_job.get("state") == "checking":
+                return False
+            if not force and cls.update_job.get("state") not in {"idle", "error"}:
+                if cls.update_job.get("state") == "available":
+                    return False
+                try:
+                    checked = dt.datetime.fromisoformat(str(cls.update_job.get("checked_at", "")))
+                    if dt.datetime.now(dt.timezone.utc) - checked < dt.timedelta(hours=6):
+                        return False
+                except ValueError:
+                    return False
+            cls.update_job = {
+                "state": "checking",
+                "message": "Checking GitHub for a verified LensLedger release…",
+                "current_version": APP_VERSION,
+            }
+
+        def worker():
+            try:
+                result = check_for_update(APP_VERSION)
+                release = result["release"]
+                available = bool(result["available"])
+                job = {
+                    **result,
+                    "state": "available" if available else "current",
+                    "message": (
+                        f"LensLedger {release['version']} is ready to install."
+                        if available else f"LensLedger {APP_VERSION} is up to date."
+                    ),
+                    "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                }
+            except Exception as exc:
+                job = {
+                    "state": "error",
+                    "message": str(exc),
+                    "current_version": APP_VERSION,
+                    "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                }
+            with cls.update_lock:
+                cls.update_job = job
+
+        threading.Thread(target=worker, name="LensLedger-update-check", daemon=True).start()
+        return True
+
+    def update_status(self):
+        type(self)._begin_update_check()
+        with type(self).update_lock:
+            job = dict(type(self).update_job)
+        install_root = Path(__file__).parent.resolve()
+        job.update({
+            "current_version": APP_VERSION,
+            "managed_install": is_managed_install(install_root),
+            "current_install_root": str(install_root),
+            "managed_install_root": str(managed_install_root()),
+        })
+        self.send_json(job)
+
+    def check_update(self, _body):
+        started = type(self)._begin_update_check(force=True)
+        self.send_json({"ok": True, "state": "checking", "started": started}, 202)
+
+    def install_update(self, _body):
+        with type(self).update_lock:
+            if type(self).update_job.get("state") != "available":
+                raise ValueError("No verified LensLedger update is ready to install")
+            release = dict(type(self).update_job.get("release") or {})
+            type(self).update_job = {
+                "state": "restarting",
+                "message": f"Installing LensLedger {release.get('version', '')} and restarting…",
+                "current_version": APP_VERSION,
+                "release": release,
+            }
+
+        helper_root = updates_root()
+        helper_root.mkdir(parents=True, exist_ok=True)
+        helper = helper_root / "lensledger-updater-helper.py"
+        shutil.copy2(Path(__file__).parent / "lensledger_updater.py", helper)
+        install_root = Path(__file__).parent.resolve()
+        command = [
+            sys.executable, str(helper), "install-latest",
+            "--current-root", str(install_root),
+            "--current", APP_VERSION,
+            "--wait-pid", str(os.getpid()),
+        ]
+        if (install_root / "photo-index.sqlite3").is_file():
+            command.extend(["--legacy-root", str(install_root)])
+        log_path = helper_root / "last-update.log"
+        log_stream = log_path.open("w", encoding="utf-8")
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            subprocess.Popen(
+                command, cwd=helper_root, stdin=subprocess.DEVNULL,
+                stdout=log_stream, stderr=subprocess.STDOUT,
+                close_fds=True, creationflags=flags,
+            )
+        finally:
+            log_stream.close()
+
+        def stop_server():
+            threading.Event().wait(1.0)
+            self.server.shutdown()
+
+        threading.Thread(target=stop_server, name="LensLedger-update-shutdown", daemon=True).start()
+        self.send_json({
+            "ok": True,
+            "state": "restarting",
+            "message": "The verified update is being installed. LensLedger will reopen automatically.",
+        }, 202)
 
     def ocr_status(self):
         with type(self).ocr_lock:

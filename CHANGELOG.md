@@ -6,6 +6,24 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.20.0 — 2026-08-09
+
+- Add a managed per-user installation flow separate from photo and catalog data.
+- Check GitHub for updates on launch and at most once every six hours, while
+  requiring explicit approval before any installation.
+- Authenticate to private releases through an existing GitHub CLI login or an
+  explicitly supplied token without storing credentials in LensLedger.
+- Verify release asset size and GitHub's SHA-256 digest, reject unsafe ZIP
+  entries, and validate required files and versions before installation.
+- Replace only updater-managed application folders and preserve the previous
+  version as a rollback directory.
+- Refuse to overwrite Git working copies, mixed source folders, unsafe target
+  paths, or unmanaged existing installations.
+- Migrate pre-v0.16 catalogs with SQLite's online backup API, schema migration,
+  integrity verification, library registration, and source preservation.
+- Add automated coverage for update discovery, verification, traversal defense,
+  managed replacement, rollback, unmanaged-folder safety, and legacy migration.
+
 ## 0.19.0 — 2026-08-09
 
 - Add opt-in, local-only natural-language image search using OpenCLIP.

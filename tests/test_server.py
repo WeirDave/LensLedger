@@ -44,6 +44,7 @@ class ServerWorkflowTests(unittest.TestCase):
         photo_search.SearchHandler.ocr_cancel.clear()
         photo_search.SearchHandler.semantic_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.semantic_cancel.clear()
+        photo_search.SearchHandler.update_job = {"state": "idle", "message": ""}
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), photo_search.SearchHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -90,6 +91,30 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(points["located"], 0)
         with self.get("/map") as response:
             self.assertIn("Photo map", response.read().decode("utf-8"))
+
+    def test_update_status_runs_in_background_and_reports_current_release(self):
+        release = {
+            "version": self.photo_search.APP_VERSION,
+            "tag": "v" + self.photo_search.APP_VERSION,
+            "name": "Current release",
+            "page_url": "https://example.test/release",
+            "asset_api_url": "https://example.test/asset",
+            "asset_name": "LensLedger-current.zip",
+            "asset_size": 10,
+            "digest": "sha256:" + "0" * 64,
+        }
+        with patch.object(
+            self.photo_search, "check_for_update",
+            return_value={"current_version": self.photo_search.APP_VERSION, "available": False, "release": release},
+        ):
+            for _ in range(100):
+                status = self.json_response(self.get("/api/update/status"))
+                if status["state"] != "checking":
+                    break
+                time.sleep(0.01)
+        self.assertEqual(status["state"], "current")
+        self.assertFalse(status["available"])
+        self.assertIn("managed_install_root", status)
 
     def test_csrf_metadata_publish_restore_and_review_bin(self):
         with self.assertRaises(urllib.error.HTTPError) as rejected:
