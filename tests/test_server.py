@@ -93,7 +93,9 @@ class ServerWorkflowTests(unittest.TestCase):
         with self.get("/map") as response:
             self.assertIn("Photo map", response.read().decode("utf-8"))
         with self.get("/?scope=people") as response:
-            self.assertIn("Merge people", response.read().decode("utf-8"))
+            people_page = response.read().decode("utf-8")
+        self.assertIn("Merge people", people_page)
+        self.assertIn("separate each name with a comma", people_page)
 
     def test_update_status_runs_in_background_and_reports_current_release(self):
         release = {
