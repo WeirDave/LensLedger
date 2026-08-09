@@ -54,8 +54,26 @@ class DatabaseTests(unittest.TestCase):
         migrated = connect(database)
         columns = {row[1] for row in migrated.execute("PRAGMA table_info(runs)")}
         self.assertIn("cancelled", columns)
+        asset_columns = {row[1] for row in migrated.execute("PRAGMA table_info(assets)")}
+        self.assertTrue({"location_scanned", "gps_latitude", "gps_longitude"} <= asset_columns)
         self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         migrated.close()
+
+    def test_scan_records_embedded_gps_coordinates(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "located.jpg").write_bytes(b"synthetic")
+        database = self.root / "library.sqlite3"
+        with patch("photo_index.extract_gps_coordinates", return_value=(33.6846, -117.8265)):
+            self.assertEqual(scan_library(library, database), 0)
+        con = sqlite3.connect(database)
+        row = con.execute(
+            "SELECT location_scanned,gps_latitude,gps_longitude FROM assets"
+        ).fetchone()
+        con.close()
+        self.assertEqual(row, (1, 33.6846, -117.8265))
 
     def test_scan_is_incremental_and_backup_is_valid(self):
         from database_tools import backup, verify

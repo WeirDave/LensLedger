@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from PIL import ExifTags, Image
+
 from app_paths import libraries_root
 from product import APP_NAME, APP_VERSION
 
@@ -31,7 +33,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
     rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
@@ -55,7 +57,10 @@ CREATE TABLE IF NOT EXISTS assets (
     size_bytes INTEGER NOT NULL,
     mtime_ns INTEGER NOT NULL,
     metadata_scanned INTEGER NOT NULL DEFAULT 0,
+    location_scanned INTEGER NOT NULL DEFAULT 0,
     in_review_bin INTEGER NOT NULL DEFAULT 0,
+    gps_latitude REAL,
+    gps_longitude REAL,
     capture_date TEXT,
     indexed_at TEXT NOT NULL
 );
@@ -230,6 +235,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
         con.execute("ALTER TABLE assets ADD COLUMN metadata_scanned INTEGER NOT NULL DEFAULT 0")
     if "in_review_bin" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN in_review_bin INTEGER NOT NULL DEFAULT 0")
+    if "location_scanned" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN location_scanned INTEGER NOT NULL DEFAULT 0")
+    if "gps_latitude" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN gps_latitude REAL")
+    if "gps_longitude" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN gps_longitude REAL")
     people_columns = {row[1] for row in con.execute("PRAGMA table_info(asset_people)")}
     if "face_id" not in people_columns:
         con.execute("ALTER TABLE asset_people ADD COLUMN face_id INTEGER REFERENCES face_embeddings(id) ON DELETE SET NULL")
@@ -296,6 +307,34 @@ def extract_xmp_keywords(path: Path) -> list[str]:
         if value and value.casefold() not in {v.casefold() for v in values}:
             values.append(value)
     return values
+
+
+def _gps_decimal(values, reference: str) -> float | None:
+    try:
+        degrees, minutes, seconds = (float(value) for value in values)
+        coordinate = degrees + minutes / 60 + seconds / 3600
+        return -coordinate if reference.upper() in {"S", "W"} else coordinate
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def extract_gps_coordinates(path: Path) -> tuple[float | None, float | None]:
+    """Read embedded EXIF GPS coordinates without changing or hydrating media."""
+    if media_type(path) != "image":
+        return None, None
+    try:
+        with Image.open(path) as image:
+            exif = image.getexif()
+            gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
+            latitude = _gps_decimal(gps.get(2), str(gps.get(1, "")))
+            longitude = _gps_decimal(gps.get(4), str(gps.get(3, "")))
+            if latitude is None or longitude is None:
+                return None, None
+            if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+                return None, None
+            return latitude, longitude
+    except (KeyError, OSError, TypeError, ValueError):
+        return None, None
 
 
 def iter_media(root: Path):
@@ -385,7 +424,10 @@ def scan_library(
     con = connect(db_path)
     started = utc_now()
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
-    known = {row["relative_path"]: row for row in con.execute("SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, in_review_bin FROM assets")}
+    known = {row["relative_path"]: row for row in con.execute(
+        "SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, "
+        "location_scanned, in_review_bin FROM assets"
+    )}
     seen: set[str] = set()
     counts: dict[str, int | bool] = {
         "scanned": 0, "changed": 0, "unchanged": 0, "removed": 0,
@@ -412,25 +454,32 @@ def scan_library(
             if placeholder:
                 counts["placeholders"] += 1
             if (old and old["size_bytes"] == stat.st_size and old["mtime_ns"] == stat.st_mtime_ns
-                    and (old["metadata_scanned"] or placeholder)):
+                    and (old["metadata_scanned"] or placeholder)
+                    and (old["location_scanned"] or placeholder)):
                 counts["unchanged"] += 1
                 continue
             folder = rel.parent.as_posix()
+            latitude, longitude = (None, None) if placeholder else extract_gps_coordinates(path)
             con.execute(
                 """
                 INSERT INTO assets(path, relative_path, folder, filename, extension, media_type,
-                                   size_bytes, mtime_ns, metadata_scanned, capture_date, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   size_bytes, mtime_ns, metadata_scanned, location_scanned,
+                                   gps_latitude, gps_longitude, capture_date, indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(relative_path) DO UPDATE SET
                     path=excluded.path, folder=excluded.folder, filename=excluded.filename,
                     extension=excluded.extension, media_type=excluded.media_type,
                     size_bytes=excluded.size_bytes, mtime_ns=excluded.mtime_ns,
                     in_review_bin=0,
                     metadata_scanned=excluded.metadata_scanned,
+                    location_scanned=excluded.location_scanned,
+                    gps_latitude=excluded.gps_latitude,
+                    gps_longitude=excluded.gps_longitude,
                     capture_date=excluded.capture_date, indexed_at=excluded.indexed_at
                 """,
                 (str(path), rel_text, folder, path.name, path.suffix.lower(), media_type(path),
-                 stat.st_size, stat.st_mtime_ns, 0 if placeholder else 1,
+                 stat.st_size, stat.st_mtime_ns, 0 if placeholder else 1, 0 if placeholder else 1,
+                 latitude, longitude,
                  capture_date_from_path(path), utc_now()),
             )
             asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path = ?", (rel_text,)).fetchone()[0])
