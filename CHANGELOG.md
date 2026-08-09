@@ -6,6 +6,20 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.19.0 — 2026-08-09
+
+- Add opt-in, local-only natural-language image search using OpenCLIP.
+- Keep the large machine-learning dependencies out of the standard installation
+  and load them only when a user explicitly builds a meaning index.
+- Build the meaning index incrementally in pausable background batches and
+  expose coverage and progress in Library Health.
+- Add a Meaning search scope that ranks locally indexed photos from ordinary
+  scene descriptions without uploading photos or search text.
+- Allow a person in the face-review queue to be deferred for seven days so the
+  same difficult identity does not block later people across sessions.
+- Add deterministic semantic-index and background-worker tests that do not
+  download a model during CI.
+
 ## 0.18.0 — 2026-08-09
 
 - Add a read-only, fully local Photo Map built from embedded EXIF GPS coordinates.

@@ -42,6 +42,8 @@ class ServerWorkflowTests(unittest.TestCase):
         photo_search.SearchHandler.library_cancel.clear()
         photo_search.SearchHandler.ocr_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.ocr_cancel.clear()
+        photo_search.SearchHandler.semantic_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.semantic_cancel.clear()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), photo_search.SearchHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -184,6 +186,34 @@ class ServerWorkflowTests(unittest.TestCase):
         queue = self.json_response(self.get("/api/people/review/queue"))
         self.assertIsNone(queue["person"])
         self.assertEqual(queue["deferred_people"], 1)
+
+    def test_optional_semantic_job_and_viewer_scope(self):
+        def fake_build(_database, **kwargs):
+            counts = {"total": 1, "indexed": 1, "errors": 0, "cancelled": False}
+            kwargs["progress"](counts)
+            return counts
+
+        with patch.object(self.photo_search, "build_semantic_index", side_effect=fake_build):
+            started = self.json_response(self.post("/api/semantic/start", {"batch_size": 1}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(100):
+                job = self.json_response(self.get("/api/semantic/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(job["state"], "complete")
+            self.assertEqual(job["indexed_this_pass"], 1)
+
+        with patch.object(self.photo_search, "semantic_search", return_value=[(self.asset_id, 0.9)]), patch.object(
+            self.photo_search, "semantic_status", return_value={
+                "indexed": 1, "eligible": 1, "remaining": 0, "model": "test"
+            }
+        ):
+            with self.get("/?scope=semantic&q=blue+scene") as response:
+                page = response.read().decode("utf-8")
+        self.assertIn("Meaning (optional)", page)
+        self.assertIn("Describe a scene, object, or idea", page)
+        self.assertIn(self.photo.name, page)
 
 
 if __name__ == "__main__":

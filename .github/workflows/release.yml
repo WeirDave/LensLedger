@@ -31,10 +31,12 @@ jobs:
             generate_historical_folder_tags.py \
             photo_index.py \
             photo_search.py \
+            semantic_index.py \
             product.py \
             windows_ocr.ps1 \
             "Start LensLedger.cmd" \
             requirements.txt \
+            requirements-semantic.txt \
             README.md \
             LICENSE \
             THIRD_PARTY_NOTICES.md \

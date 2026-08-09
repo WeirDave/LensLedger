@@ -35,7 +35,11 @@ from photo_index import (
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
-from semantic_index import search as semantic_search, status as semantic_status
+from semantic_index import (
+    build_index as build_semantic_index,
+    search as semantic_search,
+    status as semantic_status,
+)
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -342,6 +346,9 @@ class SearchHandler(BaseHTTPRequestHandler):
     ocr_lock = threading.Lock()
     ocr_job: dict[str, object] = {"state": "idle", "message": ""}
     ocr_cancel = threading.Event()
+    semantic_lock = threading.Lock()
+    semantic_job: dict[str, object] = {"state": "idle", "message": ""}
+    semantic_cancel = threading.Event()
 
     def db(self):
         return connect(self.db_path)
@@ -383,6 +390,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.diagnostics()
         if url.path == "/api/ocr/status":
             return self.ocr_status()
+        if url.path == "/api/semantic/status":
+            return self.semantic_job_status()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/people-review":
@@ -454,6 +463,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.cancel_ocr(body)
             if route == "/api/database/backup":
                 return self.backup_database(body)
+            if route == "/api/semantic/start":
+                return self.start_semantic_index(body)
+            if route == "/api/semantic/cancel":
+                return self.cancel_semantic_index(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -706,6 +719,8 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
             view_label = "People"
         elif scope == "people" and selected_person_name:
             view_label = f"Photos of {selected_person_name}"
+        elif scope == "semantic":
+            view_label = f'Meaning: “{query}”' if query else "Meaning search"
         elif query:
             view_label = f'Search: “{query}”'
         elif selected_date:
@@ -870,10 +885,10 @@ async function openLibraryPanelV2(){{
  try{{const response=await fetch('/api/library/options');const data=await response.json();const entries=[...(data.known||[]).map(x=>({{...x,group:'Previous'}})),...(data.suggestions||[]).map(x=>({{...x,group:'Suggested'}}))];const seen=new Set();for(const item of entries){{if(seen.has(item.path.toLowerCase()))continue;seen.add(item.path.toLowerCase());const button=document.createElement('button');button.className='library-choice';const strong=document.createElement('strong');strong.textContent=item.group+' · '+item.label;const small=document.createElement('small');small.textContent=item.path;button.append(strong,small);button.onclick=()=>input.value=item.path;choices.append(button)}}}}catch(e){{status.textContent=e.message}}
 }}
 async function openDiagnosticsPanel(){{
- const body=document.createElement('div');body.className='diagnostics-panel';body.innerHTML='<div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><section class="job-card"><h3>Local text recognition (OCR)</h3><p id="ocrMessage">Loading OCR status…</p><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section><div class="job-actions"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div>';openModal('Library health & OCR',body);
+ const body=document.createElement('div');body.className='diagnostics-panel';body.innerHTML='<div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><section class="job-card"><h3>Local text recognition (OCR)</h3><p id="ocrMessage">Loading OCR status…</p><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section><section class="job-card"><h3>Meaning search (optional)</h3><p id="semanticMessage">Uses an optional large local model. Photos never leave this computer.</p><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section><div class="job-actions"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div>';openModal('Library health & OCR',body);
  const metric=(label,value)=>{{const box=document.createElement('div');const strong=document.createElement('strong');strong.textContent=Number(value||0).toLocaleString();const span=document.createElement('span');span.textContent=label;box.append(strong,span);return box}};
- async function refresh(){{try{{const [diagnostics,ocr]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('Meaning indexed',c.semantic_indexed),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const running=ocr.state==='running';$('startOcr').disabled=running;$('pauseOcr').disabled=!running;if(running&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
- $('startOcr').onclick=async()=>{{$('startOcr').disabled=true;try{{await api('/api/ocr/start',{{since:$('ocrSince').value,workers:4}});refresh()}}catch(error){{$('ocrMessage').textContent=error.message;$('startOcr').disabled=false}}}};$('pauseOcr').onclick=async()=>{{try{{await api('/api/ocr/cancel',{{}});$('ocrMessage').textContent='Pausing after active images finish…'}}catch(error){{$('ocrMessage').textContent=error.message}}}};$('backupDatabase').onclick=async()=>{{$('backupDatabase').disabled=true;$('backupStatus').textContent='Creating verified backup…';try{{const result=await api('/api/database/backup',{{}});$('backupStatus').textContent='Saved '+result.path}}catch(error){{$('backupStatus').textContent=error.message}}finally{{$('backupDatabase').disabled=false}}}};refresh()
+ async function refresh(){{try{{const [diagnostics,ocr,semantic]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json()),fetch('/api/semantic/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('Meaning indexed',c.semantic_indexed),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const ocrRunning=ocr.state==='running';$('startOcr').disabled=ocrRunning;$('pauseOcr').disabled=!ocrRunning;$('semanticMessage').textContent=semantic.message||'Install requirements-semantic.txt, then build the private local index.';$('semanticMetrics').replaceChildren(metric('Indexed',semantic.indexed),metric('Remaining',semantic.remaining),metric('This pass',semantic.indexed_this_pass),metric('Errors',semantic.errors));const semanticRunning=semantic.state==='running';$('startSemantic').disabled=semanticRunning;$('pauseSemantic').disabled=!semanticRunning;if((ocrRunning||semanticRunning)&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
+ $('startOcr').onclick=async()=>{{$('startOcr').disabled=true;try{{await api('/api/ocr/start',{{since:$('ocrSince').value,workers:4}});refresh()}}catch(error){{$('ocrMessage').textContent=error.message;$('startOcr').disabled=false}}}};$('pauseOcr').onclick=async()=>{{try{{await api('/api/ocr/cancel',{{}});$('ocrMessage').textContent='Pausing after active images finish…'}}catch(error){{$('ocrMessage').textContent=error.message}}}};$('startSemantic').onclick=async()=>{{$('startSemantic').disabled=true;try{{await api('/api/semantic/start',{{batch_size:16}});refresh()}}catch(error){{$('semanticMessage').textContent=error.message;$('startSemantic').disabled=false}}}};$('pauseSemantic').onclick=async()=>{{try{{await api('/api/semantic/cancel',{{}});$('semanticMessage').textContent='Pausing after the active image batch…'}}catch(error){{$('semanticMessage').textContent=error.message}}}};$('backupDatabase').onclick=async()=>{{$('backupDatabase').disabled=true;$('backupStatus').textContent='Creating verified backup…';try{{const result=await api('/api/database/backup',{{}});$('backupStatus').textContent='Saved '+result.path}}catch(error){{$('backupStatus').textContent=error.message}}finally{{$('backupDatabase').disabled=false}}}};refresh()
 }}
 function metadataText(value){{if(Array.isArray(value))return value.join(', ');if(value&&typeof value==='object')return JSON.stringify(value);return value==null?'':String(value)}}
 async function previewPublish(){{if(!currentDetail?.publishable)return;try{{const preview=await api('/api/publish/preview',{{id:selectedId,description:$('publishDescription').value}});const box=document.createElement('div');const intro=document.createElement('p');intro.textContent='Review every destination below. Nothing has been written yet.';const table=document.createElement('table');table.className='preview-table';const head=document.createElement('tr');['File field','Before','After'].forEach(label=>{{const th=document.createElement('th');th.textContent=label;head.append(th)}});table.append(head);const keys=[...new Set([...Object.keys(preview.before),...Object.keys(preview.after)])];keys.forEach(key=>{{const row=document.createElement('tr');[key,metadataText(preview.before[key]),metadataText(preview.after[key])].forEach(value=>{{const cell=document.createElement('td');cell.textContent=value||'—';row.append(cell)}});table.append(row)}});const bar=document.createElement('div');bar.className='confirm-bar';const note=document.createElement('small');note.textContent='A full safety copy is created before writing, and decoded picture pixels must match afterward.';const buttons=document.createElement('div');buttons.className='confirm-buttons';const cancelButton=document.createElement('button');cancelButton.className='secondary';cancelButton.textContent='Cancel';cancelButton.onclick=()=>$('modalBackdrop').classList.remove('open');const confirmButton=document.createElement('button');confirmButton.textContent='Publish this photo';confirmButton.onclick=async()=>{{confirmButton.disabled=true;cancelButton.disabled=true;try{{const result=await api('/api/publish',{{id:selectedId,description:$('publishDescription').value,expected_after:preview.after}});$('modalBackdrop').classList.remove('open');await selectAsset(selectedId);setStatus(result.message)}}catch(e){{confirmButton.disabled=false;cancelButton.disabled=false;setStatus(e.message,true)}}}};buttons.append(cancelButton,confirmButton);bar.append(note,buttons);box.append(intro,table,bar);openModal('Publish metadata to '+currentDetail.filename,box);document.querySelector('.modal').classList.add('publish-modal')}}catch(e){{setStatus(e.message,true)}}}}
@@ -1868,6 +1883,71 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                 raise ValueError("OCR is not running")
             type(self).ocr_cancel.set()
             type(self).ocr_job["message"] = "Pausing after active images finish…"
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
+
+    def semantic_job_status(self):
+        coverage = semantic_status(type(self).db_path)
+        with type(self).semantic_lock:
+            job = dict(type(self).semantic_job)
+        self.send_json({**coverage, **job})
+
+    def start_semantic_index(self, body):
+        batch_size = max(1, min(64, int(body.get("batch_size", 16))))
+        with type(self).semantic_lock:
+            if type(self).semantic_job.get("state") == "running":
+                raise ValueError("meaning indexing is already running")
+            with type(self).library_lock:
+                if type(self).library_job.get("state") == "scanning":
+                    raise ValueError("wait for the library scan to finish first")
+            with type(self).ocr_lock:
+                if type(self).ocr_job.get("state") == "running":
+                    raise ValueError("pause OCR before starting meaning indexing")
+            type(self).semantic_job = {
+                "state": "running", "message": "Loading the optional local meaning model…",
+                "total": 0, "indexed_this_pass": 0, "errors": 0,
+            }
+            type(self).semantic_cancel.clear()
+        handler_class = type(self)
+        database = handler_class.db_path
+
+        def worker():
+            try:
+                def update_progress(counts):
+                    with handler_class.semantic_lock:
+                        handler_class.semantic_job = {
+                            "state": "running",
+                            "message": f"Indexed {int(counts['indexed']):,} of {int(counts['total']):,} images this pass…",
+                            "total": int(counts["total"]),
+                            "indexed_this_pass": int(counts["indexed"]),
+                            "errors": int(counts["errors"]),
+                        }
+
+                result = build_semantic_index(
+                    database, batch_size=batch_size, progress=update_progress,
+                    should_cancel=handler_class.semantic_cancel.is_set,
+                )
+                with handler_class.semantic_lock:
+                    handler_class.semantic_job = {
+                        "state": "cancelled" if result["cancelled"] else "complete",
+                        "message": "Meaning indexing paused safely." if result["cancelled"]
+                        else "Meaning index is ready.",
+                        "total": int(result["total"]),
+                        "indexed_this_pass": int(result["indexed"]),
+                        "errors": int(result["errors"]),
+                    }
+            except Exception as exc:
+                with handler_class.semantic_lock:
+                    handler_class.semantic_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-semantic", daemon=True).start()
+        self.send_json({"ok": True, "state": "running"}, 202)
+
+    def cancel_semantic_index(self, _body):
+        with type(self).semantic_lock:
+            if type(self).semantic_job.get("state") != "running":
+                raise ValueError("meaning indexing is not running")
+            type(self).semantic_cancel.set()
+            type(self).semantic_job["message"] = "Pausing after the active image batch…"
         self.send_json({"ok": True, "state": "cancelling"}, 202)
 
     def backup_database(self, _body):
