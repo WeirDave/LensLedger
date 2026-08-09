@@ -27,6 +27,7 @@ jobs:
             app_paths.py \
             database_tools.py \
             face_learning.py \
+            face_locations.py \
             generate_face_suggestions.py \
             generate_historical_folder_tags.py \
             lensledger_updater.py \
@@ -41,6 +42,7 @@ jobs:
             "Start LensLedger.cmd" \
             requirements.txt \
             requirements-semantic.txt \
+            requirements-face.txt \
             README.md \
             LICENSE \
             THIRD_PARTY_NOTICES.md \
