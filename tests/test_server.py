@@ -253,6 +253,53 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Face being checked", page)
         self.assertIn("ResizeObserver", page)
 
+    def test_person_view_exposes_pending_matches_and_the_focused_face(self):
+        from photo_index import scan_library, utc_now
+
+        second_photo = self.library / "2026-08-10 second.jpg"
+        Image.new("RGB", (32, 24), (60, 120, 180)).save(second_photo, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        second_asset_id = int(con.execute(
+            "SELECT id FROM assets WHERE relative_path=?", (second_photo.name,)
+        ).fetchone()[0])
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,gender_marker,dimensions,embedding_f32,
+                   box_left,box_top,box_right,box_bottom,localization_similarity,localized_at
+               ) VALUES ('test',1,?,?,?,?,?,?,?,?,?,?,?)""",
+            (self.asset_id, self.photo.name, "F", 2, b"12345678", 0.1, 0.2, 0.4, 0.6, 0.99, utc_now()),
+        ).lastrowid)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Focused Person')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+               VALUES (?,?,'confirmed',0.93,?,'test',?)""",
+            (self.asset_id, person_id, face_id, utc_now()),
+        )
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+               VALUES (?,?,'suggested',0.82,'test',?)""",
+            (second_asset_id, person_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        with self.get(f"/?scope=people&person={person_id}") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("1 confirmed photo", page)
+        self.assertIn("1 exact face box", page)
+        self.assertIn(f'/people-review?person={person_id}', page)
+        self.assertIn("Review 1 possible match", page)
+        detail = self.json_response(self.get(
+            f"/api/asset?id={self.asset_id}&person_id={person_id}"
+        ))
+        focused = detail["focused_person_face"]
+        self.assertEqual(focused["name"], "Focused Person")
+        self.assertEqual(
+            [focused[key] for key in ("box_left", "box_top", "box_right", "box_bottom")],
+            [0.1, 0.2, 0.4, 0.6],
+        )
+
     def test_merge_people_keeps_aliases_and_strongest_photo_decision(self):
         from photo_index import utc_now
 

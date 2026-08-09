@@ -430,6 +430,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
         people_cards = []
         people_directory = []
         selected_person_name = ""
+        selected_person_stats: dict[str, int] = {}
         total = 0
         trash_count = 0
         review_count = 0
@@ -500,11 +501,29 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
                     total = len(people_cards)
                 else:
                     if scope == "people" and person_id:
-                        person_row = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+                        person_row = con.execute(
+                            """SELECT p.name,
+                                      (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                                       WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0) confirmed_count,
+                                      (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                                       WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0) suggested_count,
+                                      (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                                       JOIN face_embeddings f ON f.id=ap.face_id
+                                       WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0
+                                         AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL) localized_count
+                               FROM people p WHERE p.id=?""",
+                            (person_id,),
+                        ).fetchone()
                         if not person_row:
                             person_id = None
                             raise ValueError("That person is no longer available")
-                        selected_person_name = person_row[0]
+                        selected_person_name = str(person_row["name"])
+                        selected_person_stats = {
+                            key: int(person_row[key]) for key in (
+                                "confirmed_count", "suggested_count", "localized_count"
+                            )
+                        }
                     total = int(con.execute(
                         f"SELECT COUNT(*) FROM search_fts JOIN assets a ON a.id=search_fts.asset_id {where}", values
                     ).fetchone()[0])
@@ -585,10 +604,19 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
             + ("".join(gallery_cards) if gallery_cards else '<p class="people-empty">No people match that name.</p>')
             + '</section></main>'
         ) if gallery_mode else ""
-        people_result_bar = (
-            f'<div class="people-result-bar"><a href="/?scope=people">← All people</a><strong>{html.escape(selected_person_name)}</strong></div>'
-            if scope == "people" and person_id else ""
-        )
+        people_result_bar = ""
+        if scope == "people" and person_id:
+            confirmed = selected_person_stats.get("confirmed_count", 0)
+            suggested = selected_person_stats.get("suggested_count", 0)
+            localized = selected_person_stats.get("localized_count", 0)
+            people_result_bar = (
+                f'<div class="people-result-bar"><a href="/?scope=people">← All people</a>'
+                f'<strong>{html.escape(selected_person_name)}</strong>'
+                f'<span>{confirmed:,} confirmed photo{"s" if confirmed != 1 else ""}</span>'
+                + (f'<span>{localized:,} exact face box{"es" if localized != 1 else ""}</span>' if localized else "")
+                + (f'<a class="button secondary" href="/people-review?person={person_id}">Review {suggested:,} possible match{"es" if suggested != 1 else ""}</a>' if suggested else "")
+                + '</div>'
+            )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
         body_class = "people-gallery-mode" if gallery_mode else ""
         search_placeholder = (
@@ -641,7 +669,7 @@ header{{min-height:88px;padding:8px 14px}}.top{{margin-bottom:6px}}.top img{{wid
 </aside></section><section class="filmstrip" id="filmstrip"></section></main><div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="modalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h2 id="modalTitle"></h2><button type="button" class="modal-close" id="modalClose">Close</button></div><div id="modalBody"></div></section></div>
 <script>
-const items={data_json}; const personDirectory={people_directory_json}; const csrf={json.dumps(self.csrf_token)}; const currentLibrary={json.dumps(str(self.library_root))}; let selectedId={json.dumps(selected_id)}; let currentDetail=null;
+const items={data_json}; const personDirectory={people_directory_json}; const csrf={json.dumps(self.csrf_token)}; const currentLibrary={json.dumps(str(self.library_root))}; const viewedPersonId={json.dumps(person_id)}; let selectedId={json.dumps(selected_id)}; let currentDetail=null;
 const $=id=>document.getElementById(id); const stage=$('stage');
 function esc(s){{return String(s??'').replace(/[&<>\"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}}[c]))}}
 async function api(path,payload){{const r=await fetch(path,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...payload,csrf}})}});const data=await r.json();if(!r.ok)throw new Error(data.error||'Request failed');return data}}
@@ -651,7 +679,48 @@ function renderSubject(detail){{const holder=$('subjectChip');if(!detail.subject
 function renderChips(detail){{renderSubject(detail);$('imageTags').replaceChildren(...detail.image_tags.map(t=>chip(t,'image')));$('contextTags').replaceChildren(...detail.context_tags.map(t=>chip(t,'context')));const hidden=detail.hidden_tags.map(name=>{{const e=document.createElement('button');e.className='chip hidden';e.textContent='Restore '+name;e.onclick=()=>restoreTag(name);return e}});$('hiddenTags').replaceChildren(...hidden);$('hiddenSection').style.display=hidden.length?'block':'none'}}
 function renderPeople(detail){{const confirmed=detail.confirmed_people.map(person=>{{const el=document.createElement('span');el.className='chip person';el.append(document.createTextNode(person.name));const remove=document.createElement('button');remove.textContent='×';remove.title='Remove this person from the photo';remove.onclick=()=>changePerson(person.name,'rejected');el.append(remove);return el}});$('confirmedPeople').replaceChildren(...confirmed);const suggested=detail.suggested_people.map(person=>{{const el=document.createElement('span');el.className='chip suggestion';el.append(document.createTextNode(person.name+' '+Math.round(person.confidence*100)+'%'));const accept=document.createElement('button');accept.className='accept-person';accept.textContent='✓';accept.title='Confirm this person';accept.onclick=()=>changePerson(person.name,'confirmed');const reject=document.createElement('button');reject.textContent='×';reject.title='Reject this suggestion';reject.onclick=()=>changePerson(person.name,'rejected');el.append(accept,reject);return el}});$('suggestedPeople').replaceChildren(...suggested);$('suggestionLabel').style.display=suggested.length?'block':'none';$('peopleOptions').replaceChildren(...detail.people_options.map(name=>{{const option=document.createElement('option');option.value=name;return option}}))}}
 function renderEmbeddedMetadata(meta){{const holder=$('metadataReadout');holder.replaceChildren();let count=0;for(const [key,title] of [['descriptive','Description and ownership'],['capture','Capture details']]){{const items=meta?.[key]||[];if(!items.length)continue;count+=items.length;const group=document.createElement('section');group.className='metadata-group';const heading=document.createElement('h3');heading.textContent=title;const list=document.createElement('dl');for(const item of items){{const row=document.createElement('div');row.className='metadata-item';const term=document.createElement('dt');term.textContent=item.label;const value=document.createElement('dd');if(item.href){{const link=document.createElement('a');link.href=item.href;link.target='_blank';link.rel='noopener';link.title='Open this location on a map';link.textContent=item.value+'  ↗';value.append(link)}}else value.textContent=item.value;row.append(term,value);list.append(row)}}group.append(heading,list);holder.append(group)}}if(!count){{const empty=document.createElement('div');empty.className='metadata-empty';empty.textContent='No readable embedded details were found in this file.';holder.append(empty)}}}}
-async function selectAsset(id){{selectedId=Number(id);document.querySelectorAll('.thumb').forEach(x=>{{const isActive=Number(x.dataset.id)===selectedId;x.classList.toggle('active',isActive);if(isActive)x.setAttribute('aria-current','true');else x.removeAttribute('aria-current')}});const active=document.querySelector('.thumb.active');active?.scrollIntoView({{block:'nearest',inline:'center'}});try{{const r=await fetch('/api/asset?id='+selectedId);if(!r.ok)throw new Error('Could not load photo');const d=await r.json();currentDetail=d;stage.querySelectorAll('img,video,.empty,.raw-preview').forEach(x=>x.remove());if(d.media_type==='raw'){{const raw=document.createElement('div');raw.className='raw-preview';raw.innerHTML='<strong>RAW photo</strong>LensLedger indexed this original file.<br>A browser preview is not available yet.';stage.prepend(raw)}}else{{const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media)}}$('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';$('newPerson').value='';$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'Only this selected photo will be changed, and only after you approve the preview.':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderEmbeddedMetadata(d.embedded_metadata);setStatus('')}}catch(e){{setStatus(e.message,true)}}updateNav()}}
+function renderFocusedFace(media,face){{
+  if(!media||media.tagName!=='IMG'||!face||![face.box_left,face.box_top,face.box_right,face.box_bottom].every(Number.isFinite))return;
+  const marker=document.createElement('div');
+  marker.className='focused-face-box';
+  marker.textContent='Face for '+face.name;
+  Object.assign(marker.style,{{position:'absolute',zIndex:'1',pointerEvents:'none',border:'3px solid #16bde9',boxShadow:'0 0 0 2px #00131b,0 0 18px #16bde9aa',borderRadius:'4px',color:'#e8fbff',fontWeight:'800',fontSize:'12px'}});
+  const position=()=>{{
+    if(!media.naturalWidth||!media.naturalHeight)return;
+    const scale=Math.min(media.clientWidth/media.naturalWidth,media.clientHeight/media.naturalHeight);
+    const shownWidth=media.naturalWidth*scale,shownHeight=media.naturalHeight*scale;
+    const mediaRect=media.getBoundingClientRect(),stageRect=stage.getBoundingClientRect();
+    const offsetX=mediaRect.left-stageRect.left+(media.clientWidth-shownWidth)/2;
+    const offsetY=mediaRect.top-stageRect.top+(media.clientHeight-shownHeight)/2;
+    marker.style.left=(offsetX+face.box_left*shownWidth)+'px';
+    marker.style.top=(offsetY+face.box_top*shownHeight)+'px';
+    marker.style.width=((face.box_right-face.box_left)*shownWidth)+'px';
+    marker.style.height=((face.box_bottom-face.box_top)*shownHeight)+'px';
+  }};
+  stage.append(marker);
+  stage.querySelectorAll('.stage-nav').forEach(button=>button.style.zIndex='2');
+  media.addEventListener('load',position,{{once:true}});
+  if(media.complete)position();
+  new ResizeObserver(position).observe(stage);
+}}
+async function selectAsset(id){{
+  selectedId=Number(id);
+  document.querySelectorAll('.thumb').forEach(x=>{{const isActive=Number(x.dataset.id)===selectedId;x.classList.toggle('active',isActive);if(isActive)x.setAttribute('aria-current','true');else x.removeAttribute('aria-current')}});
+  const active=document.querySelector('.thumb.active');active?.scrollIntoView({{block:'nearest',inline:'center'}});
+  try{{
+    const detailUrl='/api/asset?id='+selectedId+(viewedPersonId?'&person_id='+viewedPersonId:'');
+    const r=await fetch(detailUrl);if(!r.ok)throw new Error('Could not load photo');
+    const d=await r.json();currentDetail=d;
+    stage.querySelectorAll('img,video,.empty,.raw-preview,.focused-face-box').forEach(x=>x.remove());
+    if(d.media_type==='raw'){{
+      const raw=document.createElement('div');raw.className='raw-preview';raw.innerHTML='<strong>RAW photo</strong>LensLedger indexed this original file.<br>A browser preview is not available yet.';stage.prepend(raw);
+    }}else{{
+      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media);renderFocusedFace(media,d.focused_person_face);
+    }}
+    $('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';$('newPerson').value='';$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'Only this selected photo will be changed, and only after you approve the preview.':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderEmbeddedMetadata(d.embedded_metadata);setStatus('');
+  }}catch(e){{setStatus(e.message,true)}}
+  updateNav();
+}}
 function updateNav(){{const i=items.findIndex(x=>Number(x.id)===selectedId);$('previousPhoto').disabled=i<=0;$('nextPhoto').disabled=i<0||i>=items.length-1}}
 function step(delta){{const i=items.findIndex(x=>Number(x.id)===selectedId);const next=items[i+delta];if(next)selectAsset(next.id)}}
 async function saveSubject(){{const value=$('subjectInput').value.trim();if(!value){{setStatus('Enter a primary subject first',true);return}}try{{await api('/api/subject',{{id:selectedId,subject:value}});await selectAsset(selectedId);setStatus('Primary subject saved')}}catch(e){{setStatus(e.message,true)}}}}
@@ -773,6 +842,8 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
     def asset_detail(self, params):
         try:
             asset_id = int(params.get("id", [""])[0])
+            requested_person = params.get("person_id", [""])[0]
+            focused_person_id = int(requested_person) if requested_person.isdigit() else None
             with self.db() as con:
                 asset = self.get_active_asset(con, asset_id)
                 source_path = self.library_root / Path(asset["relative_path"])
@@ -820,6 +891,16 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                        WHERE ap.asset_id=? AND ap.state='suggested'
                        ORDER BY ap.confidence DESC,p.name""", (asset_id,)
                 )]
+                focused_person_face = None
+                if focused_person_id:
+                    focused = con.execute(
+                        """SELECT p.name,ap.face_id,f.box_left,f.box_top,f.box_right,f.box_bottom
+                           FROM asset_people ap JOIN people p ON p.id=ap.person_id
+                           LEFT JOIN face_embeddings f ON f.id=ap.face_id
+                           WHERE ap.asset_id=? AND ap.person_id=? AND ap.state='confirmed'""",
+                        (asset_id, focused_person_id),
+                    ).fetchone()
+                    focused_person_face = dict(focused) if focused else None
                 confirmed_keys = {person["name"].casefold() for person in confirmed_people}
                 image_tags = [tag for tag in image_tags if tag["name"].casefold() not in confirmed_keys]
                 return self.send_json({
@@ -828,6 +909,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                     "subject": annotation["subject"] if annotation else "",
                     "image_tags": image_tags, "context_tags": context_tags,
                     "confirmed_people": confirmed_people, "suggested_people": suggested_people,
+                    "focused_person_face": focused_person_face,
                     "people_options": [row[0] for row in con.execute(
                         "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
                     )],

@@ -47,6 +47,8 @@ deeper metadata analysis waits until those files are locally available.
 - Reversible review bin and people-review history
 - Local face profiles that never confirm identities automatically
 - Exact face boxes during People review when coordinates are available
+- Per-person confirmed, pending-review, and exact-face-location counts with a
+  direct link into that person's review queue
 - Merge duplicate People names while retaining the alternate spellings for search
 - Per-user data storage, separate from application source and photo folders
 - Library health, verified backups, and resumable local OCR from the viewer

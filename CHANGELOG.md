@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.22.4 — 2026-08-09
+
+- Make each person's photo view explicit about confirmed photos, pending face
+  matches, and the confirmed photos that retain an exact face location.
+- Add a direct, person-specific route into face review and highlight the known
+  face in the normal photo viewer when a precise face box is available.
+- Preserve all confirmed people on group photos; each remains visible and
+  searchable through that person's own photo view.
+
 ## 0.22.3 — 2026-08-09
 
 - State explicitly in the People page, Edit names dialog, and README that
