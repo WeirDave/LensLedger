@@ -46,6 +46,7 @@ deeper metadata analysis waits until those files are locally available.
 - Timestamped safety copies and decoded-pixel verification after publication
 - Reversible review bin and people-review history
 - Local face profiles that never confirm identities automatically
+- Exact face boxes during People review when coordinates are available
 - Per-user data storage, separate from application source and photo folders
 - Library health, verified backups, and resumable local OCR from the viewer
 - Verified, user-approved updates with clean replacement and rollback copies
@@ -110,6 +111,21 @@ cd LensLedger
 python -m pip install -r requirements.txt
 python photo_search.py
 ```
+
+### Optional legacy face-box recovery
+
+New face-index imports may include normalized face rectangles directly. Older
+recovered catalogs retained their embeddings but not those rectangles. To
+rebuild them locally with a compatible InsightFace model:
+
+```powershell
+python -m pip install -r requirements-face.txt
+python face_locations.py --db "C:\path\to\library.sqlite3" --library "C:\path\to\photos"
+```
+
+Only a strong, unambiguous embedding match is saved. Photos and vectors remain
+on the computer. LensLedger does not bundle or redistribute a pretrained face
+model; review the model provider's separate usage terms before downloading one.
 
 ## First run and data location
 

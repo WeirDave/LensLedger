@@ -216,6 +216,38 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIsNone(queue["person"])
         self.assertEqual(queue["deferred_people"], 1)
 
+    def test_people_queue_returns_the_exact_face_bounds(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,gender_marker,dimensions,embedding_f32,
+                   box_left,box_top,box_right,box_bottom,localization_similarity,localized_at
+               ) VALUES ('test',1,?,?,?,?,?,?,?,?,?,?,?)""",
+            (self.asset_id, self.photo.name, "F", 2, b"12345678", 0.1, 0.2, 0.4, 0.6, 0.99, utc_now()),
+        ).lastrowid)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Bounded Person')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+               VALUES (?,?,'suggested',0.93,?,'test',?)""",
+            (self.asset_id, person_id, face_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        queue = self.json_response(self.get("/api/people/review/queue"))
+        suggestion = queue["suggestions"][0]
+        self.assertEqual(suggestion["face_id"], face_id)
+        self.assertEqual(
+            [suggestion[key] for key in ("box_left", "box_top", "box_right", "box_bottom")],
+            [0.1, 0.2, 0.4, 0.6],
+        )
+        with self.get("/people-review") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Face being checked", page)
+        self.assertIn("ResizeObserver", page)
+
     def test_optional_semantic_job_and_viewer_scope(self):
         def fake_build(_database, **kwargs):
             counts = {"total": 1, "indexed": 1, "errors": 0, "cancelled": False}
