@@ -34,6 +34,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 SCHEMA_VERSION = 7
+SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
     rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
@@ -250,8 +251,21 @@ def utc_now() -> str:
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(db_path, factory=LensLedgerConnection)
+    con = sqlite3.connect(
+        db_path,
+        timeout=SQLITE_BUSY_TIMEOUT_MS / 1_000,
+        factory=LensLedgerConnection,
+    )
+    try:
+        return _configure_connection(con)
+    except Exception:
+        con.close()
+        raise
+
+
+def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
+    con.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     con.executescript(SCHEMA)
     columns = {row[1] for row in con.execute("PRAGMA table_info(assets)")}
     if "metadata_scanned" not in columns:
