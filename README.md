@@ -35,16 +35,19 @@ deeper metadata analysis waits until those files are locally available.
 
 - Read-only library discovery and incremental scanning
 - Guided first-library setup with live progress, pause, resume, and an inventory report
+- Read-only local Photo Map built from embedded GPS coordinates
 - Remembered library switching and suggested Windows photo locations
 - Separate SQLite index for every selected photo library
 - Camera RAW inventory with an explicit preview-unavailable state
 - Full-text search across paths, dates, subjects, tags, people, and OCR
+- Optional local meaning search across image content using an opt-in OpenCLIP model
 - Staged edits that remain in LensLedger until explicitly published
 - Field-by-field metadata preview before JPEG writes
 - Timestamped safety copies and decoded-pixel verification after publication
 - Reversible review bin and people-review history
 - Local face profiles that never confirm identities automatically
 - Per-user data storage, separate from application source and photo folders
+- Library health, verified backups, and resumable local OCR from the viewer
 
 ## Quick start
 
@@ -116,6 +119,23 @@ python photo_index.py query "beach AND sunset"
 python photo_index.py ocr --since 2025-01-01 --workers 4
 ```
 
+## Optional local meaning search
+
+The standard LensLedger installation stays small. Natural-language image search
+is an explicit opt-in because its local model and machine-learning runtime are
+large. To enable it:
+
+```powershell
+python -m pip install -r requirements-semantic.txt
+python semantic_index.py --db C:\path\to\library.sqlite3 build
+```
+
+The same incremental, pausable build is available from **Library health & OCR**
+after the optional packages are installed. Select **Meaning (optional)** as the
+search scope and describe a scene, object, or idea. Image vectors, search text,
+and results remain on the computer. The first build may download the selected
+OpenCLIP model weights from their upstream host.
+
 ## Safety and privacy
 
 - The server binds only to `127.0.0.1`.
@@ -126,6 +146,12 @@ python photo_index.py ocr --since 2025-01-01 --workers 4
 - Suggested identities remain review-only until a person confirms them.
 
 ## Development
+
+The localhost server is intentionally thin around focused service modules:
+`photo_index.py` owns catalog and schema work, `metadata_reader.py` owns embedded
+metadata and pixel-integrity checks, `library_config.py` owns per-library state,
+and `semantic_index.py` owns the optional meaning index. This keeps private file
+operations independently testable from the UI.
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -142,9 +168,9 @@ file and folder dates, existing XMP keywords, curated tags, Windows OCR, and
 locally reviewed people. RAW files are inventoried and searchable, but the
 browser viewer does not decode them yet. Audio files such as WAV are outside the
 photo-library inventory.
-Semantic image embeddings, richer duplicate detection, and a map experience are
-planned as independent workers so models can evolve without rewriting photos or
-rebuilding the basic inventory.
+Semantic image embeddings run as an optional independent worker so models can
+evolve without rewriting photos or rebuilding the basic inventory. Richer
+duplicate detection remains planned.
 
 ## License
 

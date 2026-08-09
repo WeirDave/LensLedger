@@ -4,13 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import datetime as dt
-import hashlib
 import html
 import json
 import mimetypes
-import os
 import re
 import secrets
 import shutil
@@ -19,21 +16,28 @@ import subprocess
 import threading
 import urllib.parse
 import webbrowser
-import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from PIL import ExifTags, Image, IptcImagePlugin
-
 from app_paths import (
-    backup_root, default_library_root, libraries_root, review_bin_root, settings_path,
+    backup_root, database_backup_root, review_bin_root,
 )
 from face_learning import learn as learn_faces
+from library_config import (
+    choose_library_folder, library_db_path, load_library_config, load_library_state,
+    save_library_state, suggested_library_roots,
+)
+from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
-    connect, extract_xmp_keywords, rebuild_search_row, scan_library,
+    SCHEMA_VERSION, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
+from semantic_index import (
+    build_index as build_semantic_index,
+    search as semantic_search,
+    status as semantic_status,
+)
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -41,9 +45,6 @@ PAGE_SIZE = 250
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg"}
 EXIFTOOL_PATH = Path(__file__).parent / "tools" / "ExifTool" / "ExifTool.exe"
 BACKUP_ROOT = backup_root()
-LIBRARY_STATE_PATH = settings_path()
-LIBRARY_DATABASE_ROOT = libraries_root()
-DEFAULT_LIBRARY_ROOT = default_library_root()
 
 
 def clean_tag(value: str) -> str:
@@ -59,145 +60,6 @@ def split_tags(value: str) -> list[str]:
             result.append(tag)
             seen.add(tag.casefold())
     return result
-
-
-def _text_value(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        value = value.decode("utf-8", errors="replace").strip("\x00")
-    return str(value).strip()
-
-
-def _gps_decimal(values, reference: str) -> float | None:
-    try:
-        degrees, minutes, seconds = (float(part) for part in values)
-        result = degrees + minutes / 60 + seconds / 3600
-        return -result if reference.upper() in {"S", "W"} else result
-    except (TypeError, ValueError, ZeroDivisionError):
-        return None
-
-
-def _xmp_fields(image: Image.Image) -> dict[str, str]:
-    wanted = {
-        "title": "Title", "headline": "Headline", "description": "Description", "subject": "Embedded keywords",
-        "creator": "Creator", "rights": "Copyright", "personinimage": "People shown",
-        "event": "Event", "location": "Location", "city": "City",
-        "state": "State / province", "country": "Country",
-    }
-    found: dict[str, list[str]] = {}
-    for marker, payload in getattr(image, "applist", []):
-        if marker != "APP1" or b"ns.adobe.com/xap" not in payload:
-            continue
-        start = payload.find(b"<")
-        if start < 0:
-            continue
-        try:
-            root = ET.fromstring(payload[start:])
-        except ET.ParseError:
-            continue
-        for element in root.iter():
-            local = element.tag.rsplit("}", 1)[-1].casefold()
-            namespace = element.tag[1:].split("}", 1)[0] if element.tag.startswith("{") else ""
-            # rdf:Description is only an XML container. Treating it as
-            # dc:description incorrectly copied descendant keywords into the
-            # photo description (for example, the old "Fast food" tag).
-            if local in wanted and "rdf-syntax-ns" not in namespace:
-                values = [_text_value(node.text) for node in element.iter() if node.tag.rsplit("}", 1)[-1] == "li" and node.text]
-                if not values and element.text and element.text.strip():
-                    values = [_text_value(element.text)]
-                found.setdefault(wanted[local], []).extend(value for value in values if value)
-            for name, value in element.attrib.items():
-                attr_local = name.rsplit("}", 1)[-1].casefold()
-                if attr_local in wanted and _text_value(value):
-                    found.setdefault(wanted[attr_local], []).append(_text_value(value))
-    return {label: ", ".join(dict.fromkeys(values)) for label, values in found.items() if values}
-
-
-def read_embedded_metadata(path: Path) -> dict[str, list[dict[str, str]]]:
-    descriptive: dict[str, str] = {}
-    capture: dict[str, str] = {}
-    gps_link = ""
-    if path.suffix.lower() not in {".jpg", ".jpeg", ".tif", ".tiff", ".png", ".webp"}:
-        return {"descriptive": [], "capture": [], "description": ""}
-    try:
-        with Image.open(path) as image:
-            exif = image.getexif()
-            main = {ExifTags.TAGS.get(key, key): value for key, value in exif.items()}
-            for source, label in (("ImageDescription", "Description"), ("Artist", "Creator"), ("Copyright", "Copyright")):
-                if source in main and _text_value(main[source]):
-                    descriptive[label] = _text_value(main[source])
-            make = _text_value(main.get("Make", "")); model = _text_value(main.get("Model", ""))
-            if make or model:
-                capture["Camera"] = " ".join(part for part in (make, model) if part)
-            if _text_value(main.get("Software", "")):
-                capture["Software"] = _text_value(main["Software"])
-
-            try:
-                details = {ExifTags.TAGS.get(key, key): value for key, value in exif.get_ifd(ExifTags.IFD.Exif).items()}
-            except (KeyError, TypeError, ValueError):
-                details = {}
-            capture_date = details.get("DateTimeOriginal") or main.get("DateTime")
-            if capture_date:
-                date_text = _text_value(capture_date)
-                capture["Date taken"] = date_text[:10].replace(":", "-") + date_text[10:]
-            for source, label in (("LensModel", "Lens"), ("ISOSpeedRatings", "ISO"), ("PhotographicSensitivity", "ISO")):
-                if source in details and label not in capture:
-                    capture[label] = _text_value(details[source])
-            if "ExposureTime" in details:
-                exposure = float(details["ExposureTime"])
-                capture["Exposure"] = f"1/{round(1 / exposure)} s" if 0 < exposure < 1 else f"{exposure:g} s"
-            if "FNumber" in details:
-                capture["Aperture"] = f"f/{float(details['FNumber']):g}"
-            if "FocalLength" in details:
-                capture["Focal length"] = f"{float(details['FocalLength']):g} mm"
-
-            try:
-                gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
-                latitude = _gps_decimal(gps.get(2), _text_value(gps.get(1, "")))
-                longitude = _gps_decimal(gps.get(4), _text_value(gps.get(3, "")))
-                if latitude is not None and longitude is not None:
-                    capture["GPS"] = f"{latitude:.6f}, {longitude:.6f}"
-                    gps_link = f"https://www.openstreetmap.org/?mlat={latitude:.6f}&mlon={longitude:.6f}#map=16/{latitude:.6f}/{longitude:.6f}"
-            except (KeyError, TypeError, ValueError):
-                pass
-
-            iptc = IptcImagePlugin.getiptcinfo(image) or {}
-            iptc_map = {
-                (2, 5): "Title", (2, 80): "Creator", (2, 90): "City",
-                (2, 92): "Location", (2, 95): "State / province", (2, 101): "Country",
-                (2, 105): "Headline", (2, 116): "Copyright", (2, 120): "Description",
-            }
-            for key, label in iptc_map.items():
-                value = iptc.get(key)
-                if value:
-                    values = value if isinstance(value, list) else [value]
-                    descriptive[label] = ", ".join(_text_value(item) for item in values if _text_value(item))
-            keywords = iptc.get((2, 25))
-            if keywords:
-                values = keywords if isinstance(keywords, list) else [keywords]
-                descriptive["Embedded keywords"] = ", ".join(_text_value(item) for item in values if _text_value(item))
-            descriptive.update(_xmp_fields(image))
-    except (OSError, ValueError):
-        pass
-    return {
-        "descriptive": [{"label": label, "value": value} for label, value in descriptive.items()],
-        "capture": [
-            {"label": label, "value": value, **({"href": gps_link} if label == "GPS" and gps_link else {})}
-            for label, value in capture.items()
-        ],
-        "description": descriptive.get("Description", ""),
-    }
-
-
-def _pixel_hash(path: Path) -> str:
-    """Hash decoded pixels so metadata-only publishing cannot alter the picture."""
-    with Image.open(path) as image:
-        image.load()
-        digest = hashlib.sha256()
-        digest.update(f"{image.mode}:{image.size[0]}x{image.size[1]}".encode("ascii"))
-        digest.update(image.tobytes())
-        return digest.hexdigest()
 
 
 def _run_exiftool(arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -223,113 +85,6 @@ def _exiftool_values(path: Path) -> dict[str, object]:
     return rows[0] if rows else {}
 
 
-def library_db_path(root: Path) -> Path:
-    root = root.resolve()
-    if root == DEFAULT_LIBRARY_ROOT.resolve():
-        return LIBRARY_DATABASE_ROOT / "default.sqlite3"
-    label = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name).strip("-") or "photo-library"
-    digest = hashlib.sha256(str(root).casefold().encode("utf-8")).hexdigest()[:12]
-    return LIBRARY_DATABASE_ROOT / f"{label}-{digest}.sqlite3"
-
-
-def load_library_state() -> Path:
-    config = load_library_config()
-    value = config.get("current_root", "")
-    if value:
-        root = Path(value).resolve()
-        if root.is_dir():
-            return root
-    return DEFAULT_LIBRARY_ROOT.resolve()
-
-
-def load_library_config() -> dict[str, object]:
-    try:
-        value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
-        if isinstance(value, dict):
-            current = str(value.get("current_root") or value.get("root") or "")
-            libraries = value.get("libraries", [])
-            if not isinstance(libraries, list):
-                libraries = []
-            normalized = []
-            for item in libraries:
-                if not isinstance(item, str) or not item.strip():
-                    continue
-                candidate = Path(item)
-                if candidate.is_dir():
-                    normalized.append(str(candidate.resolve()))
-            if current and Path(current).is_dir() and str(Path(current).resolve()) not in normalized:
-                normalized.insert(0, str(Path(current).resolve()))
-            return {"current_root": current, "libraries": normalized}
-    except (OSError, ValueError, json.JSONDecodeError):
-        pass
-    return {"current_root": "", "libraries": []}
-
-
-def save_library_state(root: Path) -> None:
-    LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    config = load_library_config()
-    libraries = [str(Path(item).resolve()) for item in config.get("libraries", [])]
-    root_text = str(root.resolve())
-    libraries = [item for item in libraries if item.casefold() != root_text.casefold()]
-    libraries.insert(0, root_text)
-    temporary = LIBRARY_STATE_PATH.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"current_root": root_text, "libraries": libraries}, indent=2), encoding="utf-8")
-    temporary.replace(LIBRARY_STATE_PATH)
-
-
-def suggested_library_roots() -> list[dict[str, str]]:
-    candidates: list[tuple[str, Path]] = [
-        ("Pictures", Path.home() / "Pictures"),
-        ("Dropbox Photos", Path.home() / "Dropbox" / "Photos"),
-        ("Dropbox Camera Uploads", Path.home() / "Dropbox" / "Camera Uploads"),
-    ]
-    for variable, label in (("OneDrive", "OneDrive Pictures"), ("Dropbox", "Dropbox Photos")):
-        value = os.environ.get(variable, "").strip()
-        if value:
-            candidates.append((label, Path(value) / "Pictures" if variable == "OneDrive" else Path(value) / "Photos"))
-    if os.name == "nt":
-        for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
-            root = Path(f"{letter}:\\")
-            try:
-                if root.is_dir() and ctypes.windll.kernel32.GetDriveTypeW(str(root)) == 2:
-                    candidates.append((f"Removable drive {letter}:", root))
-            except (AttributeError, OSError):
-                pass
-    result: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for label, path in candidates:
-        try:
-            resolved = path.resolve()
-        except OSError:
-            continue
-        key = str(resolved).casefold()
-        if resolved.is_dir() and key not in seen:
-            result.append({"label": label, "path": str(resolved)})
-            seen.add(key)
-    return result
-
-
-def choose_library_folder() -> str:
-    script = """
-Add-Type -AssemblyName System.Windows.Forms
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Choose a photo library folder'
-$dialog.UseDescriptionForTitle = $true
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    Write-Output $dialog.SelectedPath
-}
-"""
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=600, check=False,
-    )
-    if result.returncode:
-        raise ValueError((result.stderr or "The folder chooser could not open").strip())
-    return result.stdout.strip()
-
-
 class SearchHandler(BaseHTTPRequestHandler):
     db_path: Path
     library_root: Path
@@ -337,6 +92,12 @@ class SearchHandler(BaseHTTPRequestHandler):
     library_lock = threading.Lock()
     library_job: dict[str, object] = {"state": "idle", "message": ""}
     library_cancel = threading.Event()
+    ocr_lock = threading.Lock()
+    ocr_job: dict[str, object] = {"state": "idle", "message": ""}
+    ocr_cancel = threading.Event()
+    semantic_lock = threading.Lock()
+    semantic_job: dict[str, object] = {"state": "idle", "message": ""}
+    semantic_cancel = threading.Event()
 
     def db(self):
         return connect(self.db_path)
@@ -360,6 +121,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         params = urllib.parse.parse_qs(url.query)
         if url.path == "/logo.png":
             return self.serve_logo()
+        if url.path == "/world-map.svg":
+            return self.serve_world_map()
         if url.path == "/media":
             return self.serve_media(params)
         if url.path == "/api/asset":
@@ -370,10 +133,20 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.library_status()
         if url.path == "/api/library/options":
             return self.library_options()
+        if url.path == "/api/map/points":
+            return self.map_points()
+        if url.path == "/api/diagnostics":
+            return self.diagnostics()
+        if url.path == "/api/ocr/status":
+            return self.ocr_status()
+        if url.path == "/api/semantic/status":
+            return self.semantic_job_status()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/people-review":
             return self.people_review_page(params)
+        if url.path == "/map":
+            return self.map_page()
         if url.path != "/":
             return self.send_error(404)
         return self.viewer_page(params)
@@ -415,6 +188,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.undo_people_review_batch(body)
             if route == "/api/people/learn":
                 return self.learn_people(body)
+            if route == "/api/people/review/defer":
+                return self.defer_people_review(body)
             if route == "/api/review-bin":
                 return self.move_to_review_bin(body)
             if route == "/api/review-bin/restore":
@@ -431,6 +206,16 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.open_library(body)
             if route == "/api/library/cancel":
                 return self.cancel_library_scan(body)
+            if route == "/api/ocr/start":
+                return self.start_ocr(body)
+            if route == "/api/ocr/cancel":
+                return self.cancel_ocr(body)
+            if route == "/api/database/backup":
+                return self.backup_database(body)
+            if route == "/api/semantic/start":
+                return self.start_semantic_index(body)
+            if route == "/api/semantic/cancel":
+                return self.cancel_semantic_index(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -473,6 +258,56 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
 </script></body></html>"""
         self.send_html(page)
 
+    def map_points(self):
+        with self.db() as con:
+            located = int(con.execute(
+                """SELECT COUNT(*) FROM assets WHERE in_review_bin=0
+                   AND gps_latitude IS NOT NULL AND gps_longitude IS NOT NULL"""
+            ).fetchone()[0])
+            pending = int(con.execute(
+                "SELECT COUNT(*) FROM assets WHERE in_review_bin=0 AND location_scanned=0"
+            ).fetchone()[0])
+            rows = con.execute(
+                """SELECT MIN(id) AS asset_id, AVG(gps_latitude) AS latitude,
+                          AVG(gps_longitude) AS longitude, COUNT(*) AS photo_count,
+                          MIN(capture_date) AS first_date, MAX(capture_date) AS last_date,
+                          MIN(filename) AS filename
+                   FROM assets
+                   WHERE in_review_bin=0 AND gps_latitude IS NOT NULL
+                         AND gps_longitude IS NOT NULL
+                   GROUP BY ROUND(gps_latitude, 1), ROUND(gps_longitude, 1)
+                   ORDER BY photo_count DESC, first_date DESC
+                   LIMIT 5000"""
+            ).fetchall()
+        self.send_json({
+            "located": located,
+            "pending": pending,
+            "clusters": [dict(row) for row in rows],
+        })
+
+    def map_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Photo map — {APP_NAME}</title><link rel="icon" href="/logo.png"><style>
+:root{{--bg:#0c1119;--panel:#171d29;--line:#35415a;--text:#f3f6fb;--muted:#9aa8bc;--cyan:#16bde9;--violet:#8b55ff}}
+*{{box-sizing:border-box}}html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font:14px system-ui,Segoe UI,sans-serif}}button,a{{font:inherit}}button,.button{{border:0;border-radius:8px;padding:9px 12px;background:#30394d;color:white;font-weight:750;cursor:pointer;text-decoration:none}}button:hover,.button:hover{{background:#3c4861}}
+body{{display:grid;grid-template-rows:auto minmax(0,1fr)}}header{{display:flex;align-items:center;gap:11px;padding:10px 14px;background:#151b27;border-bottom:1px solid var(--line);z-index:4}}header img{{width:36px;height:36px;object-fit:contain}}header h1{{font-size:18px;margin:0}}header p{{color:var(--muted);margin:2px 0 0;font-size:12px}}.spacer{{flex:1}}.count{{color:#c9baff;background:#2a2442;border:1px solid #463d6c;border-radius:999px;padding:6px 10px}}.map-shell{{position:relative;min-height:0;overflow:hidden;background:#09101a;cursor:grab}}.map-shell.dragging{{cursor:grabbing}}#world{{position:absolute;width:1440px;height:720px;transform-origin:0 0;background:url('/world-map.svg') center/100% 100% no-repeat;box-shadow:0 25px 80px #0009}}.marker{{position:absolute;transform:translate(-50%,-50%);min-width:18px;height:18px;border:2px solid #dff9ff;border-radius:999px;background:#08a9d7;color:white;box-shadow:0 0 0 5px #0cbde52e,0 4px 14px #000;padding:0 5px;font-size:9px;font-weight:900;line-height:14px;cursor:pointer}}.marker.multi{{background:#754de2;border-color:#eee8ff;box-shadow:0 0 0 6px #8b55ff30,0 4px 14px #000}}.marker:hover,.marker:focus{{z-index:2;outline:2px solid white;outline-offset:2px}}
+.controls{{position:absolute;left:14px;top:14px;display:grid;gap:6px;z-index:3}}.controls button{{width:38px;height:38px;padding:0;font-size:20px;background:#202a3be8;border:1px solid #43506a}}.legend{{position:absolute;left:14px;bottom:14px;background:#151c29e8;border:1px solid var(--line);border-radius:9px;padding:10px 12px;color:var(--muted);line-height:1.45;z-index:3;max-width:310px}}.legend strong{{display:block;color:var(--text)}}.details{{position:absolute;right:14px;top:14px;width:min(340px,calc(100% - 28px));display:none;background:#171e2ceF;border:1px solid #46536e;border-radius:12px;overflow:hidden;box-shadow:0 18px 50px #000b;z-index:4}}.details.open{{display:block}}.details img{{display:block;width:100%;height:210px;object-fit:cover;background:#090c12}}.details-body{{padding:14px}}.details h2{{margin:0 0 5px;font-size:17px}}.details p{{margin:4px 0;color:var(--muted)}}.details-actions{{display:flex;gap:8px;margin-top:12px}}.details-actions .button{{background:#3d6fe8}}.empty{{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:30px;z-index:2;background:#0c1119d9}}.empty.open{{display:grid}}.empty h2{{margin:0 0 8px}}.empty p{{color:var(--muted);max-width:560px;line-height:1.5}}
+@media(max-width:700px){{header p{{display:none}}.count{{display:none}}.details{{top:auto;bottom:14px}}.details img{{height:150px}}}}
+</style></head><body><header><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><span class="count" id="count">Loading locations…</span><a class="button" href="/">Back to library</a></header>
+<main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to open its representative photo.</div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
+<script>
+const viewport=document.getElementById('viewport'),world=document.getElementById('world'),details=document.getElementById('details');let zoom=1,panX=0,panY=0,drag=null,clusters=[];
+function baseScale(){{return Math.min(viewport.clientWidth/1440,viewport.clientHeight/720)}}
+function transform(){{const scale=baseScale()*zoom;const x=(viewport.clientWidth-1440*scale)/2+panX;const y=(viewport.clientHeight-720*scale)/2+panY;world.style.transform=`translate(${{x}}px,${{y}}px) scale(${{scale}})`}}
+function marker(point){{const button=document.createElement('button');button.type='button';button.className='marker'+(point.photo_count>1?' multi':'');button.style.left=((point.longitude+180)/360*1440)+'px';button.style.top=((90-point.latitude)/180*720)+'px';button.textContent=point.photo_count>1?point.photo_count:'';button.title=point.photo_count.toLocaleString()+' photo'+(point.photo_count===1?'':'s');button.setAttribute('aria-label',button.title+' at '+point.latitude.toFixed(3)+', '+point.longitude.toFixed(3));button.onclick=event=>{{event.stopPropagation();show(point)}};return button}}
+function show(point){{document.getElementById('preview').src='/media?id='+point.asset_id;document.getElementById('placeTitle').textContent=point.photo_count.toLocaleString()+' photo'+(point.photo_count===1?'':'s')+' near this location';document.getElementById('placeDates').textContent=point.first_date===point.last_date?(point.first_date||'Date unknown'):(point.first_date||'Unknown')+' – '+(point.last_date||'Unknown');document.getElementById('placeCoords').textContent=point.latitude.toFixed(5)+', '+point.longitude.toFixed(5);document.getElementById('openPhoto').href='/?date='+(point.first_date||'')+'&selected='+point.asset_id;details.classList.add('open')}}
+function setZoom(next,cx=viewport.clientWidth/2,cy=viewport.clientHeight/2){{const prior=zoom;zoom=Math.max(1,Math.min(8,next));if(zoom===prior)return;panX=(panX-cx)*(zoom/prior)+cx;panY=(panY-cy)*(zoom/prior)+cy;transform()}}
+viewport.onwheel=event=>{{event.preventDefault();const box=viewport.getBoundingClientRect();setZoom(zoom*(event.deltaY<0?1.25:.8),event.clientX-box.left,event.clientY-box.top)}};viewport.onpointerdown=event=>{{if(event.target.closest('button,a,.details'))return;drag={{x:event.clientX,y:event.clientY,px:panX,py:panY}};viewport.setPointerCapture(event.pointerId);viewport.classList.add('dragging')}};viewport.onpointermove=event=>{{if(!drag)return;panX=drag.px+event.clientX-drag.x;panY=drag.py+event.clientY-drag.y;transform()}};viewport.onpointerup=()=>{{drag=null;viewport.classList.remove('dragging')}};
+document.getElementById('zoomIn').onclick=()=>setZoom(zoom*1.4);document.getElementById('zoomOut').onclick=()=>setZoom(zoom/1.4);document.getElementById('reset').onclick=()=>{{zoom=1;panX=panY=0;transform()}};document.getElementById('closeDetails').onclick=()=>details.classList.remove('open');window.onresize=transform;
+fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=data.clusters||[];document.getElementById('count').textContent=Number(data.located||0).toLocaleString()+' located photos · '+clusters.length.toLocaleString()+' places';world.append(...clusters.map(marker));if(!clusters.length){{document.getElementById('empty').classList.add('open');if(data.pending)document.getElementById('emptyText').textContent=Number(data.pending).toLocaleString()+' cataloged files still need a location scan. Rescan this library from the library menu, then return here.'}}transform()}}).catch(error=>{{document.getElementById('empty').classList.add('open');document.getElementById('emptyText').textContent=error.message}});transform();
+</script></body></html>"""
+        self.send_html(page)
+
     def viewer_page(self, params):
         with self.db() as con:
             if int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]) == 0:
@@ -483,7 +318,7 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
         requested_person = params.get("person", [""])[0]
         person_id = int(requested_person) if requested_person.isdigit() else None
         sort = params.get("sort", ["oldest" if selected_date else "newest"])[0]
-        if scope not in {"image", "context", "people", "all"}:
+        if scope not in {"image", "context", "people", "semantic", "all"}:
             scope = "image"
         if sort not in {"newest", "oldest", "name"}:
             sort = "oldest"
@@ -517,7 +352,7 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
             ))""")
             person_pattern = f"%{query}%"
             values.extend([" AND ".join(f'\"{token}\"' for token in tokens), person_pattern, person_pattern])
-        elif tokens and scope != "people":
+        elif tokens and scope not in {"people", "semantic"}:
             sources = "('subject','asset_rule','embedded_xmp','person')" if scope == "image" else "('folder_rule')"
             for token in tokens:
                 pattern = f"%{token}%"
@@ -557,7 +392,26 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
                 review_count = int(con.execute(
                     "SELECT COUNT(*) FROM asset_people WHERE state='suggested'"
                 ).fetchone()[0])
-                if scope == "people" and not person_id:
+                if scope == "semantic":
+                    if query:
+                        ranked = semantic_search(
+                            type(self).db_path, query, PAGE_SIZE,
+                            (page_number - 1) * PAGE_SIZE,
+                        )
+                        ranked_ids = [asset_id for asset_id, _score in ranked]
+                        total = int(semantic_status(type(self).db_path)["indexed"])
+                        if ranked_ids:
+                            placeholders = ",".join("?" for _ in ranked_ids)
+                            found = con.execute(
+                                f"""SELECT id,filename,folder,capture_date,media_type FROM assets
+                                    WHERE in_review_bin=0 AND id IN ({placeholders})""",
+                                ranked_ids,
+                            ).fetchall()
+                            by_id = {int(row["id"]): row for row in found}
+                            rows = [by_id[asset_id] for asset_id in ranked_ids if asset_id in by_id]
+                    else:
+                        total = 0
+                elif scope == "people" and not person_id:
                     people_query = f"%{query}%"
                     people_rows = con.execute(
                         """SELECT p.id,p.name,
@@ -602,7 +456,7 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
                             {where} ORDER BY {order} LIMIT ? OFFSET ?""",
                         values + [PAGE_SIZE, (page_number - 1) * PAGE_SIZE],
                     ).fetchall()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, RuntimeError, ValueError) as exc:
             error = str(exc)
 
         items = [dict(row) for row in rows]
@@ -614,6 +468,8 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
             view_label = "People"
         elif scope == "people" and selected_person_name:
             view_label = f"Photos of {selected_person_name}"
+        elif scope == "semantic":
+            view_label = f'Meaning: “{query}”' if query else "Meaning search"
         elif query:
             view_label = f'Search: “{query}”'
         elif selected_date:
@@ -634,7 +490,7 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
 
         scope_options = "".join(
             f'<option value="{value}"{" selected" if scope == value else ""}>{label}</option>'
-            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("all", "Everything"))
+            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("all", "Everything"))
         )
         sort_options = "".join(
             f'<option value="{value}"{" selected" if sort == value else ""}>{label}</option>'
@@ -674,7 +530,11 @@ $('browse').onclick=async()=>{{$('browse').disabled=true;try{{const result=await
         )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
         body_class = "people-gallery-mode" if gallery_mode else ""
-        search_placeholder = "Filter people by name or alias" if gallery_mode else "Subject, person, object, or visible text"
+        search_placeholder = (
+            "Filter people by name or alias" if gallery_mode else
+            "Describe a scene, object, or idea" if scope == "semantic" else
+            "Subject, person, object, or visible text"
+        )
         viewer_style = ' style="display:none"' if gallery_mode else ""
         previous_page_js = (
             "const prev=document.createElement('a');prev.className='button secondary';"
@@ -699,14 +559,14 @@ form.toolbar{{display:grid;grid-template-columns:minmax(260px,1fr) 190px auto au
 header{{min-height:88px;padding:8px 14px}}.top{{margin-bottom:6px}}.top img{{width:30px;height:30px}}.menu-toggle{{width:34px;height:34px;padding:0;background:#252c3d;font-size:20px}}.summary{{margin-left:auto}}#moveToTrash{{margin-left:8px;background:#7e3340;padding:7px 12px}}form.toolbar{{display:flex;gap:8px;align-items:end}}.search-field{{flex:0 1 480px;min-width:260px}}.scope-field{{flex:0 0 175px}}.date-field{{flex:0 0 145px}}.sort-field{{flex:0 0 145px}}.menu-panel{{display:none;position:fixed;z-index:20;top:50px;left:12px;width:250px;padding:8px;background:#202638;border:1px solid #46506a;border-radius:10px;box-shadow:0 16px 45px #000}}.menu-panel.open{{display:grid;gap:4px}}.menu-panel button{{background:transparent;text-align:left;color:var(--text);padding:10px}}.menu-panel button:hover{{background:#30384b}}.section{{position:relative;padding-top:10px;margin-top:10px}}.section-title{{display:flex;align-items:center;gap:7px;margin-bottom:8px}}.section-title h2{{margin:0}}.info-button{{width:21px;height:21px;padding:0;border-radius:50%;background:#30384b;color:#b9c7da;font-size:13px}}.help-popover{{display:none;position:absolute;z-index:10;right:0;top:34px;width:min(350px,100%);padding:11px 12px;background:#252c3d;border:1px solid #56627d;border-radius:8px;color:#dce4f0;font-size:12px;line-height:1.45;box-shadow:0 12px 30px #000}}.help-popover.open{{display:block}}.editor-compact{{display:flex;align-items:center;gap:7px;margin-top:10px;color:#b8c5d7;font-size:12px}}.editor-compact .info-button{{margin-left:auto}}.metadata-details{{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}}.metadata-details summary{{cursor:pointer;color:#d2daea;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:12px}}.metadata-grid{{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}}.metadata-grid .wide{{grid-column:1/-1}}.metadata-note{{color:var(--muted);font-size:11px;line-height:1.4;margin:8px 0}}.metadata-actions{{display:flex;justify-content:flex-end;margin-top:10px}}.status{{margin-top:8px}}.modal-backdrop{{display:none;position:fixed;z-index:30;inset:0;background:#05070bc9;place-items:center;padding:30px}}.modal-backdrop.open{{display:grid}}.modal{{width:min(680px,100%);max-height:80vh;overflow:auto;background:#1b2030;border:1px solid #46506a;border-radius:12px;padding:20px;box-shadow:0 20px 60px #000}}.modal-head{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}}.modal h2{{margin:0;font-size:19px}}.modal-close{{background:#30384b}}.modal p,.modal li{{color:#c5cede;line-height:1.5}}.trash-list{{display:grid;gap:8px}}.trash-item{{display:flex;align-items:center;gap:10px;padding:10px;background:#22293a;border-radius:8px}}.trash-item .trash-meta{{min-width:0;flex:1}}.trash-item strong,.trash-item small{{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.trash-item small{{color:var(--muted);margin-top:3px}}.trash-empty{{color:var(--muted);padding:15px 0}}
 .metadata-readout{{display:grid;gap:10px;margin-top:10px}}.metadata-group{{display:grid;gap:5px}}.metadata-group h3{{margin:0;color:var(--cyan);font-size:11px;text-transform:uppercase;letter-spacing:.06em}}.metadata-item{{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:5px 0;border-bottom:1px solid #292f40;font-size:12px}}.metadata-item dt{{color:var(--muted)}}.metadata-item dd{{margin:0;word-break:break-word}}.metadata-item a{{color:var(--cyan);text-decoration:none}}.metadata-item a:hover{{text-decoration:underline}}.metadata-empty{{color:var(--muted);font-size:12px;padding:4px 0}}
 .publish-section{{border:1px solid #465d49;border-left:3px solid #58b76b;border-radius:8px;background:#1b2822;padding:11px;margin-top:12px}}.publish-section .section-title{{margin-bottom:6px}}.publish-section label{{font-size:12px;color:#dce7df}}.publish-section textarea{{width:100%;margin-top:5px;min-height:58px}}.publish-actions{{display:flex;gap:8px;align-items:center;margin-top:9px}}.publish-actions .secondary{{margin-left:auto}}.publish-note{{margin:6px 0 0;color:#aebdaf;font-size:11px;line-height:1.4}}.modal.publish-modal{{width:min(1280px,calc(100vw - 40px))}}.preview-table{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}}.preview-table th,.preview-table td{{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #343c50;word-break:normal}}.preview-table th{{color:#9facc0}}.preview-table th:first-child,.preview-table td:first-child{{color:var(--cyan);width:220px;white-space:nowrap}}.confirm-bar{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}}.confirm-bar small{{color:var(--muted);flex:1}}.confirm-buttons{{display:flex;gap:8px;white-space:nowrap}}
-.chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}
+.chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}.diagnostics-panel{{display:grid;gap:13px}}.health-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}.health-summary.ocr-summary{{grid-template-columns:repeat(4,1fr)}}.health-summary div{{background:#222a3a;border-radius:8px;padding:10px}}.health-summary strong{{display:block;font-size:19px;color:var(--cyan)}}.health-summary span{{color:var(--muted);font-size:11px}}.health-paths{{display:grid;gap:5px;color:var(--muted);font-size:11px;word-break:break-all}}.job-card{{background:#111722;border:1px solid #35435f;border-radius:9px;padding:12px}}.job-card h3{{margin:0 0 5px}}.job-card p{{color:var(--muted);margin:0 0 10px}}.job-actions{{display:flex;gap:8px;align-items:center}}.job-actions input{{width:145px}}.job-actions .spacer{{flex:1}}
 .people-browser{{min-height:0;overflow:auto;padding:24px;background:#10141e}}.people-browser-head{{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:18px}}.people-browser-head h2{{font-size:25px;margin:0}}.people-browser-head p{{color:var(--muted);margin:5px 0 0}}.people-head-actions{{display:flex;align-items:center;gap:9px}}.people-head-actions>span{{color:#c5b7ff;background:#2b2544;border-radius:999px;padding:7px 11px;white-space:nowrap}}.people-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding-bottom:30px}}.person-card{{position:relative;overflow:hidden;background:#1b2030;border:1px solid #343d53;border-radius:12px}}.person-card:hover{{border-color:#7656b7;transform:translateY(-1px)}}.person-card a{{display:block;color:inherit;text-decoration:none}}.person-card img,.person-placeholder{{display:block;width:100%;height:180px;object-fit:cover;background:#090b10}}.person-placeholder{{display:grid;place-items:center;font-size:58px;color:#5f6880}}.person-card-info{{display:grid;gap:5px;padding:12px 12px 48px}}.person-card-info strong{{font-size:16px}}.person-card-info small{{color:var(--cyan)}}.person-card-info span{{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.edit-aliases{{position:absolute;left:12px;bottom:10px;padding:6px 9px;background:#30384b;font-size:12px}}.people-empty{{color:var(--muted)}}.people-result-bar{{position:fixed;z-index:4;top:88px;left:12px;background:#202638;border:1px solid #46506a;border-radius:9px;padding:8px 12px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 25px #000}}.people-result-bar a{{color:var(--cyan);text-decoration:none}}.alias-editor{{display:grid;gap:8px}}.alias-editor input{{width:100%}}.people-gallery-mode #moveToTrash,.people-gallery-mode #previousDay,.people-gallery-mode #nextDay,.people-gallery-mode .date-field,.people-gallery-mode .sort-field{{display:none}}.modal.people-review-modal{{width:min(1180px,calc(100vw - 36px));height:min(780px,calc(100vh - 36px));max-height:none;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr)}}.modal.people-review-modal #modalBody{{min-height:0;overflow:hidden}}.people-review{{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px}}.review-progress{{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}}.review-main{{min-height:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.7fr);gap:16px}}.review-image-wrap{{min-width:0;min-height:0;display:grid;place-items:center;background:#090b10;border-radius:10px;overflow:hidden}}.review-image-wrap img{{display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}}.review-controls{{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:5px}}.review-person{{font-size:25px;font-weight:800}}.review-confidence{{color:#d6b77d}}.review-file{{color:var(--muted);font-size:12px;word-break:break-word}}.review-question{{font-size:18px;margin-top:8px}}.review-decisions{{display:grid;grid-template-columns:1fr 1fr;gap:9px}}.review-decisions button{{padding:13px}}.review-yes{{background:#39764b}}.review-no{{background:#873d4b}}.review-correction{{display:grid;gap:7px;border-top:1px solid var(--line);padding-top:12px}}.review-correction .row input{{flex:1}}.review-footer{{display:flex;align-items:center;gap:9px}}.review-footer .review-spacer{{flex:1}}.review-complete{{height:100%;display:grid;place-items:center;text-align:center;color:#cdd6e5}}.review-complete strong{{font-size:25px;display:block;margin-bottom:8px}}
 @media(max-width:950px){{.upper{{grid-template-columns:1fr 320px}}form.toolbar{{grid-template-columns:1fr 170px auto auto}}.optional{{display:none}}}}
 .menu-panel a{{color:var(--text);padding:10px;text-decoration:none;border-radius:7px;font-weight:700}}.menu-panel a:hover{{background:#30384b}}
 </style></head><body class="{body_class}">
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span style="color:#e25c70">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>
-<form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search in<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
-<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><button type="button" data-panel="map">🌍 Photo map <small>(coming soon)</small></button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
+<form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
+<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="diagnostics">🩺 Library health &amp; OCR</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
 {people_gallery_html}{people_result_bar}<main class="viewer"{viewer_style}><section class="upper"><div class="stage" id="stage"><div class="empty">Choose a photo from the filmstrip</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">ⓘ</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you click Preview &amp; publish for this photo. Nothing is written automatically.</div></div>
@@ -773,16 +633,22 @@ async function openLibraryPanelV2(){{
  body.append(intro,choices,row,actions,status,metrics);openModal('Photo libraries',body);
  try{{const response=await fetch('/api/library/options');const data=await response.json();const entries=[...(data.known||[]).map(x=>({{...x,group:'Previous'}})),...(data.suggestions||[]).map(x=>({{...x,group:'Suggested'}}))];const seen=new Set();for(const item of entries){{if(seen.has(item.path.toLowerCase()))continue;seen.add(item.path.toLowerCase());const button=document.createElement('button');button.className='library-choice';const strong=document.createElement('strong');strong.textContent=item.group+' · '+item.label;const small=document.createElement('small');small.textContent=item.path;button.append(strong,small);button.onclick=()=>input.value=item.path;choices.append(button)}}}}catch(e){{status.textContent=e.message}}
 }}
+async function openDiagnosticsPanel(){{
+ const body=document.createElement('div');body.className='diagnostics-panel';body.innerHTML='<div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><section class="job-card"><h3>Local text recognition (OCR)</h3><p id="ocrMessage">Loading OCR status…</p><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section><section class="job-card"><h3>Meaning search (optional)</h3><p id="semanticMessage">Uses an optional large local model. Photos never leave this computer.</p><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section><div class="job-actions"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div>';openModal('Library health & OCR',body);
+ const metric=(label,value)=>{{const box=document.createElement('div');const strong=document.createElement('strong');strong.textContent=Number(value||0).toLocaleString();const span=document.createElement('span');span.textContent=label;box.append(strong,span);return box}};
+ async function refresh(){{try{{const [diagnostics,ocr,semantic]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json()),fetch('/api/semantic/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('Meaning indexed',c.semantic_indexed),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const ocrRunning=ocr.state==='running';$('startOcr').disabled=ocrRunning;$('pauseOcr').disabled=!ocrRunning;$('semanticMessage').textContent=semantic.message||'Install requirements-semantic.txt, then build the private local index.';$('semanticMetrics').replaceChildren(metric('Indexed',semantic.indexed),metric('Remaining',semantic.remaining),metric('This pass',semantic.indexed_this_pass),metric('Errors',semantic.errors));const semanticRunning=semantic.state==='running';$('startSemantic').disabled=semanticRunning;$('pauseSemantic').disabled=!semanticRunning;if((ocrRunning||semanticRunning)&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
+ $('startOcr').onclick=async()=>{{$('startOcr').disabled=true;try{{await api('/api/ocr/start',{{since:$('ocrSince').value,workers:4}});refresh()}}catch(error){{$('ocrMessage').textContent=error.message;$('startOcr').disabled=false}}}};$('pauseOcr').onclick=async()=>{{try{{await api('/api/ocr/cancel',{{}});$('ocrMessage').textContent='Pausing after active images finish…'}}catch(error){{$('ocrMessage').textContent=error.message}}}};$('startSemantic').onclick=async()=>{{$('startSemantic').disabled=true;try{{await api('/api/semantic/start',{{batch_size:16}});refresh()}}catch(error){{$('semanticMessage').textContent=error.message;$('startSemantic').disabled=false}}}};$('pauseSemantic').onclick=async()=>{{try{{await api('/api/semantic/cancel',{{}});$('semanticMessage').textContent='Pausing after the active image batch…'}}catch(error){{$('semanticMessage').textContent=error.message}}}};$('backupDatabase').onclick=async()=>{{$('backupDatabase').disabled=true;$('backupStatus').textContent='Creating verified backup…';try{{const result=await api('/api/database/backup',{{}});$('backupStatus').textContent='Saved '+result.path}}catch(error){{$('backupStatus').textContent=error.message}}finally{{$('backupDatabase').disabled=false}}}};refresh()
+}}
 function metadataText(value){{if(Array.isArray(value))return value.join(', ');if(value&&typeof value==='object')return JSON.stringify(value);return value==null?'':String(value)}}
 async function previewPublish(){{if(!currentDetail?.publishable)return;try{{const preview=await api('/api/publish/preview',{{id:selectedId,description:$('publishDescription').value}});const box=document.createElement('div');const intro=document.createElement('p');intro.textContent='Review every destination below. Nothing has been written yet.';const table=document.createElement('table');table.className='preview-table';const head=document.createElement('tr');['File field','Before','After'].forEach(label=>{{const th=document.createElement('th');th.textContent=label;head.append(th)}});table.append(head);const keys=[...new Set([...Object.keys(preview.before),...Object.keys(preview.after)])];keys.forEach(key=>{{const row=document.createElement('tr');[key,metadataText(preview.before[key]),metadataText(preview.after[key])].forEach(value=>{{const cell=document.createElement('td');cell.textContent=value||'—';row.append(cell)}});table.append(row)}});const bar=document.createElement('div');bar.className='confirm-bar';const note=document.createElement('small');note.textContent='A full safety copy is created before writing, and decoded picture pixels must match afterward.';const buttons=document.createElement('div');buttons.className='confirm-buttons';const cancelButton=document.createElement('button');cancelButton.className='secondary';cancelButton.textContent='Cancel';cancelButton.onclick=()=>$('modalBackdrop').classList.remove('open');const confirmButton=document.createElement('button');confirmButton.textContent='Publish this photo';confirmButton.onclick=async()=>{{confirmButton.disabled=true;cancelButton.disabled=true;try{{const result=await api('/api/publish',{{id:selectedId,description:$('publishDescription').value,expected_after:preview.after}});$('modalBackdrop').classList.remove('open');await selectAsset(selectedId);setStatus(result.message)}}catch(e){{confirmButton.disabled=false;cancelButton.disabled=false;setStatus(e.message,true)}}}};buttons.append(cancelButton,confirmButton);bar.append(note,buttons);box.append(intro,table,bar);openModal('Publish metadata to '+currentDetail.filename,box);document.querySelector('.modal').classList.add('publish-modal')}}catch(e){{setStatus(e.message,true)}}}}
 async function restorePublished(){{if(!currentDetail?.can_restore_publish||!confirm('Restore “'+currentDetail.filename+'” from the safety backup made before its last publish?'))return;try{{const result=await api('/api/publish/restore',{{id:selectedId}});await selectAsset(selectedId);setStatus(result.message)}}catch(e){{setStatus(e.message,true)}}}}
-async function openMenuPanel(name){{$('menuPanel').classList.remove('open');if(name==='review-people')return openPeopleReview();if(name==='library')return openLibraryPanelV2();if(name==='map')return openModal('Photo map — coming soon',textPanel(['This will plot photos with embedded GPS coordinates on a world map, cluster dense groups, and let you jump back into the matching filmstrip.','The first map version will be read-only. It will not alter GPS coordinates or write metadata into your files.']));if(name==='guide')return openModal('Quick guide',textPanel(['Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.','Face matches are suggestions until you confirm them. Open Information already in this photo to see readable EXIF, IPTC, and XMP details already stored in the file.']));if(name==='about')return openModal('About LensLedger',textPanel(['LensLedger v{APP_VERSION} — {APP_TAGLINE}','Current photo library: '+currentLibrary,'Each library has a separate index. Approved People-review decisions publish immediately; other edits use Preview & Publish. Every write creates a safety backup and verifies the picture pixels.']));if(name==='trash'){{const body=document.createElement('div');body.className='trash-list';openModal('Trash & restore',body);try{{const r=await fetch('/api/trash');const data=await r.json();if(!data.items.length){{const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty);return}}data.items.forEach(item=>{{const row=document.createElement('div');row.className='trash-item';const meta=document.createElement('div');meta.className='trash-meta';const strong=document.createElement('strong');strong.textContent=item.name;const small=document.createElement('small');small.textContent=item.path;meta.append(strong,small);const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=async()=>{{await api('/api/review-bin/restore',{{review_id:item.id}});location.reload()}};row.append(meta,restore);body.append(row)}})}}catch(e){{body.textContent=e.message}}}}}}
+async function openMenuPanel(name){{$('menuPanel').classList.remove('open');if(name==='review-people')return openPeopleReview();if(name==='library')return openLibraryPanelV2();if(name==='diagnostics')return openDiagnosticsPanel();if(name==='guide')return openModal('Quick guide',textPanel(['Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.','Face matches are suggestions until you confirm them. Open Information already in this photo to see readable EXIF, IPTC, and XMP details already stored in the file.']));if(name==='about')return openModal('About LensLedger',textPanel(['LensLedger v{APP_VERSION} — {APP_TAGLINE}','Current photo library: '+currentLibrary,'Each library has a separate index. Approved People-review decisions publish immediately; other edits use Preview & Publish. Every write creates a safety backup and verifies the picture pixels.']));if(name==='trash'){{const body=document.createElement('div');body.className='trash-list';openModal('Trash & restore',body);try{{const r=await fetch('/api/trash');const data=await r.json();if(!data.items.length){{const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty);return}}data.items.forEach(item=>{{const row=document.createElement('div');row.className='trash-item';const meta=document.createElement('div');meta.className='trash-meta';const strong=document.createElement('strong');strong.textContent=item.name;const small=document.createElement('small');small.textContent=item.path;meta.append(strong,small);const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=async()=>{{await api('/api/review-bin/restore',{{review_id:item.id}});location.reload()}};row.append(meta,restore);body.append(row)}})}}catch(e){{body.textContent=e.message}}}}}}
 function renderFilmstrip(){{const f=$('filmstrip');items.forEach(item=>{{const b=document.createElement('button');b.className='thumb';b.dataset.id=item.id;b.title=item.filename;b.onclick=()=>selectAsset(item.id);if(item.media_type==='image'){{const img=document.createElement('img');img.loading='lazy';img.src='/media?id='+item.id;b.append(img)}}else{{const v=document.createElement('div');v.className='video-label';v.textContent=item.media_type==='raw'?'RAW':'▶ VIDEO';b.append(v)}}const s=document.createElement('span');s.textContent=(item.capture_date||'')+'  '+item.filename;b.append(s);f.append(b)}});{pager_js}}}
 function enableFilmstripDrag(){{const f=$('filmstrip');let active=false,startX=0,startScroll=0,moved=false,suppressClick=false,pointerId=null;f.addEventListener('pointerdown',e=>{{if(e.button!==0||e.target.closest('a'))return;active=true;moved=false;pointerId=e.pointerId;startX=e.clientX;startScroll=f.scrollLeft}});f.addEventListener('pointermove',e=>{{if(!active||e.pointerId!==pointerId)return;const delta=e.clientX-startX;if(!moved&&Math.abs(delta)>5){{moved=true;f.classList.add('dragging');f.setPointerCapture(pointerId)}}if(moved){{f.scrollLeft=startScroll-delta;e.preventDefault()}}}});f.addEventListener('pointerup',e=>{{if(!active||e.pointerId!==pointerId)return;suppressClick=moved;active=false;f.classList.remove('dragging');if(f.hasPointerCapture(pointerId))f.releasePointerCapture(pointerId);pointerId=null;if(suppressClick)setTimeout(()=>suppressClick=false,0)}});f.addEventListener('pointercancel',()=>{{active=false;moved=false;suppressClick=false;f.classList.remove('dragging');pointerId=null}});f.addEventListener('click',e=>{{if(!suppressClick)return;suppressClick=false;e.preventDefault();e.stopPropagation()}},true)}}
 function changeDay(delta){{const input=$('datePicker');let d=input.value?new Date(input.value+'T12:00:00'):new Date();d.setDate(d.getDate()+delta);input.value=d.toISOString().slice(0,10);input.form.submit()}}
 function submitOnEnter(event,action){{if(event.key==='Enter'&&!event.isComposing){{event.preventDefault();action()}}}}
 $('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/people-review');
-$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);$('addPerson').onclick=addPerson;$('newPerson').onkeydown=e=>submitOnEnter(e,addPerson);$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{{if(e.target.value==='people'){{e.target.form.querySelector('[name=q]').value='';e.target.form.querySelector('[name=date]').value=''}}e.target.form.submit()}};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')}};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')}});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')}};document.addEventListener('click',e=>{{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp()}});document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');closeHelp()}}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}}
+$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);$('addPerson').onclick=addPerson;$('newPerson').onkeydown=e=>submitOnEnter(e,addPerson);$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value))e.target.form.querySelector('[name=date]').value='';e.target.form.submit()}};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')}};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')}});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')}};document.addEventListener('click',e=>{{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp()}});document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');closeHelp()}}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}}
 </script></body></html>"""
         self.send_html(page)
 
@@ -802,7 +668,7 @@ main{width:min(1800px,100%);margin:auto;padding:18px 20px 110px}.review-head{dis
 </style></head><body>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>__APP_NAME__</strong><small>People review</small></div><span class="version">v__APP_VERSION__</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
-<div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
+<div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><button type="button" class="secondary" id="closeLightbox">Close</button></div><img id="largePhoto" alt="Enlarged photo"></div>
 <datalist id="peopleOptions"></datalist>
 <script>
@@ -824,7 +690,8 @@ function skipBatch(){batch.forEach(item=>skipped.add(queue.person.id+':'+item.id
 async function undoBatch(){const prior=history.pop();if(!prior)return;$('undoBatch').disabled=true;try{await api('/api/people/review/batch-undo',{action_ids:prior.action_ids});await loadQueue(prior.person_id)}catch(error){history.push(prior);showError(error);$('undoBatch').disabled=false}}
 function showError(error){$('status').textContent=error.message||String(error)}
 async function runLearning(){const button=$('learnMore');button.disabled=true;$('globalProgress').textContent='Learning from confirmed faces…';try{const result=await api('/api/people/learn',{});skipped.clear();history=[];await loadQueue();if(!result.suggestions)$('globalProgress').textContent='No additional strong matches found'}catch(error){$('globalProgress').textContent=error.message||String(error)}finally{button.disabled=false}}
-$('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPerson').onclick=()=>loadQueue(queue?.person?.id,true).catch(showError);$('undoBatch').onclick=undoBatch;$('learnMore').onclick=runLearning;$('closeLightbox').onclick=closeLarge;$('lightbox').onclick=event=>{if(event.target===$('lightbox'))closeLarge()};document.addEventListener('keydown',event=>{if(event.key==='Escape')closeLarge()});loadQueue(initialPersonId).catch(error=>{$('reviewArea').innerHTML='<div class="empty"><div><h2>People review could not open</h2><p></p></div></div>';$('reviewArea').querySelector('p').textContent=error.message});
+async function deferPerson(){if(!queue?.person)return;const person=queue.person;try{await api('/api/people/review/defer',{person_id:person.id,days:7});skipped.clear();await loadQueue(person.id,true);$('globalProgress').textContent=person.name+' deferred for 7 days'}catch(error){showError(error)}}
+$('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPerson').onclick=()=>loadQueue(queue?.person?.id,true).catch(showError);$('deferPerson').onclick=deferPerson;$('undoBatch').onclick=undoBatch;$('learnMore').onclick=runLearning;$('closeLightbox').onclick=closeLarge;$('lightbox').onclick=event=>{if(event.target===$('lightbox'))closeLarge()};document.addEventListener('keydown',event=>{if(event.key==='Escape')closeLarge()});loadQueue(initialPersonId).catch(error=>{$('reviewArea').innerHTML='<div class="empty"><div><h2>People review could not open</h2><p></p></div></div>';$('reviewArea').querySelector('p').textContent=error.message});
 </script></body></html>"""
         page = (template.replace("__APP_NAME__", html.escape(APP_NAME))
                 .replace("__APP_VERSION__", html.escape(APP_VERSION))
@@ -1201,18 +1068,27 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         requested_id = int(requested) if requested.isdigit() else None
         advance = params.get("advance", [""])[0] == "1"
         with self.db() as con:
+            con.execute("DELETE FROM person_review_deferrals WHERE deferred_until<=?", (utc_now(),))
+            deferred_people = int(con.execute(
+                "SELECT COUNT(*) FROM person_review_deferrals"
+            ).fetchone()[0])
             remaining_total = int(con.execute(
                 """SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
-                   WHERE ap.state='suggested' AND a.in_review_bin=0"""
+                   WHERE ap.state='suggested' AND a.in_review_bin=0 AND ap.person_id NOT IN (
+                       SELECT person_id FROM person_review_deferrals
+                   )"""
             ).fetchone()[0])
             people_remaining = int(con.execute(
                 """SELECT COUNT(DISTINCT ap.person_id) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
-                   WHERE ap.state='suggested' AND a.in_review_bin=0"""
+                   WHERE ap.state='suggested' AND a.in_review_bin=0 AND ap.person_id NOT IN (
+                       SELECT person_id FROM person_review_deferrals
+                   )"""
             ).fetchone()[0])
             person = None
             if requested_id and not advance:
                 person = con.execute(
-                    """SELECT p.id,p.name FROM people p WHERE p.id=? AND EXISTS (
+                    """SELECT p.id,p.name FROM people p WHERE p.id=?
+                       AND p.id NOT IN (SELECT person_id FROM person_review_deferrals) AND EXISTS (
                            SELECT 1 FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                            WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0
                        )""", (requested_id,)
@@ -1223,14 +1099,16 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                     row = con.execute("SELECT name FROM people WHERE id=?", (requested_id,)).fetchone()
                     previous_name = row[0] if row else ""
                 person = con.execute(
-                    """SELECT p.id,p.name FROM people p WHERE p.name>? COLLATE NOCASE AND EXISTS (
+                    """SELECT p.id,p.name FROM people p WHERE p.name>? COLLATE NOCASE
+                       AND p.id NOT IN (SELECT person_id FROM person_review_deferrals) AND EXISTS (
                            SELECT 1 FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                            WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0
                        ) ORDER BY p.name COLLATE NOCASE LIMIT 1""", (previous_name,)
                 ).fetchone()
                 if not person:
                     person = con.execute(
-                        """SELECT p.id,p.name FROM people p WHERE EXISTS (
+                        """SELECT p.id,p.name FROM people p
+                           WHERE p.id NOT IN (SELECT person_id FROM person_review_deferrals) AND EXISTS (
                                SELECT 1 FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                                WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0
                            ) ORDER BY p.name COLLATE NOCASE LIMIT 1"""
@@ -1252,7 +1130,32 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             "suggestions": suggestions,
             "remaining_total": remaining_total,
             "people_remaining": people_remaining,
+            "deferred_people": deferred_people,
             "people_options": people_options,
+        })
+
+    def defer_people_review(self, body):
+        person_id = int(body["person_id"])
+        days = max(1, min(30, int(body.get("days", 7))))
+        now = dt.datetime.now(dt.timezone.utc)
+        deferred_until = (now + dt.timedelta(days=days)).isoformat()
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person is no longer available")
+            if not con.execute(
+                "SELECT 1 FROM asset_people WHERE person_id=? AND state='suggested'", (person_id,)
+            ).fetchone():
+                raise ValueError("this person has no suggestions to defer")
+            con.execute(
+                """INSERT INTO person_review_deferrals(person_id,deferred_at,deferred_until)
+                   VALUES (?,?,?) ON CONFLICT(person_id) DO UPDATE SET
+                   deferred_at=excluded.deferred_at,deferred_until=excluded.deferred_until""",
+                (person_id, now.isoformat(), deferred_until),
+            )
+        self.send_json({
+            "ok": True, "person": person["name"], "days": days,
+            "deferred_until": deferred_until,
         })
 
     def learn_people(self, body):
@@ -1632,6 +1535,193 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             raise
         self.send_json({"ok": True, "published": 1})
 
+    def diagnostics(self):
+        semantic = semantic_status(type(self).db_path)
+        with self.db() as con:
+            integrity = str(con.execute("PRAGMA quick_check").fetchone()[0])
+            schema_version = int(con.execute("PRAGMA user_version").fetchone()[0])
+            counts = {
+                "assets": int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]),
+                "metadata_ready": int(con.execute("SELECT COUNT(*) FROM assets WHERE metadata_scanned=1 AND in_review_bin=0").fetchone()[0]),
+                "mapped": int(con.execute("SELECT COUNT(*) FROM assets WHERE gps_latitude IS NOT NULL AND gps_longitude IS NOT NULL AND in_review_bin=0").fetchone()[0]),
+                "location_pending": int(con.execute("SELECT COUNT(*) FROM assets WHERE location_scanned=0 AND in_review_bin=0").fetchone()[0]),
+                "ocr_complete": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_scanned=1").fetchone()[0]),
+                "ocr_with_text": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_text<>''").fetchone()[0]),
+                "ocr_pending": int(con.execute("""SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
+                    WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0 AND x.ocr_scanned=0""").fetchone()[0]),
+                "ocr_errors": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_error<>''").fetchone()[0]),
+                "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
+                "publications": int(con.execute("SELECT COUNT(*) FROM metadata_publications").fetchone()[0]),
+                "review_bin": int(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0]),
+                "semantic_indexed": int(semantic["indexed"]),
+                "semantic_remaining": int(semantic["remaining"]),
+            }
+            latest = con.execute(
+                """SELECT finished_at,scanned,changed,unchanged,removed,errors,cancelled
+                   FROM runs ORDER BY id DESC LIMIT 1"""
+            ).fetchone()
+        self.send_json({
+            "app_version": APP_VERSION,
+            "schema_version": schema_version,
+            "current_schema": SCHEMA_VERSION,
+            "integrity": integrity,
+            "database": str(type(self).db_path),
+            "database_bytes": type(self).db_path.stat().st_size if type(self).db_path.is_file() else 0,
+            "library": str(type(self).library_root),
+            "counts": counts,
+            "last_scan": dict(latest) if latest else None,
+        })
+
+    def ocr_status(self):
+        with type(self).ocr_lock:
+            job = dict(type(self).ocr_job)
+        self.send_json(job)
+
+    def start_ocr(self, body):
+        workers = max(1, min(8, int(body.get("workers", 4))))
+        since = str(body.get("since", "")).strip() or None
+        if since:
+            dt.date.fromisoformat(since)
+        with type(self).ocr_lock:
+            if type(self).ocr_job.get("state") == "running":
+                raise ValueError("OCR is already running")
+            with type(self).library_lock:
+                if type(self).library_job.get("state") == "scanning":
+                    raise ValueError("wait for the library scan to finish before starting OCR")
+            type(self).ocr_job = {
+                "state": "running", "message": "Preparing local text recognition…",
+                "total": 0, "attempted": 0, "with_text": 0, "errors": 0,
+            }
+            type(self).ocr_cancel.clear()
+        handler_class = type(self)
+        database = handler_class.db_path
+
+        def worker():
+            try:
+                def update_progress(counts):
+                    with handler_class.ocr_lock:
+                        handler_class.ocr_job = {
+                            "state": "running",
+                            "message": f"Processed {int(counts['attempted']):,} of {int(counts['total']):,} images…",
+                            **counts,
+                        }
+
+                result = ocr_assets(
+                    database, since, workers, progress=update_progress,
+                    should_cancel=handler_class.ocr_cancel.is_set,
+                )
+                with handler_class.ocr_lock:
+                    current = dict(handler_class.ocr_job)
+                    state = "cancelled" if result == 3 else "complete"
+                    current.update({
+                        "state": state,
+                        "message": "OCR paused safely. Start it again to resume." if result == 3
+                        else "OCR pass complete.",
+                    })
+                    handler_class.ocr_job = current
+            except Exception as exc:
+                with handler_class.ocr_lock:
+                    handler_class.ocr_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-ocr", daemon=True).start()
+        self.send_json({"ok": True, "state": "running"}, 202)
+
+    def cancel_ocr(self, _body):
+        with type(self).ocr_lock:
+            if type(self).ocr_job.get("state") != "running":
+                raise ValueError("OCR is not running")
+            type(self).ocr_cancel.set()
+            type(self).ocr_job["message"] = "Pausing after active images finish…"
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
+
+    def semantic_job_status(self):
+        coverage = semantic_status(type(self).db_path)
+        with type(self).semantic_lock:
+            job = dict(type(self).semantic_job)
+        self.send_json({**coverage, **job})
+
+    def start_semantic_index(self, body):
+        batch_size = max(1, min(64, int(body.get("batch_size", 16))))
+        with type(self).semantic_lock:
+            if type(self).semantic_job.get("state") == "running":
+                raise ValueError("meaning indexing is already running")
+            with type(self).library_lock:
+                if type(self).library_job.get("state") == "scanning":
+                    raise ValueError("wait for the library scan to finish first")
+            with type(self).ocr_lock:
+                if type(self).ocr_job.get("state") == "running":
+                    raise ValueError("pause OCR before starting meaning indexing")
+            type(self).semantic_job = {
+                "state": "running", "message": "Loading the optional local meaning model…",
+                "total": 0, "indexed_this_pass": 0, "errors": 0,
+            }
+            type(self).semantic_cancel.clear()
+        handler_class = type(self)
+        database = handler_class.db_path
+
+        def worker():
+            try:
+                def update_progress(counts):
+                    with handler_class.semantic_lock:
+                        handler_class.semantic_job = {
+                            "state": "running",
+                            "message": f"Indexed {int(counts['indexed']):,} of {int(counts['total']):,} images this pass…",
+                            "total": int(counts["total"]),
+                            "indexed_this_pass": int(counts["indexed"]),
+                            "errors": int(counts["errors"]),
+                        }
+
+                result = build_semantic_index(
+                    database, batch_size=batch_size, progress=update_progress,
+                    should_cancel=handler_class.semantic_cancel.is_set,
+                )
+                with handler_class.semantic_lock:
+                    handler_class.semantic_job = {
+                        "state": "cancelled" if result["cancelled"] else "complete",
+                        "message": "Meaning indexing paused safely." if result["cancelled"]
+                        else "Meaning index is ready.",
+                        "total": int(result["total"]),
+                        "indexed_this_pass": int(result["indexed"]),
+                        "errors": int(result["errors"]),
+                    }
+            except Exception as exc:
+                with handler_class.semantic_lock:
+                    handler_class.semantic_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-semantic", daemon=True).start()
+        self.send_json({"ok": True, "state": "running"}, 202)
+
+    def cancel_semantic_index(self, _body):
+        with type(self).semantic_lock:
+            if type(self).semantic_job.get("state") != "running":
+                raise ValueError("meaning indexing is not running")
+            type(self).semantic_cancel.set()
+            type(self).semantic_job["message"] = "Pausing after the active image batch…"
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
+
+    def backup_database(self, _body):
+        source_path = type(self).db_path.resolve()
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        destination = (database_backup_root() / f"{source_path.stem}-{stamp}.sqlite3").resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.relative_to(database_backup_root().resolve())
+        source = sqlite3.connect(source_path)
+        target = sqlite3.connect(destination)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+        check = sqlite3.connect(destination)
+        try:
+            integrity = str(check.execute("PRAGMA quick_check").fetchone()[0])
+        finally:
+            check.close()
+        if integrity != "ok":
+            destination.unlink(missing_ok=True)
+            raise ValueError("database backup verification failed")
+        self.send_json({"ok": True, "path": str(destination), "bytes": destination.stat().st_size})
+
     def library_status(self):
         with type(self).library_lock:
             job = dict(type(self).library_job)
@@ -1849,6 +1939,11 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         path = Path(__file__).with_name("assets") / "lensledger-logo.png"
         if not path.is_file(): return self.send_error(404)
         self.send_bytes(path.read_bytes(), "image/png", cache="private, max-age=86400")
+
+    def serve_world_map(self):
+        path = Path(__file__).with_name("assets") / "world-map.svg"
+        if not path.is_file(): return self.send_error(404)
+        self.send_bytes(path.read_bytes(), "image/svg+xml", cache="private, max-age=86400")
 
     def serve_media(self, params):
         try: asset_id = int(params.get("id", [""])[0])

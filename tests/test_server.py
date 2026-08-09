@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import tempfile
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from unittest.mock import patch
+
+from PIL import Image
+
+
+class ServerWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.data = self.root / "data"
+        self.library = self.root / "photos"
+        self.library.mkdir()
+        self.photo = self.library / "2026-08-09 sample.jpg"
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(self.photo, quality=92)
+        self.environment = patch.dict(os.environ, {"LENSLEDGER_DATA_DIR": str(self.data)})
+        self.environment.start()
+
+        import photo_search
+        from photo_index import scan_library
+
+        self.photo_search = photo_search
+        self.database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        photo_search.BACKUP_ROOT = self.data / "Metadata Backups"
+        photo_search.SearchHandler.db_path = self.database
+        photo_search.SearchHandler.library_root = self.library.resolve()
+        photo_search.SearchHandler.csrf_token = "test-csrf"
+        photo_search.SearchHandler.library_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.library_cancel.clear()
+        photo_search.SearchHandler.ocr_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.ocr_cancel.clear()
+        photo_search.SearchHandler.semantic_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.semantic_cancel.clear()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), photo_search.SearchHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base_url = f"http://127.0.0.1:{self.server.server_port}"
+        con = sqlite3.connect(self.database)
+        self.asset_id = int(con.execute("SELECT id FROM assets").fetchone()[0])
+        con.close()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.environment.stop()
+        self.temporary.cleanup()
+
+    def get(self, path: str):
+        return urllib.request.urlopen(self.base_url + path, timeout=10)
+
+    def post(self, path: str, body: dict, *, csrf: str = "test-csrf"):
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=json.dumps({**body, "csrf": csrf}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        return urllib.request.urlopen(request, timeout=30)
+
+    def json_response(self, response):
+        with response:
+            return json.loads(response.read())
+
+    def test_viewer_map_and_asset_endpoints(self):
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Search scope", page)
+        self.assertIn('href="/map"', page)
+
+        detail = self.json_response(self.get(f"/api/asset?id={self.asset_id}"))
+        self.assertEqual(detail["filename"], self.photo.name)
+        with self.get(f"/media?id={self.asset_id}") as response:
+            self.assertEqual(response.headers.get_content_type(), "image/jpeg")
+            self.assertGreater(len(response.read()), 100)
+        points = self.json_response(self.get("/api/map/points"))
+        self.assertEqual(points["located"], 0)
+        with self.get("/map") as response:
+            self.assertIn("Photo map", response.read().decode("utf-8"))
+
+    def test_csrf_metadata_publish_restore_and_review_bin(self):
+        with self.assertRaises(urllib.error.HTTPError) as rejected:
+            self.post("/api/subject", {"id": self.asset_id, "subject": "Blue test image"}, csrf="wrong")
+        self.assertEqual(rejected.exception.code, 403)
+        rejected.exception.close()
+
+        self.json_response(self.post(
+            "/api/subject", {"id": self.asset_id, "subject": "Blue test image"}
+        ))
+        preview = self.json_response(self.post(
+            "/api/publish/preview", {"id": self.asset_id, "description": "Safe test description"}
+        ))
+        published = self.json_response(self.post(
+            "/api/publish",
+            {
+                "id": self.asset_id,
+                "description": "Safe test description",
+                "expected_after": preview["after"],
+            },
+        ))
+        self.assertTrue(published["ok"])
+        self.assertTrue(self.photo.is_file())
+        restored = self.json_response(self.post("/api/publish/restore", {"id": self.asset_id}))
+        self.assertTrue(restored["ok"])
+
+        moved = self.json_response(self.post("/api/review-bin", {"id": self.asset_id}))
+        self.assertFalse(self.photo.exists())
+        restored_bin = self.json_response(self.post(
+            "/api/review-bin/restore", {"review_id": moved["review_id"]}
+        ))
+        self.assertTrue(restored_bin["ok"])
+        self.assertTrue(self.photo.is_file())
+
+    def test_media_path_outside_library_is_refused(self):
+        outside = self.root / "outside.jpg"
+        Image.new("RGB", (8, 8), "red").save(outside)
+        con = sqlite3.connect(self.database)
+        con.execute("UPDATE assets SET path=? WHERE id=?", (str(outside), self.asset_id))
+        con.commit()
+        con.close()
+        with self.assertRaises(urllib.error.HTTPError) as rejected:
+            self.get(f"/media?id={self.asset_id}")
+        self.assertEqual(rejected.exception.code, 403)
+        rejected.exception.close()
+
+    def test_diagnostics_verified_backup_and_background_ocr(self):
+        diagnostics = self.json_response(self.get("/api/diagnostics"))
+        self.assertEqual(diagnostics["integrity"], "ok")
+        self.assertEqual(diagnostics["schema_version"], diagnostics["current_schema"])
+        self.assertEqual(diagnostics["counts"]["ocr_pending"], 1)
+
+        with patch(
+            "photo_index.run_windows_ocr",
+            return_value=(str(self.photo), "sample recognized text", None),
+        ):
+            started = self.json_response(self.post("/api/ocr/start", {"workers": 1}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(100):
+                status = self.json_response(self.get("/api/ocr/status"))
+                if status["state"] != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(status["state"], "complete")
+            self.assertEqual(status["attempted"], 1)
+
+        backup = self.json_response(self.post("/api/database/backup", {}))
+        backup_path = Path(backup["path"])
+        self.assertTrue(backup_path.is_file())
+        # Hosted Windows runners may report the temp root once via its 8.3 alias
+        # and once via its expanded user name; compare canonical paths.
+        self.assertTrue(
+            backup_path.resolve().is_relative_to((self.data / "Database Backups").resolve())
+        )
+        con = sqlite3.connect(backup_path)
+        self.assertEqual(con.execute("PRAGMA quick_check").fetchone()[0], "ok")
+        con.close()
+
+    def test_people_queue_can_defer_a_person_across_sessions(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Test Person')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+               VALUES (?,?,'suggested',0.91,'test',?)""",
+            (self.asset_id, person_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        queue = self.json_response(self.get("/api/people/review/queue"))
+        self.assertEqual(queue["person"]["id"], person_id)
+        deferred = self.json_response(self.post(
+            "/api/people/review/defer", {"person_id": person_id, "days": 7}
+        ))
+        self.assertEqual(deferred["person"], "Test Person")
+        queue = self.json_response(self.get("/api/people/review/queue"))
+        self.assertIsNone(queue["person"])
+        self.assertEqual(queue["deferred_people"], 1)
+
+    def test_optional_semantic_job_and_viewer_scope(self):
+        def fake_build(_database, **kwargs):
+            counts = {"total": 1, "indexed": 1, "errors": 0, "cancelled": False}
+            kwargs["progress"](counts)
+            return counts
+
+        with patch.object(self.photo_search, "build_semantic_index", side_effect=fake_build):
+            started = self.json_response(self.post("/api/semantic/start", {"batch_size": 1}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(100):
+                job = self.json_response(self.get("/api/semantic/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(job["state"], "complete")
+            self.assertEqual(job["indexed_this_pass"], 1)
+
+        with patch.object(self.photo_search, "semantic_search", return_value=[(self.asset_id, 0.9)]), patch.object(
+            self.photo_search, "semantic_status", return_value={
+                "indexed": 1, "eligible": 1, "remaining": 0, "model": "test"
+            }
+        ):
+            with self.get("/?scope=semantic&q=blue+scene") as response:
+                page = response.read().decode("utf-8")
+        self.assertIn("Meaning (optional)", page)
+        self.assertIn("Describe a scene, object, or idea", page)
+        self.assertIn(self.photo.name, page)
+
+
+if __name__ == "__main__":
+    unittest.main()

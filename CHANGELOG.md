@@ -6,6 +6,37 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.19.0 — 2026-08-09
+
+- Add opt-in, local-only natural-language image search using OpenCLIP.
+- Keep the large machine-learning dependencies out of the standard installation
+  and load them only when a user explicitly builds a meaning index.
+- Build the meaning index incrementally in pausable background batches and
+  expose coverage and progress in Library Health.
+- Add a Meaning search scope that ranks locally indexed photos from ordinary
+  scene descriptions without uploading photos or search text.
+- Allow a person in the face-review queue to be deferred for seven days so the
+  same difficult identity does not block later people across sessions.
+- Add deterministic semantic-index and background-worker tests that do not
+  download a model during CI.
+- Separate embedded-metadata reading, pixel-integrity checks, and per-library
+  configuration from the HTTP server into independently tested service modules.
+
+## 0.18.0 — 2026-08-09
+
+- Add a read-only, fully local Photo Map built from embedded EXIF GPS coordinates.
+- Extract locations during incremental scans and cluster nearby photos without
+  contacting an external map or tile service.
+- Add a Library Health & OCR panel with database integrity, catalog, map,
+  people-review, Review Bin, and text-recognition status.
+- Make Windows OCR pausable and resumable, and remember completed images even
+  when no visible text was found.
+- Create verified database backups directly from the viewer.
+- Expand automated coverage to include HTTP endpoints, CSRF rejection, path
+  confinement, metadata publish/restore, Review Bin recovery, background OCR,
+  GPS migration, mapping, diagnostics, and database backup verification.
+- Rename the search scope label from “Search in” to the clearer “Search scope.”
+
 ## 0.17.0 — 2026-08-09
 
 - Add a guided first-run experience that suggests likely photo folders, explains

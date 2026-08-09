@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 720" role="img" aria-label="Simplified world map">
+  <rect width="1440" height="720" fill="#0d1724"/>
+  <g stroke="#26384d" stroke-width="1" fill="none">
+    <path d="M0 120H1440M0 240H1440M0 360H1440M0 480H1440M0 600H1440"/>
+    <path d="M240 0V720M480 0V720M720 0V720M960 0V720M1200 0V720"/>
+  </g>
+  <g fill="#263a3e" stroke="#3f5b5c" stroke-width="2" stroke-linejoin="round">
+    <path d="M80 150L145 90 260 72 360 110 410 165 365 215 305 220 260 275 205 290 165 250 105 235 70 195Z"/>
+    <path d="M325 285L390 300 435 350 430 430 395 525 350 610 310 565 290 475 300 390 275 335Z"/>
+    <path d="M575 115L640 88 715 105 745 145 705 170 645 160 600 185 555 155Z"/>
+    <path d="M625 205L705 190 785 225 825 300 800 410 745 505 680 470 650 390 610 335 590 260Z"/>
+    <path d="M720 105L850 70 1010 92 1150 140 1260 205 1300 275 1220 320 1130 290 1060 340 980 325 910 270 850 290 805 230 740 205 700 150Z"/>
+    <path d="M920 320L980 330 1010 390 980 435 930 410 900 355Z"/>
+    <path d="M1190 445L1270 420 1340 455 1320 525 1245 555 1175 515Z"/>
+    <path d="M1325 300L1350 320 1340 375 1315 350Z"/>
+    <path d="M510 52L560 35 600 55 570 85 525 78Z"/>
+    <path d="M250 36L340 20 385 50 330 80 255 72Z"/>
+  </g>
+  <g fill="#66828b" font-family="system-ui,sans-serif" font-size="18" opacity=".8">
+    <text x="130" y="175">North America</text><text x="320" y="405">South America</text>
+    <text x="625" y="145">Europe</text><text x="675" y="330">Africa</text>
+    <text x="955" y="180">Asia</text><text x="1200" y="490">Australia</text>
+  </g>
+</svg>

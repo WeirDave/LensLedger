@@ -54,8 +54,26 @@ class DatabaseTests(unittest.TestCase):
         migrated = connect(database)
         columns = {row[1] for row in migrated.execute("PRAGMA table_info(runs)")}
         self.assertIn("cancelled", columns)
+        asset_columns = {row[1] for row in migrated.execute("PRAGMA table_info(assets)")}
+        self.assertTrue({"location_scanned", "gps_latitude", "gps_longitude"} <= asset_columns)
         self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         migrated.close()
+
+    def test_scan_records_embedded_gps_coordinates(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "located.jpg").write_bytes(b"synthetic")
+        database = self.root / "library.sqlite3"
+        with patch("photo_index.extract_gps_coordinates", return_value=(33.6846, -117.8265)):
+            self.assertEqual(scan_library(library, database), 0)
+        con = sqlite3.connect(database)
+        row = con.execute(
+            "SELECT location_scanned,gps_latitude,gps_longitude FROM assets"
+        ).fetchone()
+        con.close()
+        self.assertEqual(row, (1, 33.6846, -117.8265))
 
     def test_scan_is_incremental_and_backup_is_valid(self):
         from database_tools import backup, verify
@@ -118,6 +136,51 @@ class DatabaseTests(unittest.TestCase):
         rows = con.execute("SELECT filename,media_type FROM assets ORDER BY filename").fetchall()
         con.close()
         self.assertEqual(rows, [("camera.dng", "raw")])
+
+    def test_ocr_can_pause_resume_and_remembers_images_without_text(self):
+        from photo_index import ocr_assets, scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        for name in ("one.jpg", "two.jpg", "three.jpg"):
+            (library / name).write_bytes(name.encode("ascii"))
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+
+        cancel = {"value": False}
+
+        def progress(counts):
+            if counts["attempted"] >= 1:
+                cancel["value"] = True
+
+        def fake_ocr(_script, path):
+            text = "recognized words" if path.endswith("one.jpg") else ""
+            return path, text, None
+
+        with patch("photo_index.run_windows_ocr", side_effect=fake_ocr) as worker:
+            self.assertEqual(
+                ocr_assets(
+                    database, None, 1, progress=progress,
+                    should_cancel=lambda: cancel["value"],
+                ),
+                3,
+            )
+            self.assertEqual(worker.call_count, 1)
+
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT SUM(ocr_scanned) FROM text_data").fetchone()[0], 1)
+        con.close()
+
+        with patch("photo_index.run_windows_ocr", side_effect=fake_ocr) as worker:
+            self.assertEqual(ocr_assets(database, None, 2), 0)
+            self.assertEqual(worker.call_count, 2)
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT SUM(ocr_scanned) FROM text_data").fetchone()[0], 3)
+        con.close()
+
+        with patch("photo_index.run_windows_ocr") as worker:
+            self.assertEqual(ocr_assets(database, None, 2), 0)
+            worker.assert_not_called()
 
 
 if __name__ == "__main__":

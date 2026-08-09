@@ -1,0 +1,3 @@
+# Optional, large local-only meaning-search stack. Base LensLedger does not install it.
+open_clip_torch>=2.32
+torch>=2.7
