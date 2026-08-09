@@ -28,6 +28,8 @@ from typing import Callable
 REPOSITORY = "WeirDave/LensLedger"
 API_VERSION = "2022-11-28"
 MARKER_NAME = ".lensledger-managed.json"
+LEGACY_HANDOFF_REGISTRY = "legacy-launchers.json"
+LEGACY_LAUNCHER_MARKER = "REM LensLedger managed-launcher handoff"
 REQUIRED_FILES = {
     "app_paths.py", "assets/lensledger-logo.png", "assets/world-map.svg", "CHANGELOG.md",
     "database_tools.py", "library_config.py", "metadata_reader.py", "lensledger_updater.py",
@@ -321,6 +323,130 @@ def is_managed_install(path: Path) -> bool:
         return False
 
 
+def _legacy_handoff_registry_path() -> Path:
+    return data_root() / LEGACY_HANDOFF_REGISTRY
+
+
+def _registered_legacy_roots() -> list[Path]:
+    """Return the legacy shortcut locations explicitly adopted by this user."""
+    registry = _legacy_handoff_registry_path()
+    try:
+        payload = json.loads(registry.read_text(encoding="utf-8"))
+        roots = payload.get("roots", [])
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(roots, list):
+        return []
+    result: list[Path] = []
+    for value in roots:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        root = Path(value).expanduser().resolve()
+        if root not in result:
+            result.append(root)
+    return result
+
+
+def _register_legacy_root(legacy_root: Path) -> None:
+    registry = _legacy_handoff_registry_path()
+    roots = _registered_legacy_roots()
+    if legacy_root not in roots:
+        roots.append(legacy_root)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    temporary = registry.with_name(f".{registry.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(json.dumps({
+            "roots": sorted(str(root) for root in roots),
+        }, indent=2), encoding="utf-8")
+        os.replace(temporary, registry)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _legacy_launcher_backup_path(legacy_root: Path) -> Path:
+    return legacy_root / "Start LensLedger.pre-managed.cmd"
+
+
+def _managed_handoff_script(install_root: Path) -> str:
+    target = install_root / "Start LensLedger.cmd"
+    return "\r\n".join((
+        "@echo off",
+        LEGACY_LAUNCHER_MARKER,
+        "REM This preserves older shortcuts while always starting the managed, updated app.",
+        "setlocal",
+        f'set "LENSLEDGER_MANAGED_START={target}"',
+        'if not exist "%LENSLEDGER_MANAGED_START%" (',
+        "    echo.",
+        "    echo LensLedger's managed installation is missing.",
+        "    echo Run Install LensLedger.cmd from a current LensLedger release to repair it.",
+        "    echo.",
+        "    pause",
+        "    exit /b 1",
+        ")",
+        'call "%LENSLEDGER_MANAGED_START%"',
+        "exit /b %ERRORLEVEL%",
+        "",
+    ))
+
+
+def handoff_legacy_launcher(legacy_root: Path, install_root: Path,
+                             register: bool = True) -> dict[str, str]:
+    """Replace an explicitly adopted pre-managed launcher with a reversible handoff."""
+    legacy_root = legacy_root.resolve()
+    install_root = install_root.resolve()
+    start_script = legacy_root / "Start LensLedger.cmd"
+    if legacy_root == install_root:
+        raise UpdateError("A managed LensLedger installation cannot be adopted as a legacy launcher")
+    if is_managed_install(legacy_root) or (legacy_root / ".git").exists():
+        raise UpdateError(f"Refusing to replace a managed installation or Git working copy: {legacy_root}")
+    if not (legacy_root / "photo_search.py").is_file() or not start_script.is_file():
+        raise UpdateError(f"Not a recognizable legacy LensLedger installation: {legacy_root}")
+    if not is_managed_install(install_root) or not (install_root / "Start LensLedger.cmd").is_file():
+        raise UpdateError(f"Managed LensLedger installation is unavailable: {install_root}")
+    try:
+        current = start_script.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise UpdateError(f"Cannot read legacy launcher {start_script}: {exc}") from exc
+
+    backup = _legacy_launcher_backup_path(legacy_root)
+    status = "already_handed_off" if LEGACY_LAUNCHER_MARKER in current else "handed_off"
+    if status == "handed_off":
+        try:
+            if not backup.exists():
+                shutil.copy2(start_script, backup)
+            temporary = start_script.with_name(f".{start_script.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                temporary.write_text(_managed_handoff_script(install_root), encoding="utf-8")
+                os.replace(temporary, start_script)
+            finally:
+                temporary.unlink(missing_ok=True)
+        except OSError as exc:
+            raise UpdateError(f"Cannot create managed launcher handoff in {legacy_root}: {exc}") from exc
+    if register:
+        _register_legacy_root(legacy_root)
+    return {
+        "legacy_root": str(legacy_root),
+        "launcher": str(start_script),
+        "backup_launcher": str(backup),
+        "status": status,
+    }
+
+
+def refresh_legacy_launcher_handoffs(install_root: Path) -> list[dict[str, str]]:
+    """Reapply known shortcut handoffs without letting an unavailable old folder block an update."""
+    results: list[dict[str, str]] = []
+    for legacy_root in _registered_legacy_roots():
+        try:
+            results.append(handoff_legacy_launcher(legacy_root, install_root, register=False))
+        except UpdateError as exc:
+            results.append({
+                "legacy_root": str(legacy_root),
+                "status": "unavailable",
+                "message": str(exc),
+            })
+    return results
+
+
 def install_tree(source: Path, target: Path) -> dict[str, str]:
     source = source.resolve()
     version = validate_release_tree(source)
@@ -552,6 +678,10 @@ def install_current(source: Path, target: Path | None = None, legacy_root: Path 
     result: dict[str, object] = install_tree(source, target)
     if legacy_root:
         result["migration"] = migrate_legacy_data(legacy_root, target)
+        result["legacy_launcher"] = handoff_legacy_launcher(legacy_root, target)
+    handoffs = refresh_legacy_launcher_handoffs(target)
+    if handoffs:
+        result["legacy_launchers"] = handoffs
     if launch:
         launch_lensledger(target)
     return result
@@ -566,6 +696,10 @@ def install_latest(current_root: Path, current_version: str, wait_pid: int = 0,
     result: dict[str, object] = install_tree(staged, target)
     if legacy_root:
         result["migration"] = migrate_legacy_data(legacy_root, target)
+        result["legacy_launcher"] = handoff_legacy_launcher(legacy_root, target)
+    handoffs = refresh_legacy_launcher_handoffs(target)
+    if handoffs:
+        result["legacy_launchers"] = handoffs
     if launch:
         launch_lensledger(target)
     result["release"] = asdict(release)
@@ -588,12 +722,20 @@ def main() -> int:
     latest.add_argument("--wait-pid", type=int, default=0)
     latest.add_argument("--legacy-root", type=Path)
     latest.add_argument("--no-launch", action="store_true")
+    handoff = subparsers.add_parser(
+        "handoff-legacy-launcher",
+        help="redirect one legacy LensLedger shortcut to the managed installation",
+    )
+    handoff.add_argument("--legacy-root", type=Path, required=True)
+    handoff.add_argument("--target", type=Path, default=managed_install_root())
     args = parser.parse_args()
     try:
         if args.command == "check":
             result = check_for_update(args.current)
         elif args.command == "install-current":
             result = install_current(args.source, args.target, args.legacy_root, not args.no_launch)
+        elif args.command == "handoff-legacy-launcher":
+            result = handoff_legacy_launcher(args.legacy_root, args.target)
         else:
             result = install_latest(
                 args.current_root, args.current, args.wait_pid, args.legacy_root,

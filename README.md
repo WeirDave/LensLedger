@@ -109,8 +109,12 @@ pass that old folder to the installer:
 ```
 
 The installer creates a consistent SQLite backup in the new data location,
-upgrades and verifies it, registers the detected photo-library root, and leaves
-the entire legacy installation unchanged.
+upgrades and verifies it, and registers the detected photo-library root. After
+that succeeds, it preserves the original legacy launcher as
+`Start LensLedger.pre-managed.cmd` and changes only the old `Start LensLedger.cmd`
+into a handoff to the managed installation. Existing old shortcuts therefore
+continue to work, but always start the current version. The handoff location is
+remembered and checked again during later managed updates.
 
 ### Run from source
 

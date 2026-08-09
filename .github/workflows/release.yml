@@ -18,6 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Verify release version and notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          python - "$VERSION" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          expected = sys.argv[1]
+          source = Path("product.py").read_text(encoding="utf-8")
+          match = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', source, re.MULTILINE)
+          if not match or match.group(1) != expected:
+              raise SystemExit(f"Release tag v{expected} does not match product.py")
+          notes = Path("docs/releases") / f"v{expected}.md"
+          if not notes.is_file():
+              raise SystemExit(f"Missing release notes: {notes}")
+          PY
+
       - name: Build release ZIP
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
