@@ -33,7 +33,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
     rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
@@ -138,6 +138,12 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
     gender_marker TEXT,
     dimensions INTEGER NOT NULL,
     embedding_f32 BLOB NOT NULL,
+    box_left REAL,
+    box_top REAL,
+    box_right REAL,
+    box_bottom REAL,
+    localization_similarity REAL,
+    localized_at TEXT,
     UNIQUE (source, source_face_id)
 );
 
@@ -261,6 +267,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
     people_columns = {row[1] for row in con.execute("PRAGMA table_info(asset_people)")}
     if "face_id" not in people_columns:
         con.execute("ALTER TABLE asset_people ADD COLUMN face_id INTEGER REFERENCES face_embeddings(id) ON DELETE SET NULL")
+    face_columns = {row[1] for row in con.execute("PRAGMA table_info(face_embeddings)")}
+    for name in ("box_left", "box_top", "box_right", "box_bottom", "localization_similarity"):
+        if name not in face_columns:
+            con.execute(f"ALTER TABLE face_embeddings ADD COLUMN {name} REAL")
+    if "localized_at" not in face_columns:
+        con.execute("ALTER TABLE face_embeddings ADD COLUMN localized_at TEXT")
     publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
     if "operation" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN operation TEXT NOT NULL DEFAULT 'full'")
@@ -768,7 +780,17 @@ def import_face_db(db_path: Path, tsv_path: Path) -> int:
     with tsv_path.open("r", encoding="utf-8", errors="replace", newline="") as stream:
         for line_number, line in enumerate(stream, 1):
             try:
-                source_id, relative_path, marker, vector_text = line.rstrip("\r\n").split("\t", 3)
+                fields = line.rstrip("\r\n").split("\t")
+                if len(fields) == 4:
+                    source_id, relative_path, marker, vector_text = fields
+                    bounds = (None, None, None, None)
+                elif len(fields) == 8:
+                    source_id, relative_path, marker, *box_text, vector_text = fields
+                    bounds = tuple(float(value) for value in box_text)
+                    if not (0 <= bounds[0] < bounds[2] <= 1 and 0 <= bounds[1] < bounds[3] <= 1):
+                        raise ValueError("face bounds must be normalized values between 0 and 1")
+                else:
+                    raise ValueError("expected 4 columns, or 8 columns including normalized face bounds")
                 relative_path = relative_path.replace("\\", "/")
                 vector = array.array("f", (float(value) for value in vector_text.split(",")))
                 asset = con.execute("SELECT id FROM assets WHERE relative_path = ?", (relative_path,)).fetchone()
@@ -785,14 +807,19 @@ def import_face_db(db_path: Path, tsv_path: Path) -> int:
                 con.execute(
                     """
                     INSERT INTO face_embeddings(source, source_face_id, asset_id, relative_path,
-                                                gender_marker, dimensions, embedding_f32)
-                    VALUES ('recovered_claude_2026', ?, ?, ?, ?, ?, ?)
+                                                gender_marker, dimensions, embedding_f32,
+                                                box_left,box_top,box_right,box_bottom)
+                    VALUES ('recovered_claude_2026', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(source, source_face_id) DO UPDATE SET
                         asset_id=excluded.asset_id, relative_path=excluded.relative_path,
                         gender_marker=excluded.gender_marker, dimensions=excluded.dimensions,
-                        embedding_f32=excluded.embedding_f32
+                        embedding_f32=excluded.embedding_f32,
+                        box_left=COALESCE(excluded.box_left,face_embeddings.box_left),
+                        box_top=COALESCE(excluded.box_top,face_embeddings.box_top),
+                        box_right=COALESCE(excluded.box_right,face_embeddings.box_right),
+                        box_bottom=COALESCE(excluded.box_bottom,face_embeddings.box_bottom)
                     """,
-                    (int(source_id), asset_id, relative_path, marker, len(vector), vector.tobytes()),
+                    (int(source_id), asset_id, relative_path, marker, len(vector), vector.tobytes(), *bounds),
                 )
                 imported += 1
             except Exception as exc:

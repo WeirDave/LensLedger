@@ -56,8 +56,32 @@ class DatabaseTests(unittest.TestCase):
         self.assertIn("cancelled", columns)
         asset_columns = {row[1] for row in migrated.execute("PRAGMA table_info(assets)")}
         self.assertTrue({"location_scanned", "gps_latitude", "gps_longitude"} <= asset_columns)
+        face_columns = {row[1] for row in migrated.execute("PRAGMA table_info(face_embeddings)")}
+        self.assertTrue({
+            "box_left", "box_top", "box_right", "box_bottom",
+            "localization_similarity", "localized_at",
+        } <= face_columns)
         self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         migrated.close()
+
+    def test_face_import_accepts_normalized_bounds(self):
+        from photo_index import import_face_db, scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        photo = library / "bounded.jpg"
+        photo.write_bytes(b"synthetic")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+        source = self.root / "faces.tsv"
+        source.write_text("7\tbounded.jpg\tF\t0.1\t0.2\t0.4\t0.6\t0.5,0.25\n", encoding="utf-8")
+        self.assertEqual(import_face_db(database, source), 0)
+        con = sqlite3.connect(database)
+        row = con.execute(
+            "SELECT box_left,box_top,box_right,box_bottom FROM face_embeddings"
+        ).fetchone()
+        con.close()
+        self.assertEqual(row, (0.1, 0.2, 0.4, 0.6))
 
     def test_scan_records_embedded_gps_coordinates(self):
         from photo_index import scan_library

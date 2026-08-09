@@ -20,7 +20,10 @@ MIN_PROFILE_FACES = 2
 PROFILE_FACE_THRESHOLD = 0.66
 SUGGESTION_THRESHOLD = 0.76
 SUGGESTION_MARGIN = 0.04
-PROFILE_COLLISION_THRESHOLD = 0.93
+# Profile centroids are more stable than individual photo embeddings. A score
+# above this level is strong evidence that two labels learned the same person;
+# quarantine both instead of spreading a likely naming mistake.
+PROFILE_COLLISION_THRESHOLD = 0.82
 
 
 @dataclass
@@ -158,7 +161,14 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
                     continue
                 face_id = int(row["face_id"]) if row["face_id"] is not None else None
                 exact_face = faces_by_id.get(face_id) if face_id is not None else None
-                asset_faces.append([exact_face] if exact_face and exact_face.asset_id == asset_id else faces_by_asset[asset_id])
+                if exact_face and exact_face.asset_id == asset_id:
+                    asset_faces.append([exact_face])
+                elif len(faces_by_asset[asset_id]) == 1:
+                    asset_faces.append(faces_by_asset[asset_id])
+                # A photo-level name on a group photo does not identify which
+                # face belongs to that person. Treating every face as a bag can
+                # accidentally learn the photographer who appears consistently
+                # with many different friends. Wait for an exact reviewed face.
             if len(asset_faces) < MIN_PROFILE_FACES:
                 continue
             profile = build_profile(int(person["id"]), str(person["name"]), asset_faces)

@@ -6,6 +6,23 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.21.0 — 2026-08-09
+
+- Highlight the exact face being evaluated in People review with a responsive
+  bounding box in both the gallery card and enlarged-photo view.
+- Store normalized face rectangles with the exact face embedding and expose
+  them through the review queue API.
+- Recover rectangles for legacy embeddings by comparing regenerated vectors
+  and accepting only strong, unambiguous matches.
+- Prevent photo-level names on multi-person photos from training a face profile
+  until a review decision identifies the exact face.
+- Quarantine highly similar profiles from suggestion generation so duplicate or
+  historically misassigned names cannot fan out into new false matches.
+- Keep the optional face runtime and separately licensed pretrained model out
+  of the standard installation and release archive.
+- Show an explicit unavailable message for any legacy match that cannot be
+  localized safely instead of highlighting a guessed face.
+
 ## 0.20.0 — 2026-08-09
 
 - Add a managed per-user installation flow separate from photo and catalog data.
