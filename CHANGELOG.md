@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.22.2 — 2026-08-09
+
+- Make People merges resilient to transient SQLite locks by waiting safely for
+  the catalog, taking the write reservation up front, and closing any failed
+  connection immediately.
+- Prevent a second People merge from running concurrently and require library
+  scan, OCR, and meaning-indexing jobs to finish first.
+- Explain a genuine catalog conflict clearly and confirm that no names were
+  merged, instead of showing an opaque database error.
+
 ## 0.22.1 — 2026-08-09
 
 - Create and verify a catalog backup automatically before every People merge,

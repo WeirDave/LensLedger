@@ -44,6 +44,7 @@ class ServerWorkflowTests(unittest.TestCase):
         photo_search.SearchHandler.ocr_cancel.clear()
         photo_search.SearchHandler.semantic_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.semantic_cancel.clear()
+        photo_search.SearchHandler.people_merge_lock = threading.Lock()
         photo_search.SearchHandler.update_job = {"state": "idle", "message": ""}
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), photo_search.SearchHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -312,6 +313,29 @@ class ServerWorkflowTests(unittest.TestCase):
             self.assertIsNotNone(action[1])
         finally:
             con.close()
+
+    def test_merge_people_reports_a_safe_conflict_when_catalog_is_busy(self):
+        import photo_index
+
+        lock = sqlite3.connect(self.database, timeout=1)
+        lock.execute("BEGIN EXCLUSIVE")
+        try:
+            with patch.object(photo_index, "SQLITE_BUSY_TIMEOUT_MS", 50):
+                with self.assertRaises(urllib.error.HTTPError) as blocked:
+                    self.post(
+                        "/api/person/merge",
+                        {"target_person_id": 1, "source_person_ids": [2]},
+                    )
+            error = blocked.exception
+            try:
+                self.assertEqual(error.code, 409)
+                message = json.loads(error.read().decode("utf-8"))["error"]
+                self.assertIn("No names were merged", message)
+            finally:
+                error.close()
+        finally:
+            lock.rollback()
+            lock.close()
 
     def test_optional_semantic_job_and_viewer_scope(self):
         def fake_build(_database, **kwargs):

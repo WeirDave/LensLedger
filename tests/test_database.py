@@ -21,7 +21,7 @@ class DatabaseTests(unittest.TestCase):
 
     def test_initialize_creates_empty_current_database(self):
         from database_tools import initialize
-        from photo_index import SCHEMA_VERSION
+        from photo_index import SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect
 
         database = self.root / "library.sqlite3"
         self.assertEqual(initialize(database), 0)
@@ -29,6 +29,8 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 0)
         con.close()
+        with connect(database) as configured:
+            self.assertEqual(configured.execute("PRAGMA busy_timeout").fetchone()[0], SQLITE_BUSY_TIMEOUT_MS)
 
     def test_version_one_database_migrates_cancelled_run_history(self):
         from photo_index import SCHEMA_VERSION, connect

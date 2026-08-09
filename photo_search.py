@@ -32,7 +32,7 @@ from library_config import (
 from lensledger_updater import check_for_update, is_managed_install, managed_install_root, updates_root
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
-    SCHEMA_VERSION, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
+    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
@@ -95,15 +95,18 @@ def create_verified_database_backup(db_path: Path) -> Path:
     destination = (database_backup_root() / f"{source_path.stem}-{stamp}.sqlite3").resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.relative_to(database_backup_root().resolve())
-    source = sqlite3.connect(source_path)
-    target = sqlite3.connect(destination)
+    source = sqlite3.connect(source_path, timeout=SQLITE_BUSY_TIMEOUT_MS / 1_000)
+    target = sqlite3.connect(destination, timeout=SQLITE_BUSY_TIMEOUT_MS / 1_000)
     try:
+        source.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        target.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
         source.backup(target)
     finally:
         target.close()
         source.close()
-    check = sqlite3.connect(destination)
+    check = sqlite3.connect(destination, timeout=SQLITE_BUSY_TIMEOUT_MS / 1_000)
     try:
+        check.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
         integrity = str(check.execute("PRAGMA quick_check").fetchone()[0])
     finally:
         check.close()
@@ -126,6 +129,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     semantic_lock = threading.Lock()
     semantic_job: dict[str, object] = {"state": "idle", "message": ""}
     semantic_cancel = threading.Event()
+    people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
 
@@ -257,6 +261,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
+                return self.send_json({
+                    "error": "The catalog is busy with another LensLedger change. No names were merged; wait a moment and try again.",
+                }, 409)
+            return self.send_json({"error": str(exc)}, 500)
         except Exception as exc:
             return self.send_json({"error": str(exc)}, 500)
 
@@ -1572,7 +1582,27 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             "updated_photos": len(affected), "published": len(published),
         })
 
+    @classmethod
+    def _assert_catalog_idle_for_people_merge(cls) -> None:
+        jobs = (
+            (cls.library_lock, cls.library_job, {"scanning", "cancelling"}, "library scan"),
+            (cls.ocr_lock, cls.ocr_job, {"running", "cancelling"}, "OCR"),
+            (cls.semantic_lock, cls.semantic_job, {"running", "cancelling"}, "meaning indexing"),
+        )
+        for lock, job, active_states, label in jobs:
+            with lock:
+                if str(job.get("state", "")).casefold() in active_states:
+                    raise ValueError(f"wait for {label} to finish before merging people")
+
     def merge_people(self, body):
+        if not type(self).people_merge_lock.acquire(blocking=False):
+            raise ValueError("another People merge is already in progress")
+        try:
+            return self._merge_people(body)
+        finally:
+            type(self).people_merge_lock.release()
+
+    def _merge_people(self, body):
         """Merge duplicate person records into one chosen primary record."""
         try:
             target_id = int(body["target_person_id"])
@@ -1595,6 +1625,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             raise ValueError("choose at least one other name to merge")
         if len(source_ids) > 50:
             raise ValueError("merge at most 50 names at a time")
+        type(self)._assert_catalog_idle_for_people_merge()
 
         all_ids = [target_id, *source_ids]
         placeholders = ",".join("?" for _ in all_ids)
@@ -1606,6 +1637,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         database_backup = ""
         try:
             with self.db() as con:
+                con.execute("BEGIN IMMEDIATE")
                 rows = con.execute(
                     f"SELECT id,name FROM people WHERE id IN ({placeholders})", all_ids
                 ).fetchall()
