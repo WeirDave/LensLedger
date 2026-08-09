@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.22.3 — 2026-08-09
+
+- State explicitly in the People page, Edit names dialog, and README that
+  commas separate alternate names.
+
 ## 0.22.2 — 2026-08-09
 
 - Make People merges resilient to transient SQLite locks by waiting safely for

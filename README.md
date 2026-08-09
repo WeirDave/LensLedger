@@ -52,6 +52,12 @@ deeper metadata analysis waits until those files are locally available.
 - Library health, verified backups, and resumable local OCR from the viewer
 - Verified, user-approved updates with clean replacement and rollback copies
 
+## People names
+
+In the **People** view, choose **Edit names** to change a primary name or add
+alternate searchable names such as a nickname, maiden name, or `Me`. Enter one
+alternate name at a time, separating multiple names with commas.
+
 ## Quick start
 
 ### Windows release
