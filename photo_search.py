@@ -4,13 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import datetime as dt
-import hashlib
 import html
 import json
 import mimetypes
-import os
 import re
 import secrets
 import shutil
@@ -19,17 +16,18 @@ import subprocess
 import threading
 import urllib.parse
 import webbrowser
-import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from PIL import ExifTags, Image, IptcImagePlugin
-
 from app_paths import (
-    backup_root, database_backup_root, default_library_root, libraries_root,
-    review_bin_root, settings_path,
+    backup_root, database_backup_root, review_bin_root,
 )
 from face_learning import learn as learn_faces
+from library_config import (
+    choose_library_folder, library_db_path, load_library_config, load_library_state,
+    save_library_state, suggested_library_roots,
+)
+from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
     SCHEMA_VERSION, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
@@ -47,9 +45,6 @@ PAGE_SIZE = 250
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg"}
 EXIFTOOL_PATH = Path(__file__).parent / "tools" / "ExifTool" / "ExifTool.exe"
 BACKUP_ROOT = backup_root()
-LIBRARY_STATE_PATH = settings_path()
-LIBRARY_DATABASE_ROOT = libraries_root()
-DEFAULT_LIBRARY_ROOT = default_library_root()
 
 
 def clean_tag(value: str) -> str:
@@ -65,145 +60,6 @@ def split_tags(value: str) -> list[str]:
             result.append(tag)
             seen.add(tag.casefold())
     return result
-
-
-def _text_value(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        value = value.decode("utf-8", errors="replace").strip("\x00")
-    return str(value).strip()
-
-
-def _gps_decimal(values, reference: str) -> float | None:
-    try:
-        degrees, minutes, seconds = (float(part) for part in values)
-        result = degrees + minutes / 60 + seconds / 3600
-        return -result if reference.upper() in {"S", "W"} else result
-    except (TypeError, ValueError, ZeroDivisionError):
-        return None
-
-
-def _xmp_fields(image: Image.Image) -> dict[str, str]:
-    wanted = {
-        "title": "Title", "headline": "Headline", "description": "Description", "subject": "Embedded keywords",
-        "creator": "Creator", "rights": "Copyright", "personinimage": "People shown",
-        "event": "Event", "location": "Location", "city": "City",
-        "state": "State / province", "country": "Country",
-    }
-    found: dict[str, list[str]] = {}
-    for marker, payload in getattr(image, "applist", []):
-        if marker != "APP1" or b"ns.adobe.com/xap" not in payload:
-            continue
-        start = payload.find(b"<")
-        if start < 0:
-            continue
-        try:
-            root = ET.fromstring(payload[start:])
-        except ET.ParseError:
-            continue
-        for element in root.iter():
-            local = element.tag.rsplit("}", 1)[-1].casefold()
-            namespace = element.tag[1:].split("}", 1)[0] if element.tag.startswith("{") else ""
-            # rdf:Description is only an XML container. Treating it as
-            # dc:description incorrectly copied descendant keywords into the
-            # photo description (for example, the old "Fast food" tag).
-            if local in wanted and "rdf-syntax-ns" not in namespace:
-                values = [_text_value(node.text) for node in element.iter() if node.tag.rsplit("}", 1)[-1] == "li" and node.text]
-                if not values and element.text and element.text.strip():
-                    values = [_text_value(element.text)]
-                found.setdefault(wanted[local], []).extend(value for value in values if value)
-            for name, value in element.attrib.items():
-                attr_local = name.rsplit("}", 1)[-1].casefold()
-                if attr_local in wanted and _text_value(value):
-                    found.setdefault(wanted[attr_local], []).append(_text_value(value))
-    return {label: ", ".join(dict.fromkeys(values)) for label, values in found.items() if values}
-
-
-def read_embedded_metadata(path: Path) -> dict[str, list[dict[str, str]]]:
-    descriptive: dict[str, str] = {}
-    capture: dict[str, str] = {}
-    gps_link = ""
-    if path.suffix.lower() not in {".jpg", ".jpeg", ".tif", ".tiff", ".png", ".webp"}:
-        return {"descriptive": [], "capture": [], "description": ""}
-    try:
-        with Image.open(path) as image:
-            exif = image.getexif()
-            main = {ExifTags.TAGS.get(key, key): value for key, value in exif.items()}
-            for source, label in (("ImageDescription", "Description"), ("Artist", "Creator"), ("Copyright", "Copyright")):
-                if source in main and _text_value(main[source]):
-                    descriptive[label] = _text_value(main[source])
-            make = _text_value(main.get("Make", "")); model = _text_value(main.get("Model", ""))
-            if make or model:
-                capture["Camera"] = " ".join(part for part in (make, model) if part)
-            if _text_value(main.get("Software", "")):
-                capture["Software"] = _text_value(main["Software"])
-
-            try:
-                details = {ExifTags.TAGS.get(key, key): value for key, value in exif.get_ifd(ExifTags.IFD.Exif).items()}
-            except (KeyError, TypeError, ValueError):
-                details = {}
-            capture_date = details.get("DateTimeOriginal") or main.get("DateTime")
-            if capture_date:
-                date_text = _text_value(capture_date)
-                capture["Date taken"] = date_text[:10].replace(":", "-") + date_text[10:]
-            for source, label in (("LensModel", "Lens"), ("ISOSpeedRatings", "ISO"), ("PhotographicSensitivity", "ISO")):
-                if source in details and label not in capture:
-                    capture[label] = _text_value(details[source])
-            if "ExposureTime" in details:
-                exposure = float(details["ExposureTime"])
-                capture["Exposure"] = f"1/{round(1 / exposure)} s" if 0 < exposure < 1 else f"{exposure:g} s"
-            if "FNumber" in details:
-                capture["Aperture"] = f"f/{float(details['FNumber']):g}"
-            if "FocalLength" in details:
-                capture["Focal length"] = f"{float(details['FocalLength']):g} mm"
-
-            try:
-                gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
-                latitude = _gps_decimal(gps.get(2), _text_value(gps.get(1, "")))
-                longitude = _gps_decimal(gps.get(4), _text_value(gps.get(3, "")))
-                if latitude is not None and longitude is not None:
-                    capture["GPS"] = f"{latitude:.6f}, {longitude:.6f}"
-                    gps_link = f"https://www.openstreetmap.org/?mlat={latitude:.6f}&mlon={longitude:.6f}#map=16/{latitude:.6f}/{longitude:.6f}"
-            except (KeyError, TypeError, ValueError):
-                pass
-
-            iptc = IptcImagePlugin.getiptcinfo(image) or {}
-            iptc_map = {
-                (2, 5): "Title", (2, 80): "Creator", (2, 90): "City",
-                (2, 92): "Location", (2, 95): "State / province", (2, 101): "Country",
-                (2, 105): "Headline", (2, 116): "Copyright", (2, 120): "Description",
-            }
-            for key, label in iptc_map.items():
-                value = iptc.get(key)
-                if value:
-                    values = value if isinstance(value, list) else [value]
-                    descriptive[label] = ", ".join(_text_value(item) for item in values if _text_value(item))
-            keywords = iptc.get((2, 25))
-            if keywords:
-                values = keywords if isinstance(keywords, list) else [keywords]
-                descriptive["Embedded keywords"] = ", ".join(_text_value(item) for item in values if _text_value(item))
-            descriptive.update(_xmp_fields(image))
-    except (OSError, ValueError):
-        pass
-    return {
-        "descriptive": [{"label": label, "value": value} for label, value in descriptive.items()],
-        "capture": [
-            {"label": label, "value": value, **({"href": gps_link} if label == "GPS" and gps_link else {})}
-            for label, value in capture.items()
-        ],
-        "description": descriptive.get("Description", ""),
-    }
-
-
-def _pixel_hash(path: Path) -> str:
-    """Hash decoded pixels so metadata-only publishing cannot alter the picture."""
-    with Image.open(path) as image:
-        image.load()
-        digest = hashlib.sha256()
-        digest.update(f"{image.mode}:{image.size[0]}x{image.size[1]}".encode("ascii"))
-        digest.update(image.tobytes())
-        return digest.hexdigest()
 
 
 def _run_exiftool(arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -227,113 +83,6 @@ def _exiftool_values(path: Path) -> dict[str, object]:
     ])
     rows = json.loads(result.stdout)
     return rows[0] if rows else {}
-
-
-def library_db_path(root: Path) -> Path:
-    root = root.resolve()
-    if root == DEFAULT_LIBRARY_ROOT.resolve():
-        return LIBRARY_DATABASE_ROOT / "default.sqlite3"
-    label = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name).strip("-") or "photo-library"
-    digest = hashlib.sha256(str(root).casefold().encode("utf-8")).hexdigest()[:12]
-    return LIBRARY_DATABASE_ROOT / f"{label}-{digest}.sqlite3"
-
-
-def load_library_state() -> Path:
-    config = load_library_config()
-    value = config.get("current_root", "")
-    if value:
-        root = Path(value).resolve()
-        if root.is_dir():
-            return root
-    return DEFAULT_LIBRARY_ROOT.resolve()
-
-
-def load_library_config() -> dict[str, object]:
-    try:
-        value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
-        if isinstance(value, dict):
-            current = str(value.get("current_root") or value.get("root") or "")
-            libraries = value.get("libraries", [])
-            if not isinstance(libraries, list):
-                libraries = []
-            normalized = []
-            for item in libraries:
-                if not isinstance(item, str) or not item.strip():
-                    continue
-                candidate = Path(item)
-                if candidate.is_dir():
-                    normalized.append(str(candidate.resolve()))
-            if current and Path(current).is_dir() and str(Path(current).resolve()) not in normalized:
-                normalized.insert(0, str(Path(current).resolve()))
-            return {"current_root": current, "libraries": normalized}
-    except (OSError, ValueError, json.JSONDecodeError):
-        pass
-    return {"current_root": "", "libraries": []}
-
-
-def save_library_state(root: Path) -> None:
-    LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    config = load_library_config()
-    libraries = [str(Path(item).resolve()) for item in config.get("libraries", [])]
-    root_text = str(root.resolve())
-    libraries = [item for item in libraries if item.casefold() != root_text.casefold()]
-    libraries.insert(0, root_text)
-    temporary = LIBRARY_STATE_PATH.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"current_root": root_text, "libraries": libraries}, indent=2), encoding="utf-8")
-    temporary.replace(LIBRARY_STATE_PATH)
-
-
-def suggested_library_roots() -> list[dict[str, str]]:
-    candidates: list[tuple[str, Path]] = [
-        ("Pictures", Path.home() / "Pictures"),
-        ("Dropbox Photos", Path.home() / "Dropbox" / "Photos"),
-        ("Dropbox Camera Uploads", Path.home() / "Dropbox" / "Camera Uploads"),
-    ]
-    for variable, label in (("OneDrive", "OneDrive Pictures"), ("Dropbox", "Dropbox Photos")):
-        value = os.environ.get(variable, "").strip()
-        if value:
-            candidates.append((label, Path(value) / "Pictures" if variable == "OneDrive" else Path(value) / "Photos"))
-    if os.name == "nt":
-        for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
-            root = Path(f"{letter}:\\")
-            try:
-                if root.is_dir() and ctypes.windll.kernel32.GetDriveTypeW(str(root)) == 2:
-                    candidates.append((f"Removable drive {letter}:", root))
-            except (AttributeError, OSError):
-                pass
-    result: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for label, path in candidates:
-        try:
-            resolved = path.resolve()
-        except OSError:
-            continue
-        key = str(resolved).casefold()
-        if resolved.is_dir() and key not in seen:
-            result.append({"label": label, "path": str(resolved)})
-            seen.add(key)
-    return result
-
-
-def choose_library_folder() -> str:
-    script = """
-Add-Type -AssemblyName System.Windows.Forms
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Choose a photo library folder'
-$dialog.UseDescriptionForTitle = $true
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    Write-Output $dialog.SelectedPath
-}
-"""
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=600, check=False,
-    )
-    if result.returncode:
-        raise ValueError((result.stderr or "The folder chooser could not open").strip())
-    return result.stdout.strip()
 
 
 class SearchHandler(BaseHTTPRequestHandler):

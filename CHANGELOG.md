@@ -19,6 +19,8 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
   same difficult identity does not block later people across sessions.
 - Add deterministic semantic-index and background-worker tests that do not
   download a model during CI.
+- Separate embedded-metadata reading, pixel-integrity checks, and per-library
+  configuration from the HTTP server into independently tested service modules.
 
 ## 0.18.0 — 2026-08-09
 

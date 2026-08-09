@@ -147,6 +147,12 @@ OpenCLIP model weights from their upstream host.
 
 ## Development
 
+The localhost server is intentionally thin around focused service modules:
+`photo_index.py` owns catalog and schema work, `metadata_reader.py` owns embedded
+metadata and pixel-integrity checks, `library_config.py` owns per-library state,
+and `semantic_index.py` owns the optional meaning index. This keeps private file
+operations independently testable from the UI.
+
 ```powershell
 python -m unittest discover -s tests -v
 python -m compileall -q .
