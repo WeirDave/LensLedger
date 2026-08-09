@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+
+# LensLedger user data — never commit
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+library-state.json
+Libraries/
+Face Data/
+Metadata Backups/
+Database Backups/
+Review Bin/
+manifests/
+asset-annotations.csv
+folder-tags.csv
+*.log
+
+# Release output
+release-artifacts/
