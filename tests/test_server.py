@@ -91,6 +91,8 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(points["located"], 0)
         with self.get("/map") as response:
             self.assertIn("Photo map", response.read().decode("utf-8"))
+        with self.get("/?scope=people") as response:
+            self.assertIn("Merge people", response.read().decode("utf-8"))
 
     def test_update_status_runs_in_background_and_reports_current_release(self):
         release = {
@@ -247,6 +249,68 @@ class ServerWorkflowTests(unittest.TestCase):
             page = response.read().decode("utf-8")
         self.assertIn("Face being checked", page)
         self.assertIn("ResizeObserver", page)
+
+    def test_merge_people_keeps_aliases_and_strongest_photo_decision(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        target_id = int(con.execute("INSERT INTO people(name) VALUES ('R David Paine III')").lastrowid)
+        source_id = int(con.execute("INSERT INTO people(name) VALUES ('R. David Paine III')").lastrowid)
+        con.execute(
+            "INSERT INTO person_aliases(person_id,alias) VALUES (?,?)",
+            (source_id, "Dave Paine"),
+        )
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+               VALUES (?,?,'suggested',0.80,'test',?)""",
+            (self.asset_id, target_id, utc_now()),
+        )
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+               VALUES (?,?,'confirmed',0.70,'manual',?)""",
+            (self.asset_id, source_id, utc_now()),
+        )
+        action_id = int(con.execute(
+            """INSERT INTO people_review_actions(asset_id,person_id,action,previous_json,created_at)
+               VALUES (?,?, 'confirmed', '{}', ?)""",
+            (self.asset_id, source_id, utc_now()),
+        ).lastrowid)
+        con.commit()
+        con.close()
+
+        with patch.object(
+            self.photo_search.SearchHandler, "_publish_people_metadata",
+            return_value={"path": self.photo, "backup": self.photo, "filename": self.photo.name},
+        ), patch.object(
+            self.photo_search, "learn_faces", return_value={"suggestions": 0},
+        ):
+            result = self.json_response(self.post(
+                "/api/person/merge",
+                {"target_person_id": target_id, "source_person_ids": [source_id]},
+            ))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["person"], "R David Paine III")
+        self.assertEqual(result["merged_names"], ["R. David Paine III"])
+        self.assertEqual(result["published"], 1)
+        con = sqlite3.connect(self.database)
+        try:
+            self.assertIsNone(con.execute("SELECT 1 FROM people WHERE id=?", (source_id,)).fetchone())
+            aliases = [row[0] for row in con.execute(
+                "SELECT alias FROM person_aliases WHERE person_id=? ORDER BY alias", (target_id,)
+            )]
+            self.assertEqual(aliases, ["Dave Paine", "R. David Paine III"])
+            association = con.execute(
+                "SELECT person_id,state,source FROM asset_people WHERE asset_id=?", (self.asset_id,)
+            ).fetchone()
+            self.assertEqual(association, (target_id, "confirmed", "person-merge"))
+            action = con.execute(
+                "SELECT person_id,undone_at FROM people_review_actions WHERE id=?", (action_id,)
+            ).fetchone()
+            self.assertEqual(action[0], target_id)
+            self.assertIsNotNone(action[1])
+        finally:
+            con.close()
 
     def test_optional_semantic_job_and_viewer_scope(self):
         def fake_build(_database, **kwargs):
