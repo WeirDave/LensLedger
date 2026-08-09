@@ -26,11 +26,12 @@ from pathlib import Path
 from PIL import ExifTags, Image, IptcImagePlugin
 
 from app_paths import (
-    backup_root, default_library_root, libraries_root, review_bin_root, settings_path,
+    backup_root, database_backup_root, default_library_root, libraries_root,
+    review_bin_root, settings_path,
 )
 from face_learning import learn as learn_faces
 from photo_index import (
-    connect, extract_xmp_keywords, rebuild_search_row, scan_library,
+    SCHEMA_VERSION, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
@@ -337,6 +338,9 @@ class SearchHandler(BaseHTTPRequestHandler):
     library_lock = threading.Lock()
     library_job: dict[str, object] = {"state": "idle", "message": ""}
     library_cancel = threading.Event()
+    ocr_lock = threading.Lock()
+    ocr_job: dict[str, object] = {"state": "idle", "message": ""}
+    ocr_cancel = threading.Event()
 
     def db(self):
         return connect(self.db_path)
@@ -374,6 +378,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.library_options()
         if url.path == "/api/map/points":
             return self.map_points()
+        if url.path == "/api/diagnostics":
+            return self.diagnostics()
+        if url.path == "/api/ocr/status":
+            return self.ocr_status()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/people-review":
@@ -437,6 +445,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.open_library(body)
             if route == "/api/library/cancel":
                 return self.cancel_library_scan(body)
+            if route == "/api/ocr/start":
+                return self.start_ocr(body)
+            if route == "/api/ocr/cancel":
+                return self.cancel_ocr(body)
+            if route == "/api/database/backup":
+                return self.backup_database(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -755,14 +769,14 @@ form.toolbar{{display:grid;grid-template-columns:minmax(260px,1fr) 190px auto au
 header{{min-height:88px;padding:8px 14px}}.top{{margin-bottom:6px}}.top img{{width:30px;height:30px}}.menu-toggle{{width:34px;height:34px;padding:0;background:#252c3d;font-size:20px}}.summary{{margin-left:auto}}#moveToTrash{{margin-left:8px;background:#7e3340;padding:7px 12px}}form.toolbar{{display:flex;gap:8px;align-items:end}}.search-field{{flex:0 1 480px;min-width:260px}}.scope-field{{flex:0 0 175px}}.date-field{{flex:0 0 145px}}.sort-field{{flex:0 0 145px}}.menu-panel{{display:none;position:fixed;z-index:20;top:50px;left:12px;width:250px;padding:8px;background:#202638;border:1px solid #46506a;border-radius:10px;box-shadow:0 16px 45px #000}}.menu-panel.open{{display:grid;gap:4px}}.menu-panel button{{background:transparent;text-align:left;color:var(--text);padding:10px}}.menu-panel button:hover{{background:#30384b}}.section{{position:relative;padding-top:10px;margin-top:10px}}.section-title{{display:flex;align-items:center;gap:7px;margin-bottom:8px}}.section-title h2{{margin:0}}.info-button{{width:21px;height:21px;padding:0;border-radius:50%;background:#30384b;color:#b9c7da;font-size:13px}}.help-popover{{display:none;position:absolute;z-index:10;right:0;top:34px;width:min(350px,100%);padding:11px 12px;background:#252c3d;border:1px solid #56627d;border-radius:8px;color:#dce4f0;font-size:12px;line-height:1.45;box-shadow:0 12px 30px #000}}.help-popover.open{{display:block}}.editor-compact{{display:flex;align-items:center;gap:7px;margin-top:10px;color:#b8c5d7;font-size:12px}}.editor-compact .info-button{{margin-left:auto}}.metadata-details{{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}}.metadata-details summary{{cursor:pointer;color:#d2daea;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:12px}}.metadata-grid{{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}}.metadata-grid .wide{{grid-column:1/-1}}.metadata-note{{color:var(--muted);font-size:11px;line-height:1.4;margin:8px 0}}.metadata-actions{{display:flex;justify-content:flex-end;margin-top:10px}}.status{{margin-top:8px}}.modal-backdrop{{display:none;position:fixed;z-index:30;inset:0;background:#05070bc9;place-items:center;padding:30px}}.modal-backdrop.open{{display:grid}}.modal{{width:min(680px,100%);max-height:80vh;overflow:auto;background:#1b2030;border:1px solid #46506a;border-radius:12px;padding:20px;box-shadow:0 20px 60px #000}}.modal-head{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}}.modal h2{{margin:0;font-size:19px}}.modal-close{{background:#30384b}}.modal p,.modal li{{color:#c5cede;line-height:1.5}}.trash-list{{display:grid;gap:8px}}.trash-item{{display:flex;align-items:center;gap:10px;padding:10px;background:#22293a;border-radius:8px}}.trash-item .trash-meta{{min-width:0;flex:1}}.trash-item strong,.trash-item small{{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.trash-item small{{color:var(--muted);margin-top:3px}}.trash-empty{{color:var(--muted);padding:15px 0}}
 .metadata-readout{{display:grid;gap:10px;margin-top:10px}}.metadata-group{{display:grid;gap:5px}}.metadata-group h3{{margin:0;color:var(--cyan);font-size:11px;text-transform:uppercase;letter-spacing:.06em}}.metadata-item{{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:5px 0;border-bottom:1px solid #292f40;font-size:12px}}.metadata-item dt{{color:var(--muted)}}.metadata-item dd{{margin:0;word-break:break-word}}.metadata-item a{{color:var(--cyan);text-decoration:none}}.metadata-item a:hover{{text-decoration:underline}}.metadata-empty{{color:var(--muted);font-size:12px;padding:4px 0}}
 .publish-section{{border:1px solid #465d49;border-left:3px solid #58b76b;border-radius:8px;background:#1b2822;padding:11px;margin-top:12px}}.publish-section .section-title{{margin-bottom:6px}}.publish-section label{{font-size:12px;color:#dce7df}}.publish-section textarea{{width:100%;margin-top:5px;min-height:58px}}.publish-actions{{display:flex;gap:8px;align-items:center;margin-top:9px}}.publish-actions .secondary{{margin-left:auto}}.publish-note{{margin:6px 0 0;color:#aebdaf;font-size:11px;line-height:1.4}}.modal.publish-modal{{width:min(1280px,calc(100vw - 40px))}}.preview-table{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}}.preview-table th,.preview-table td{{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #343c50;word-break:normal}}.preview-table th{{color:#9facc0}}.preview-table th:first-child,.preview-table td:first-child{{color:var(--cyan);width:220px;white-space:nowrap}}.confirm-bar{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}}.confirm-bar small{{color:var(--muted);flex:1}}.confirm-buttons{{display:flex;gap:8px;white-space:nowrap}}
-.chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}
+.chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}.diagnostics-panel{{display:grid;gap:13px}}.health-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}.health-summary.ocr-summary{{grid-template-columns:repeat(4,1fr)}}.health-summary div{{background:#222a3a;border-radius:8px;padding:10px}}.health-summary strong{{display:block;font-size:19px;color:var(--cyan)}}.health-summary span{{color:var(--muted);font-size:11px}}.health-paths{{display:grid;gap:5px;color:var(--muted);font-size:11px;word-break:break-all}}.job-card{{background:#111722;border:1px solid #35435f;border-radius:9px;padding:12px}}.job-card h3{{margin:0 0 5px}}.job-card p{{color:var(--muted);margin:0 0 10px}}.job-actions{{display:flex;gap:8px;align-items:center}}.job-actions input{{width:145px}}.job-actions .spacer{{flex:1}}
 .people-browser{{min-height:0;overflow:auto;padding:24px;background:#10141e}}.people-browser-head{{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:18px}}.people-browser-head h2{{font-size:25px;margin:0}}.people-browser-head p{{color:var(--muted);margin:5px 0 0}}.people-head-actions{{display:flex;align-items:center;gap:9px}}.people-head-actions>span{{color:#c5b7ff;background:#2b2544;border-radius:999px;padding:7px 11px;white-space:nowrap}}.people-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding-bottom:30px}}.person-card{{position:relative;overflow:hidden;background:#1b2030;border:1px solid #343d53;border-radius:12px}}.person-card:hover{{border-color:#7656b7;transform:translateY(-1px)}}.person-card a{{display:block;color:inherit;text-decoration:none}}.person-card img,.person-placeholder{{display:block;width:100%;height:180px;object-fit:cover;background:#090b10}}.person-placeholder{{display:grid;place-items:center;font-size:58px;color:#5f6880}}.person-card-info{{display:grid;gap:5px;padding:12px 12px 48px}}.person-card-info strong{{font-size:16px}}.person-card-info small{{color:var(--cyan)}}.person-card-info span{{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.edit-aliases{{position:absolute;left:12px;bottom:10px;padding:6px 9px;background:#30384b;font-size:12px}}.people-empty{{color:var(--muted)}}.people-result-bar{{position:fixed;z-index:4;top:88px;left:12px;background:#202638;border:1px solid #46506a;border-radius:9px;padding:8px 12px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 25px #000}}.people-result-bar a{{color:var(--cyan);text-decoration:none}}.alias-editor{{display:grid;gap:8px}}.alias-editor input{{width:100%}}.people-gallery-mode #moveToTrash,.people-gallery-mode #previousDay,.people-gallery-mode #nextDay,.people-gallery-mode .date-field,.people-gallery-mode .sort-field{{display:none}}.modal.people-review-modal{{width:min(1180px,calc(100vw - 36px));height:min(780px,calc(100vh - 36px));max-height:none;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr)}}.modal.people-review-modal #modalBody{{min-height:0;overflow:hidden}}.people-review{{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px}}.review-progress{{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}}.review-main{{min-height:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.7fr);gap:16px}}.review-image-wrap{{min-width:0;min-height:0;display:grid;place-items:center;background:#090b10;border-radius:10px;overflow:hidden}}.review-image-wrap img{{display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}}.review-controls{{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:5px}}.review-person{{font-size:25px;font-weight:800}}.review-confidence{{color:#d6b77d}}.review-file{{color:var(--muted);font-size:12px;word-break:break-word}}.review-question{{font-size:18px;margin-top:8px}}.review-decisions{{display:grid;grid-template-columns:1fr 1fr;gap:9px}}.review-decisions button{{padding:13px}}.review-yes{{background:#39764b}}.review-no{{background:#873d4b}}.review-correction{{display:grid;gap:7px;border-top:1px solid var(--line);padding-top:12px}}.review-correction .row input{{flex:1}}.review-footer{{display:flex;align-items:center;gap:9px}}.review-footer .review-spacer{{flex:1}}.review-complete{{height:100%;display:grid;place-items:center;text-align:center;color:#cdd6e5}}.review-complete strong{{font-size:25px;display:block;margin-bottom:8px}}
 @media(max-width:950px){{.upper{{grid-template-columns:1fr 320px}}form.toolbar{{grid-template-columns:1fr 170px auto auto}}.optional{{display:none}}}}
 .menu-panel a{{color:var(--text);padding:10px;text-decoration:none;border-radius:7px;font-weight:700}}.menu-panel a:hover{{background:#30384b}}
 </style></head><body class="{body_class}">
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span style="color:#e25c70">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>
 <form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
-<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
+<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="diagnostics">🩺 Library health &amp; OCR</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
 {people_gallery_html}{people_result_bar}<main class="viewer"{viewer_style}><section class="upper"><div class="stage" id="stage"><div class="empty">Choose a photo from the filmstrip</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">ⓘ</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you click Preview &amp; publish for this photo. Nothing is written automatically.</div></div>
@@ -829,10 +843,16 @@ async function openLibraryPanelV2(){{
  body.append(intro,choices,row,actions,status,metrics);openModal('Photo libraries',body);
  try{{const response=await fetch('/api/library/options');const data=await response.json();const entries=[...(data.known||[]).map(x=>({{...x,group:'Previous'}})),...(data.suggestions||[]).map(x=>({{...x,group:'Suggested'}}))];const seen=new Set();for(const item of entries){{if(seen.has(item.path.toLowerCase()))continue;seen.add(item.path.toLowerCase());const button=document.createElement('button');button.className='library-choice';const strong=document.createElement('strong');strong.textContent=item.group+' · '+item.label;const small=document.createElement('small');small.textContent=item.path;button.append(strong,small);button.onclick=()=>input.value=item.path;choices.append(button)}}}}catch(e){{status.textContent=e.message}}
 }}
+async function openDiagnosticsPanel(){{
+ const body=document.createElement('div');body.className='diagnostics-panel';body.innerHTML='<div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><section class="job-card"><h3>Local text recognition (OCR)</h3><p id="ocrMessage">Loading OCR status…</p><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section><div class="job-actions"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div>';openModal('Library health & OCR',body);
+ const metric=(label,value)=>{{const box=document.createElement('div');const strong=document.createElement('strong');strong.textContent=Number(value||0).toLocaleString();const span=document.createElement('span');span.textContent=label;box.append(strong,span);return box}};
+ async function refresh(){{try{{const [diagnostics,ocr]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('OCR with text',c.ocr_with_text),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const running=ocr.state==='running';$('startOcr').disabled=running;$('pauseOcr').disabled=!running;if(running&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
+ $('startOcr').onclick=async()=>{{$('startOcr').disabled=true;try{{await api('/api/ocr/start',{{since:$('ocrSince').value,workers:4}});refresh()}}catch(error){{$('ocrMessage').textContent=error.message;$('startOcr').disabled=false}}}};$('pauseOcr').onclick=async()=>{{try{{await api('/api/ocr/cancel',{{}});$('ocrMessage').textContent='Pausing after active images finish…'}}catch(error){{$('ocrMessage').textContent=error.message}}}};$('backupDatabase').onclick=async()=>{{$('backupDatabase').disabled=true;$('backupStatus').textContent='Creating verified backup…';try{{const result=await api('/api/database/backup',{{}});$('backupStatus').textContent='Saved '+result.path}}catch(error){{$('backupStatus').textContent=error.message}}finally{{$('backupDatabase').disabled=false}}}};refresh()
+}}
 function metadataText(value){{if(Array.isArray(value))return value.join(', ');if(value&&typeof value==='object')return JSON.stringify(value);return value==null?'':String(value)}}
 async function previewPublish(){{if(!currentDetail?.publishable)return;try{{const preview=await api('/api/publish/preview',{{id:selectedId,description:$('publishDescription').value}});const box=document.createElement('div');const intro=document.createElement('p');intro.textContent='Review every destination below. Nothing has been written yet.';const table=document.createElement('table');table.className='preview-table';const head=document.createElement('tr');['File field','Before','After'].forEach(label=>{{const th=document.createElement('th');th.textContent=label;head.append(th)}});table.append(head);const keys=[...new Set([...Object.keys(preview.before),...Object.keys(preview.after)])];keys.forEach(key=>{{const row=document.createElement('tr');[key,metadataText(preview.before[key]),metadataText(preview.after[key])].forEach(value=>{{const cell=document.createElement('td');cell.textContent=value||'—';row.append(cell)}});table.append(row)}});const bar=document.createElement('div');bar.className='confirm-bar';const note=document.createElement('small');note.textContent='A full safety copy is created before writing, and decoded picture pixels must match afterward.';const buttons=document.createElement('div');buttons.className='confirm-buttons';const cancelButton=document.createElement('button');cancelButton.className='secondary';cancelButton.textContent='Cancel';cancelButton.onclick=()=>$('modalBackdrop').classList.remove('open');const confirmButton=document.createElement('button');confirmButton.textContent='Publish this photo';confirmButton.onclick=async()=>{{confirmButton.disabled=true;cancelButton.disabled=true;try{{const result=await api('/api/publish',{{id:selectedId,description:$('publishDescription').value,expected_after:preview.after}});$('modalBackdrop').classList.remove('open');await selectAsset(selectedId);setStatus(result.message)}}catch(e){{confirmButton.disabled=false;cancelButton.disabled=false;setStatus(e.message,true)}}}};buttons.append(cancelButton,confirmButton);bar.append(note,buttons);box.append(intro,table,bar);openModal('Publish metadata to '+currentDetail.filename,box);document.querySelector('.modal').classList.add('publish-modal')}}catch(e){{setStatus(e.message,true)}}}}
 async function restorePublished(){{if(!currentDetail?.can_restore_publish||!confirm('Restore “'+currentDetail.filename+'” from the safety backup made before its last publish?'))return;try{{const result=await api('/api/publish/restore',{{id:selectedId}});await selectAsset(selectedId);setStatus(result.message)}}catch(e){{setStatus(e.message,true)}}}}
-async function openMenuPanel(name){{$('menuPanel').classList.remove('open');if(name==='review-people')return openPeopleReview();if(name==='library')return openLibraryPanelV2();if(name==='guide')return openModal('Quick guide',textPanel(['Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.','Face matches are suggestions until you confirm them. Open Information already in this photo to see readable EXIF, IPTC, and XMP details already stored in the file.']));if(name==='about')return openModal('About LensLedger',textPanel(['LensLedger v{APP_VERSION} — {APP_TAGLINE}','Current photo library: '+currentLibrary,'Each library has a separate index. Approved People-review decisions publish immediately; other edits use Preview & Publish. Every write creates a safety backup and verifies the picture pixels.']));if(name==='trash'){{const body=document.createElement('div');body.className='trash-list';openModal('Trash & restore',body);try{{const r=await fetch('/api/trash');const data=await r.json();if(!data.items.length){{const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty);return}}data.items.forEach(item=>{{const row=document.createElement('div');row.className='trash-item';const meta=document.createElement('div');meta.className='trash-meta';const strong=document.createElement('strong');strong.textContent=item.name;const small=document.createElement('small');small.textContent=item.path;meta.append(strong,small);const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=async()=>{{await api('/api/review-bin/restore',{{review_id:item.id}});location.reload()}};row.append(meta,restore);body.append(row)}})}}catch(e){{body.textContent=e.message}}}}}}
+async function openMenuPanel(name){{$('menuPanel').classList.remove('open');if(name==='review-people')return openPeopleReview();if(name==='library')return openLibraryPanelV2();if(name==='diagnostics')return openDiagnosticsPanel();if(name==='guide')return openModal('Quick guide',textPanel(['Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.','Face matches are suggestions until you confirm them. Open Information already in this photo to see readable EXIF, IPTC, and XMP details already stored in the file.']));if(name==='about')return openModal('About LensLedger',textPanel(['LensLedger v{APP_VERSION} — {APP_TAGLINE}','Current photo library: '+currentLibrary,'Each library has a separate index. Approved People-review decisions publish immediately; other edits use Preview & Publish. Every write creates a safety backup and verifies the picture pixels.']));if(name==='trash'){{const body=document.createElement('div');body.className='trash-list';openModal('Trash & restore',body);try{{const r=await fetch('/api/trash');const data=await r.json();if(!data.items.length){{const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty);return}}data.items.forEach(item=>{{const row=document.createElement('div');row.className='trash-item';const meta=document.createElement('div');meta.className='trash-meta';const strong=document.createElement('strong');strong.textContent=item.name;const small=document.createElement('small');small.textContent=item.path;meta.append(strong,small);const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=async()=>{{await api('/api/review-bin/restore',{{review_id:item.id}});location.reload()}};row.append(meta,restore);body.append(row)}})}}catch(e){{body.textContent=e.message}}}}}}
 function renderFilmstrip(){{const f=$('filmstrip');items.forEach(item=>{{const b=document.createElement('button');b.className='thumb';b.dataset.id=item.id;b.title=item.filename;b.onclick=()=>selectAsset(item.id);if(item.media_type==='image'){{const img=document.createElement('img');img.loading='lazy';img.src='/media?id='+item.id;b.append(img)}}else{{const v=document.createElement('div');v.className='video-label';v.textContent=item.media_type==='raw'?'RAW':'▶ VIDEO';b.append(v)}}const s=document.createElement('span');s.textContent=(item.capture_date||'')+'  '+item.filename;b.append(s);f.append(b)}});{pager_js}}}
 function enableFilmstripDrag(){{const f=$('filmstrip');let active=false,startX=0,startScroll=0,moved=false,suppressClick=false,pointerId=null;f.addEventListener('pointerdown',e=>{{if(e.button!==0||e.target.closest('a'))return;active=true;moved=false;pointerId=e.pointerId;startX=e.clientX;startScroll=f.scrollLeft}});f.addEventListener('pointermove',e=>{{if(!active||e.pointerId!==pointerId)return;const delta=e.clientX-startX;if(!moved&&Math.abs(delta)>5){{moved=true;f.classList.add('dragging');f.setPointerCapture(pointerId)}}if(moved){{f.scrollLeft=startScroll-delta;e.preventDefault()}}}});f.addEventListener('pointerup',e=>{{if(!active||e.pointerId!==pointerId)return;suppressClick=moved;active=false;f.classList.remove('dragging');if(f.hasPointerCapture(pointerId))f.releasePointerCapture(pointerId);pointerId=null;if(suppressClick)setTimeout(()=>suppressClick=false,0)}});f.addEventListener('pointercancel',()=>{{active=false;moved=false;suppressClick=false;f.classList.remove('dragging');pointerId=null}});f.addEventListener('click',e=>{{if(!suppressClick)return;suppressClick=false;e.preventDefault();e.stopPropagation()}},true)}}
 function changeDay(delta){{const input=$('datePicker');let d=input.value?new Date(input.value+'T12:00:00'):new Date();d.setDate(d.getDate()+delta);input.value=d.toISOString().slice(0,10);input.form.submit()}}
@@ -1687,6 +1707,125 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             self._restore_people_batch(published)
             raise
         self.send_json({"ok": True, "published": 1})
+
+    def diagnostics(self):
+        with self.db() as con:
+            integrity = str(con.execute("PRAGMA quick_check").fetchone()[0])
+            schema_version = int(con.execute("PRAGMA user_version").fetchone()[0])
+            counts = {
+                "assets": int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]),
+                "metadata_ready": int(con.execute("SELECT COUNT(*) FROM assets WHERE metadata_scanned=1 AND in_review_bin=0").fetchone()[0]),
+                "mapped": int(con.execute("SELECT COUNT(*) FROM assets WHERE gps_latitude IS NOT NULL AND gps_longitude IS NOT NULL AND in_review_bin=0").fetchone()[0]),
+                "location_pending": int(con.execute("SELECT COUNT(*) FROM assets WHERE location_scanned=0 AND in_review_bin=0").fetchone()[0]),
+                "ocr_complete": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_scanned=1").fetchone()[0]),
+                "ocr_with_text": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_text<>''").fetchone()[0]),
+                "ocr_pending": int(con.execute("""SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
+                    WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0 AND x.ocr_scanned=0""").fetchone()[0]),
+                "ocr_errors": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_error<>''").fetchone()[0]),
+                "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
+                "publications": int(con.execute("SELECT COUNT(*) FROM metadata_publications").fetchone()[0]),
+                "review_bin": int(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0]),
+            }
+            latest = con.execute(
+                """SELECT finished_at,scanned,changed,unchanged,removed,errors,cancelled
+                   FROM runs ORDER BY id DESC LIMIT 1"""
+            ).fetchone()
+        self.send_json({
+            "app_version": APP_VERSION,
+            "schema_version": schema_version,
+            "current_schema": SCHEMA_VERSION,
+            "integrity": integrity,
+            "database": str(type(self).db_path),
+            "database_bytes": type(self).db_path.stat().st_size if type(self).db_path.is_file() else 0,
+            "library": str(type(self).library_root),
+            "counts": counts,
+            "last_scan": dict(latest) if latest else None,
+        })
+
+    def ocr_status(self):
+        with type(self).ocr_lock:
+            job = dict(type(self).ocr_job)
+        self.send_json(job)
+
+    def start_ocr(self, body):
+        workers = max(1, min(8, int(body.get("workers", 4))))
+        since = str(body.get("since", "")).strip() or None
+        if since:
+            dt.date.fromisoformat(since)
+        with type(self).ocr_lock:
+            if type(self).ocr_job.get("state") == "running":
+                raise ValueError("OCR is already running")
+            with type(self).library_lock:
+                if type(self).library_job.get("state") == "scanning":
+                    raise ValueError("wait for the library scan to finish before starting OCR")
+            type(self).ocr_job = {
+                "state": "running", "message": "Preparing local text recognition…",
+                "total": 0, "attempted": 0, "with_text": 0, "errors": 0,
+            }
+            type(self).ocr_cancel.clear()
+        handler_class = type(self)
+        database = handler_class.db_path
+
+        def worker():
+            try:
+                def update_progress(counts):
+                    with handler_class.ocr_lock:
+                        handler_class.ocr_job = {
+                            "state": "running",
+                            "message": f"Processed {int(counts['attempted']):,} of {int(counts['total']):,} images…",
+                            **counts,
+                        }
+
+                result = ocr_assets(
+                    database, since, workers, progress=update_progress,
+                    should_cancel=handler_class.ocr_cancel.is_set,
+                )
+                with handler_class.ocr_lock:
+                    current = dict(handler_class.ocr_job)
+                    state = "cancelled" if result == 3 else "complete"
+                    current.update({
+                        "state": state,
+                        "message": "OCR paused safely. Start it again to resume." if result == 3
+                        else "OCR pass complete.",
+                    })
+                    handler_class.ocr_job = current
+            except Exception as exc:
+                with handler_class.ocr_lock:
+                    handler_class.ocr_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-ocr", daemon=True).start()
+        self.send_json({"ok": True, "state": "running"}, 202)
+
+    def cancel_ocr(self, _body):
+        with type(self).ocr_lock:
+            if type(self).ocr_job.get("state") != "running":
+                raise ValueError("OCR is not running")
+            type(self).ocr_cancel.set()
+            type(self).ocr_job["message"] = "Pausing after active images finish…"
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
+
+    def backup_database(self, _body):
+        source_path = type(self).db_path.resolve()
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        destination = (database_backup_root() / f"{source_path.stem}-{stamp}.sqlite3").resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.relative_to(database_backup_root().resolve())
+        source = sqlite3.connect(source_path)
+        target = sqlite3.connect(destination)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+        check = sqlite3.connect(destination)
+        try:
+            integrity = str(check.execute("PRAGMA quick_check").fetchone()[0])
+        finally:
+            check.close()
+        if integrity != "ok":
+            destination.unlink(missing_ok=True)
+            raise ValueError("database backup verification failed")
+        self.send_json({"ok": True, "path": str(destination), "bytes": destination.stat().st_size})
 
     def library_status(self):
         with type(self).library_lock:

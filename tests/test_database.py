@@ -137,6 +137,51 @@ class DatabaseTests(unittest.TestCase):
         con.close()
         self.assertEqual(rows, [("camera.dng", "raw")])
 
+    def test_ocr_can_pause_resume_and_remembers_images_without_text(self):
+        from photo_index import ocr_assets, scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        for name in ("one.jpg", "two.jpg", "three.jpg"):
+            (library / name).write_bytes(name.encode("ascii"))
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+
+        cancel = {"value": False}
+
+        def progress(counts):
+            if counts["attempted"] >= 1:
+                cancel["value"] = True
+
+        def fake_ocr(_script, path):
+            text = "recognized words" if path.endswith("one.jpg") else ""
+            return path, text, None
+
+        with patch("photo_index.run_windows_ocr", side_effect=fake_ocr) as worker:
+            self.assertEqual(
+                ocr_assets(
+                    database, None, 1, progress=progress,
+                    should_cancel=lambda: cancel["value"],
+                ),
+                3,
+            )
+            self.assertEqual(worker.call_count, 1)
+
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT SUM(ocr_scanned) FROM text_data").fetchone()[0], 1)
+        con.close()
+
+        with patch("photo_index.run_windows_ocr", side_effect=fake_ocr) as worker:
+            self.assertEqual(ocr_assets(database, None, 2), 0)
+            self.assertEqual(worker.call_count, 2)
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT SUM(ocr_scanned) FROM text_data").fetchone()[0], 3)
+        con.close()
+
+        with patch("photo_index.run_windows_ocr") as worker:
+            self.assertEqual(ocr_assets(database, None, 2), 0)
+            worker.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -39,6 +40,8 @@ class ServerWorkflowTests(unittest.TestCase):
         photo_search.SearchHandler.csrf_token = "test-csrf"
         photo_search.SearchHandler.library_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.library_cancel.clear()
+        photo_search.SearchHandler.ocr_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.ocr_cancel.clear()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), photo_search.SearchHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -130,6 +133,34 @@ class ServerWorkflowTests(unittest.TestCase):
             self.get(f"/media?id={self.asset_id}")
         self.assertEqual(rejected.exception.code, 403)
         rejected.exception.close()
+
+    def test_diagnostics_verified_backup_and_background_ocr(self):
+        diagnostics = self.json_response(self.get("/api/diagnostics"))
+        self.assertEqual(diagnostics["integrity"], "ok")
+        self.assertEqual(diagnostics["schema_version"], diagnostics["current_schema"])
+        self.assertEqual(diagnostics["counts"]["ocr_pending"], 1)
+
+        with patch(
+            "photo_index.run_windows_ocr",
+            return_value=(str(self.photo), "sample recognized text", None),
+        ):
+            started = self.json_response(self.post("/api/ocr/start", {"workers": 1}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(100):
+                status = self.json_response(self.get("/api/ocr/status"))
+                if status["state"] != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(status["state"], "complete")
+            self.assertEqual(status["attempted"], 1)
+
+        backup = self.json_response(self.post("/api/database/backup", {}))
+        backup_path = Path(backup["path"])
+        self.assertTrue(backup_path.is_file())
+        self.assertTrue(backup_path.is_relative_to(self.data / "Database Backups"))
+        con = sqlite3.connect(backup_path)
+        self.assertEqual(con.execute("PRAGMA quick_check").fetchone()[0], "ok")
+        con.close()
 
 
 if __name__ == "__main__":

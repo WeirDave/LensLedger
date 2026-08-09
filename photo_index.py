@@ -33,7 +33,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
     rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS asset_tags (
 CREATE TABLE IF NOT EXISTS text_data (
     asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
     ocr_text TEXT NOT NULL DEFAULT '',
+    ocr_scanned INTEGER NOT NULL DEFAULT 0,
+    ocr_error TEXT NOT NULL DEFAULT '',
     caption TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT ''
 );
@@ -252,6 +254,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
     run_columns = {row[1] for row in con.execute("PRAGMA table_info(runs)")}
     if "cancelled" not in run_columns:
         con.execute("ALTER TABLE runs ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
+    text_columns = {row[1] for row in con.execute("PRAGMA table_info(text_data)")}
+    if "ocr_scanned" not in text_columns:
+        con.execute("ALTER TABLE text_data ADD COLUMN ocr_scanned INTEGER NOT NULL DEFAULT 0")
+        con.execute("UPDATE text_data SET ocr_scanned=1 WHERE ocr_text<>''")
+    if "ocr_error" not in text_columns:
+        con.execute("ALTER TABLE text_data ADD COLUMN ocr_error TEXT NOT NULL DEFAULT ''")
     con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     con.commit()
     return con
@@ -640,12 +648,18 @@ def run_windows_ocr(script: Path, path: str) -> tuple[str, str, str | None]:
     return path, " ".join(completed.stdout.split()), None
 
 
-def ocr_assets(db_path: Path, since: str | None, workers: int) -> int:
+def ocr_assets(
+    db_path: Path,
+    since: str | None,
+    workers: int,
+    progress: Callable[[dict[str, int | bool]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> int:
     con = connect(db_path)
     sql = """
         SELECT a.id, a.path FROM assets a
         JOIN text_data x ON x.asset_id = a.id
-        WHERE a.media_type='image' AND a.metadata_scanned=1 AND x.ocr_text=''
+        WHERE a.media_type='image' AND a.metadata_scanned=1 AND x.ocr_scanned=0
     """
     params: list[str] = []
     if since:
@@ -655,32 +669,82 @@ def ocr_assets(db_path: Path, since: str | None, workers: int) -> int:
         params.append(since)
     sql += " ORDER BY a.capture_date, a.relative_path"
     rows = con.execute(sql, params).fetchall()
-    by_path = {row["path"]: int(row["id"]) for row in rows}
     script = Path(__file__).with_name("windows_ocr.ps1")
-    completed_count = text_count = error_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        futures = [pool.submit(run_windows_ocr, script, path) for path in by_path]
-        for future in concurrent.futures.as_completed(futures):
-            path, text, error = future.result()
-            asset_id = by_path[path]
-            completed_count += 1
-            if error:
-                error_count += 1
-                print(f"OCR_ERROR\t{path}\t{error}", file=sys.stderr)
-                continue
-            if text:
-                text_count += 1
-            con.execute("UPDATE text_data SET ocr_text=? WHERE asset_id=?", (text, asset_id))
-            rebuild_search_row(con, asset_id)
-            if completed_count % 20 == 0:
-                con.commit()
-                print(f"ocr progress: {completed_count}/{len(rows)}", file=sys.stderr)
+    counts: dict[str, int | bool] = {
+        "total": len(rows), "attempted": 0, "with_text": 0,
+        "errors": 0, "cancelled": False,
+    }
+
+    def report() -> None:
+        if progress:
+            progress(dict(counts))
+
+    worker_count = max(1, workers)
+    pending_rows = iter(rows)
+    report()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
+        futures: dict[concurrent.futures.Future, tuple[int, str]] = {}
+
+        def submit_next() -> bool:
+            try:
+                row = next(pending_rows)
+            except StopIteration:
+                return False
+            asset_id, path = int(row["id"]), str(row["path"])
+            futures[pool.submit(run_windows_ocr, script, path)] = (asset_id, path)
+            return True
+
+        for _ in range(min(worker_count, len(rows))):
+            submit_next()
+        while futures:
+            if should_cancel and should_cancel():
+                counts["cancelled"] = True
+                for future in futures:
+                    future.cancel()
+                break
+            done, _ = concurrent.futures.wait(
+                futures, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            for future in done:
+                asset_id, expected_path = futures.pop(future)
+                path, text, error = future.result()
+                counts["attempted"] += 1
+                if error:
+                    counts["errors"] += 1
+                    con.execute(
+                        "UPDATE text_data SET ocr_error=? WHERE asset_id=?",
+                        (error[:1000], asset_id),
+                    )
+                    print(f"OCR_ERROR\t{path or expected_path}\t{error}", file=sys.stderr)
+                else:
+                    if text:
+                        counts["with_text"] += 1
+                    con.execute(
+                        "UPDATE text_data SET ocr_text=?,ocr_scanned=1,ocr_error='' WHERE asset_id=?",
+                        (text, asset_id),
+                    )
+                    rebuild_search_row(con, asset_id)
+                if int(counts["attempted"]) % 20 == 0:
+                    con.commit()
+                    print(f"ocr progress: {counts['attempted']}/{len(rows)}", file=sys.stderr)
+                report()
+                if not (should_cancel and should_cancel()):
+                    submit_next()
+            if should_cancel and should_cancel():
+                counts["cancelled"] = True
+                for future in futures:
+                    future.cancel()
+                break
     con.commit()
     con.close()
-    print(f"ocr attempted: {completed_count}")
-    print(f"ocr with text: {text_count}")
-    print(f"ocr errors: {error_count}")
-    return 0 if error_count == 0 else 2
+    report()
+    print(f"ocr attempted: {counts['attempted']}")
+    print(f"ocr with text: {counts['with_text']}")
+    print(f"ocr errors: {counts['errors']}")
+    print(f"ocr cancelled: {counts['cancelled']}")
+    if counts["cancelled"]:
+        return 3
+    return 0 if counts["errors"] == 0 else 2
 
 
 def import_face_db(db_path: Path, tsv_path: Path) -> int:
