@@ -48,21 +48,59 @@ deeper metadata analysis waits until those files are locally available.
 - Local face profiles that never confirm identities automatically
 - Per-user data storage, separate from application source and photo folders
 - Library health, verified backups, and resumable local OCR from the viewer
+- Verified, user-approved updates with clean replacement and rollback copies
 
 ## Quick start
 
 ### Windows release
 
 1. Download `LensLedger-vX.Y.Z.zip` from the [latest release](https://github.com/WeirDave/LensLedger/releases/latest).
-2. Extract the ZIP to a permanent folder.
+2. Extract the ZIP to a temporary folder.
 3. Install [Python 3.11 or newer](https://www.python.org/downloads/) and select **Add Python to PATH** during setup.
-4. Double-click **Start LensLedger.cmd**. On first launch it installs the small
-   Python requirements if they are not already present.
-5. Choose the photo folder you want to inventory and select **Build my library**.
-6. Review the scan report, then select **Open my library**.
+4. Double-click **Install LensLedger.cmd**. LensLedger installs into your private
+   per-user Programs folder and starts automatically. The extracted ZIP can then
+   be deleted.
+5. On first launch it installs the small Python requirements if they are not
+   already present.
+6. Choose the photo folder you want to inventory and select **Build my library**.
+7. Review the scan report, then select **Open my library**.
 
 LensLedger opens a localhost-only viewer at `http://127.0.0.1:5309`. Keep the
 terminal window open while using the application.
+
+### Updates and rollback
+
+LensLedger checks for a newer GitHub release when the viewer opens and at most
+once every six hours while it remains in use. It only shows a notification; an
+update is never installed until you open **Check for updates** and approve it.
+
+The updater downloads the release through GitHub's release API, verifies the
+asset against GitHub's SHA-256 digest, rejects unsafe ZIP paths, validates the
+required application files and version, then stages the release separately.
+It never replaces a Git checkout or an existing unmanaged folder. Managed
+installations are replaced as a complete directory, and the prior version is
+kept beside the installation as `LensLedger.previous-...` for rollback.
+
+The managed application is installed under:
+
+```text
+%LOCALAPPDATA%\Programs\LensLedger\
+```
+
+Runtime data remains separately stored under `%LOCALAPPDATA%\LensLedger\` and
+is not part of application replacement. Private repositories require an
+existing GitHub CLI login (`gh auth login`) or a `LENSLEDGER_GITHUB_TOKEN`.
+
+To migrate a pre-v0.16 copy whose database still lives beside the application,
+pass that old folder to the installer:
+
+```powershell
+& '.\Install LensLedger.cmd' 'C:\path\to\old\LensLedger'
+```
+
+The installer creates a consistent SQLite backup in the new data location,
+upgrades and verifies it, registers the detected photo-library root, and leaves
+the entire legacy installation unchanged.
 
 ### Run from source
 
