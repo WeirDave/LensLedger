@@ -159,7 +159,11 @@ class ServerWorkflowTests(unittest.TestCase):
         backup = self.json_response(self.post("/api/database/backup", {}))
         backup_path = Path(backup["path"])
         self.assertTrue(backup_path.is_file())
-        self.assertTrue(backup_path.is_relative_to(self.data / "Database Backups"))
+        # Hosted Windows runners may report the temp root once via its 8.3 alias
+        # and once via its expanded user name; compare canonical paths.
+        self.assertTrue(
+            backup_path.resolve().is_relative_to((self.data / "Database Backups").resolve())
+        )
         con = sqlite3.connect(backup_path)
         self.assertEqual(con.execute("PRAGMA quick_check").fetchone()[0], "ok")
         con.close()
