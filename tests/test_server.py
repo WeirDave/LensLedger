@@ -293,6 +293,7 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(result["person"], "R David Paine III")
         self.assertEqual(result["merged_names"], ["R. David Paine III"])
         self.assertEqual(result["published"], 1)
+        self.assertTrue(Path(result["database_backup"]).is_file())
         con = sqlite3.connect(self.database)
         try:
             self.assertIsNone(con.execute("SELECT 1 FROM people WHERE id=?", (source_id,)).fetchone())

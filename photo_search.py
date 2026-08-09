@@ -88,6 +88,31 @@ def _exiftool_values(path: Path) -> dict[str, object]:
     return rows[0] if rows else {}
 
 
+def create_verified_database_backup(db_path: Path) -> Path:
+    """Create an SQLite online backup and refuse to keep an invalid copy."""
+    source_path = db_path.resolve()
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    destination = (database_backup_root() / f"{source_path.stem}-{stamp}.sqlite3").resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.relative_to(database_backup_root().resolve())
+    source = sqlite3.connect(source_path)
+    target = sqlite3.connect(destination)
+    try:
+        source.backup(target)
+    finally:
+        target.close()
+        source.close()
+    check = sqlite3.connect(destination)
+    try:
+        integrity = str(check.execute("PRAGMA quick_check").fetchone()[0])
+    finally:
+        check.close()
+    if integrity != "ok":
+        destination.unlink(missing_ok=True)
+        raise ValueError("database backup verification failed")
+    return destination
+
+
 class SearchHandler(BaseHTTPRequestHandler):
     db_path: Path
     library_root: Path
@@ -1578,6 +1603,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         affected_asset_ids: list[int] = []
         target_name = ""
         source_names: list[str] = []
+        database_backup = ""
         try:
             with self.db() as con:
                 rows = con.execute(
@@ -1616,6 +1642,8 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                     ).fetchone()
                     if name_conflict or alias_conflict:
                         raise ValueError(f"“{name}” already belongs to another person")
+
+                database_backup = str(create_verified_database_backup(self.db_path))
 
                 association_rows = con.execute(
                     f"""SELECT asset_id,person_id,state,confidence,face_id,source,updated_at
@@ -1729,6 +1757,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             "aliases": retained_names,
             "updated_photos": len(affected_asset_ids),
             "published": len(published),
+            "database_backup": database_backup,
             "suggestions": suggestions,
             "learning_error": learning_error,
         })
@@ -2037,26 +2066,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         self.send_json({"ok": True, "state": "cancelling"}, 202)
 
     def backup_database(self, _body):
-        source_path = type(self).db_path.resolve()
-        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        destination = (database_backup_root() / f"{source_path.stem}-{stamp}.sqlite3").resolve()
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.relative_to(database_backup_root().resolve())
-        source = sqlite3.connect(source_path)
-        target = sqlite3.connect(destination)
-        try:
-            source.backup(target)
-        finally:
-            target.close()
-            source.close()
-        check = sqlite3.connect(destination)
-        try:
-            integrity = str(check.execute("PRAGMA quick_check").fetchone()[0])
-        finally:
-            check.close()
-        if integrity != "ok":
-            destination.unlink(missing_ok=True)
-            raise ValueError("database backup verification failed")
+        destination = create_verified_database_backup(type(self).db_path)
         self.send_json({"ok": True, "path": str(destination), "bytes": destination.stat().st_size})
 
     def library_status(self):
