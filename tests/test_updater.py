@@ -161,7 +161,7 @@ class UpdaterTests(unittest.TestCase):
             shutil.copy2(library / "two.jpg", metadata_backups / "two.jpg")
             with closing(sqlite3.connect(database)) as con:
                 asset_id = con.execute(
-                    "SELECT id FROM assets WHERE path = ?", (str(library / "one.jpg"),)
+                    "SELECT id FROM assets WHERE filename = ?", ("one.jpg",)
                 ).fetchone()[0]
                 con.execute(
                     "UPDATE assets SET path = ?, in_review_bin = 1 WHERE id = ?",
