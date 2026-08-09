@@ -138,6 +138,42 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
             self.assertEqual(updater.read_tree_version(target), "0.19.0")
 
+    def test_legacy_launcher_handoff_preserves_original_and_can_be_refreshed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "runtime"
+            managed = make_release_tree(root / "Programs" / "LensLedger", "0.20.0")
+            (managed / updater.MARKER_NAME).write_text(json.dumps({
+                "managed_by": "LensLedger updater", "version": "0.20.0",
+            }), encoding="utf-8")
+            legacy = root / "legacy-install"
+            legacy.mkdir()
+            (legacy / "photo_search.py").write_text("legacy app\n", encoding="utf-8")
+            original = "@echo off\npython photo_search.py\n"
+            start = legacy / "Start LensLedger.cmd"
+            start.write_text(original, encoding="utf-8")
+
+            with patch.dict(os.environ, {"LENSLEDGER_DATA_DIR": str(runtime)}):
+                result = updater.handoff_legacy_launcher(legacy, managed)
+                self.assertEqual(result["status"], "handed_off")
+                self.assertEqual(
+                    (legacy / "Start LensLedger.pre-managed.cmd").read_text(encoding="utf-8"),
+                    original,
+                )
+                handoff = start.read_text(encoding="utf-8")
+                self.assertIn(updater.LEGACY_LAUNCHER_MARKER, handoff)
+                self.assertIn(str(managed.resolve() / "Start LensLedger.cmd"), handoff)
+                self.assertNotIn("python photo_search.py", handoff)
+
+                start.write_text(original, encoding="utf-8")
+                refreshed = updater.refresh_legacy_launcher_handoffs(managed)
+                self.assertEqual(refreshed[0]["status"], "handed_off")
+                self.assertEqual(
+                    (legacy / "Start LensLedger.pre-managed.cmd").read_text(encoding="utf-8"),
+                    original,
+                )
+                self.assertIn(updater.LEGACY_LAUNCHER_MARKER, start.read_text(encoding="utf-8"))
+
     def test_legacy_catalog_is_backed_up_migrated_and_registered(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

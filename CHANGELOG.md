@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.22.5 — 2026-08-09
+
+- Preserve the original pre-managed `Start LensLedger.cmd` and replace it with
+  a managed-launcher handoff after a successful catalog migration. Existing
+  old shortcuts now open the current managed installation instead of running
+  an obsolete bundled copy.
+- Remember adopted legacy shortcuts and recheck their handoff on every managed
+  update, without allowing an unavailable old folder to block the update.
+- Make the release workflow reject a tag whose version does not match
+  `product.py`, or whose release notes are missing.
+
 ## 0.22.4 — 2026-08-09
 
 - Make each person's photo view explicit about confirmed photos, pending face
