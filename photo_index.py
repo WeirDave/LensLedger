@@ -33,7 +33,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
     rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
@@ -176,6 +176,15 @@ CREATE TABLE IF NOT EXISTS person_face_profiles (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS semantic_embeddings (
+    asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    embedding_f32 BLOB NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_model ON semantic_embeddings(model);
+
 CREATE TABLE IF NOT EXISTS people_review_actions (
     id INTEGER PRIMARY KEY,
     asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
@@ -188,6 +197,12 @@ CREATE TABLE IF NOT EXISTS people_review_actions (
     undone_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_people_review_actions_active ON people_review_actions(id, undone_at);
+
+CREATE TABLE IF NOT EXISTS person_review_deferrals (
+    person_id INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+    deferred_at TEXT NOT NULL,
+    deferred_until TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY,

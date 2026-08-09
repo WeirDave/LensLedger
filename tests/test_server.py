@@ -162,6 +162,29 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(con.execute("PRAGMA quick_check").fetchone()[0], "ok")
         con.close()
 
+    def test_people_queue_can_defer_a_person_across_sessions(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Test Person')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+               VALUES (?,?,'suggested',0.91,'test',?)""",
+            (self.asset_id, person_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        queue = self.json_response(self.get("/api/people/review/queue"))
+        self.assertEqual(queue["person"]["id"], person_id)
+        deferred = self.json_response(self.post(
+            "/api/people/review/defer", {"person_id": person_id, "days": 7}
+        ))
+        self.assertEqual(deferred["person"], "Test Person")
+        queue = self.json_response(self.get("/api/people/review/queue"))
+        self.assertIsNone(queue["person"])
+        self.assertEqual(queue["deferred_people"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,6 +35,7 @@ from photo_index import (
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
+from semantic_index import search as semantic_search, status as semantic_status
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -429,6 +430,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.undo_people_review_batch(body)
             if route == "/api/people/learn":
                 return self.learn_people(body)
+            if route == "/api/people/review/defer":
+                return self.defer_people_review(body)
             if route == "/api/review-bin":
                 return self.move_to_review_bin(body)
             if route == "/api/review-bin/restore":
@@ -553,7 +556,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
         requested_person = params.get("person", [""])[0]
         person_id = int(requested_person) if requested_person.isdigit() else None
         sort = params.get("sort", ["oldest" if selected_date else "newest"])[0]
-        if scope not in {"image", "context", "people", "all"}:
+        if scope not in {"image", "context", "people", "semantic", "all"}:
             scope = "image"
         if sort not in {"newest", "oldest", "name"}:
             sort = "oldest"
@@ -587,7 +590,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
             ))""")
             person_pattern = f"%{query}%"
             values.extend([" AND ".join(f'\"{token}\"' for token in tokens), person_pattern, person_pattern])
-        elif tokens and scope != "people":
+        elif tokens and scope not in {"people", "semantic"}:
             sources = "('subject','asset_rule','embedded_xmp','person')" if scope == "image" else "('folder_rule')"
             for token in tokens:
                 pattern = f"%{token}%"
@@ -627,7 +630,26 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
                 review_count = int(con.execute(
                     "SELECT COUNT(*) FROM asset_people WHERE state='suggested'"
                 ).fetchone()[0])
-                if scope == "people" and not person_id:
+                if scope == "semantic":
+                    if query:
+                        ranked = semantic_search(
+                            type(self).db_path, query, PAGE_SIZE,
+                            (page_number - 1) * PAGE_SIZE,
+                        )
+                        ranked_ids = [asset_id for asset_id, _score in ranked]
+                        total = int(semantic_status(type(self).db_path)["indexed"])
+                        if ranked_ids:
+                            placeholders = ",".join("?" for _ in ranked_ids)
+                            found = con.execute(
+                                f"""SELECT id,filename,folder,capture_date,media_type FROM assets
+                                    WHERE in_review_bin=0 AND id IN ({placeholders})""",
+                                ranked_ids,
+                            ).fetchall()
+                            by_id = {int(row["id"]): row for row in found}
+                            rows = [by_id[asset_id] for asset_id in ranked_ids if asset_id in by_id]
+                    else:
+                        total = 0
+                elif scope == "people" and not person_id:
                     people_query = f"%{query}%"
                     people_rows = con.execute(
                         """SELECT p.id,p.name,
@@ -672,7 +694,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
                             {where} ORDER BY {order} LIMIT ? OFFSET ?""",
                         values + [PAGE_SIZE, (page_number - 1) * PAGE_SIZE],
                     ).fetchall()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, RuntimeError, ValueError) as exc:
             error = str(exc)
 
         items = [dict(row) for row in rows]
@@ -704,7 +726,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
 
         scope_options = "".join(
             f'<option value="{value}"{" selected" if scope == value else ""}>{label}</option>'
-            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("all", "Everything"))
+            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("all", "Everything"))
         )
         sort_options = "".join(
             f'<option value="{value}"{" selected" if sort == value else ""}>{label}</option>'
@@ -744,7 +766,11 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
         )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
         body_class = "people-gallery-mode" if gallery_mode else ""
-        search_placeholder = "Filter people by name or alias" if gallery_mode else "Subject, person, object, or visible text"
+        search_placeholder = (
+            "Filter people by name or alias" if gallery_mode else
+            "Describe a scene, object, or idea" if scope == "semantic" else
+            "Subject, person, object, or visible text"
+        )
         viewer_style = ' style="display:none"' if gallery_mode else ""
         previous_page_js = (
             "const prev=document.createElement('a');prev.className='button secondary';"
@@ -846,7 +872,7 @@ async function openLibraryPanelV2(){{
 async function openDiagnosticsPanel(){{
  const body=document.createElement('div');body.className='diagnostics-panel';body.innerHTML='<div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><section class="job-card"><h3>Local text recognition (OCR)</h3><p id="ocrMessage">Loading OCR status…</p><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section><div class="job-actions"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div>';openModal('Library health & OCR',body);
  const metric=(label,value)=>{{const box=document.createElement('div');const strong=document.createElement('strong');strong.textContent=Number(value||0).toLocaleString();const span=document.createElement('span');span.textContent=label;box.append(strong,span);return box}};
- async function refresh(){{try{{const [diagnostics,ocr]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('OCR with text',c.ocr_with_text),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const running=ocr.state==='running';$('startOcr').disabled=running;$('pauseOcr').disabled=!running;if(running&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
+ async function refresh(){{try{{const [diagnostics,ocr]=await Promise.all([fetch('/api/diagnostics').then(r=>r.json()),fetch('/api/ocr/status').then(r=>r.json())]);const c=diagnostics.counts||{{}};$('healthSummary').replaceChildren(metric('Library files',c.assets),metric('Mapped photos',c.mapped),metric('People to review',c.people_pending),metric('OCR complete',c.ocr_complete),metric('Meaning indexed',c.semantic_indexed),metric('Review Bin',c.review_bin));$('healthPaths').replaceChildren(Object.assign(document.createElement('div'),{{textContent:'Database health: '+diagnostics.integrity+' · schema '+diagnostics.schema_version+'/'+diagnostics.current_schema+' · '+(diagnostics.database_bytes/1048576).toFixed(1)+' MB'}}),Object.assign(document.createElement('div'),{{textContent:'Library: '+diagnostics.library}}),Object.assign(document.createElement('div'),{{textContent:'Database: '+diagnostics.database}}));$('ocrMessage').textContent=ocr.message||'OCR has not run in this session.';$('ocrMetrics').replaceChildren(metric('Remaining',c.ocr_pending),metric('This pass',ocr.attempted),metric('Text found',ocr.with_text),metric('Errors',Math.max(c.ocr_errors||0,ocr.errors||0)));const running=ocr.state==='running';$('startOcr').disabled=running;$('pauseOcr').disabled=!running;if(running&&body.isConnected)setTimeout(refresh,500)}}catch(error){{$('ocrMessage').textContent=error.message}}}}
  $('startOcr').onclick=async()=>{{$('startOcr').disabled=true;try{{await api('/api/ocr/start',{{since:$('ocrSince').value,workers:4}});refresh()}}catch(error){{$('ocrMessage').textContent=error.message;$('startOcr').disabled=false}}}};$('pauseOcr').onclick=async()=>{{try{{await api('/api/ocr/cancel',{{}});$('ocrMessage').textContent='Pausing after active images finish…'}}catch(error){{$('ocrMessage').textContent=error.message}}}};$('backupDatabase').onclick=async()=>{{$('backupDatabase').disabled=true;$('backupStatus').textContent='Creating verified backup…';try{{const result=await api('/api/database/backup',{{}});$('backupStatus').textContent='Saved '+result.path}}catch(error){{$('backupStatus').textContent=error.message}}finally{{$('backupDatabase').disabled=false}}}};refresh()
 }}
 function metadataText(value){{if(Array.isArray(value))return value.join(', ');if(value&&typeof value==='object')return JSON.stringify(value);return value==null?'':String(value)}}
@@ -858,7 +884,7 @@ function enableFilmstripDrag(){{const f=$('filmstrip');let active=false,startX=0
 function changeDay(delta){{const input=$('datePicker');let d=input.value?new Date(input.value+'T12:00:00'):new Date();d.setDate(d.getDate()+delta);input.value=d.toISOString().slice(0,10);input.form.submit()}}
 function submitOnEnter(event,action){{if(event.key==='Enter'&&!event.isComposing){{event.preventDefault();action()}}}}
 $('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/people-review');
-$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);$('addPerson').onclick=addPerson;$('newPerson').onkeydown=e=>submitOnEnter(e,addPerson);$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{{if(e.target.value==='people'){{e.target.form.querySelector('[name=q]').value='';e.target.form.querySelector('[name=date]').value=''}}e.target.form.submit()}};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')}};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')}});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')}};document.addEventListener('click',e=>{{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp()}});document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');closeHelp()}}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}}
+$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);$('addPerson').onclick=addPerson;$('newPerson').onkeydown=e=>submitOnEnter(e,addPerson);$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value))e.target.form.querySelector('[name=date]').value='';e.target.form.submit()}};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')}};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')}});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')}};document.addEventListener('click',e=>{{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp()}});document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');closeHelp()}}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}}
 </script></body></html>"""
         self.send_html(page)
 
@@ -878,7 +904,7 @@ main{width:min(1800px,100%);margin:auto;padding:18px 20px 110px}.review-head{dis
 </style></head><body>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>__APP_NAME__</strong><small>People review</small></div><span class="version">v__APP_VERSION__</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
-<div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
+<div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><button type="button" class="secondary" id="closeLightbox">Close</button></div><img id="largePhoto" alt="Enlarged photo"></div>
 <datalist id="peopleOptions"></datalist>
 <script>
@@ -900,7 +926,8 @@ function skipBatch(){batch.forEach(item=>skipped.add(queue.person.id+':'+item.id
 async function undoBatch(){const prior=history.pop();if(!prior)return;$('undoBatch').disabled=true;try{await api('/api/people/review/batch-undo',{action_ids:prior.action_ids});await loadQueue(prior.person_id)}catch(error){history.push(prior);showError(error);$('undoBatch').disabled=false}}
 function showError(error){$('status').textContent=error.message||String(error)}
 async function runLearning(){const button=$('learnMore');button.disabled=true;$('globalProgress').textContent='Learning from confirmed faces…';try{const result=await api('/api/people/learn',{});skipped.clear();history=[];await loadQueue();if(!result.suggestions)$('globalProgress').textContent='No additional strong matches found'}catch(error){$('globalProgress').textContent=error.message||String(error)}finally{button.disabled=false}}
-$('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPerson').onclick=()=>loadQueue(queue?.person?.id,true).catch(showError);$('undoBatch').onclick=undoBatch;$('learnMore').onclick=runLearning;$('closeLightbox').onclick=closeLarge;$('lightbox').onclick=event=>{if(event.target===$('lightbox'))closeLarge()};document.addEventListener('keydown',event=>{if(event.key==='Escape')closeLarge()});loadQueue(initialPersonId).catch(error=>{$('reviewArea').innerHTML='<div class="empty"><div><h2>People review could not open</h2><p></p></div></div>';$('reviewArea').querySelector('p').textContent=error.message});
+async function deferPerson(){if(!queue?.person)return;const person=queue.person;try{await api('/api/people/review/defer',{person_id:person.id,days:7});skipped.clear();await loadQueue(person.id,true);$('globalProgress').textContent=person.name+' deferred for 7 days'}catch(error){showError(error)}}
+$('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPerson').onclick=()=>loadQueue(queue?.person?.id,true).catch(showError);$('deferPerson').onclick=deferPerson;$('undoBatch').onclick=undoBatch;$('learnMore').onclick=runLearning;$('closeLightbox').onclick=closeLarge;$('lightbox').onclick=event=>{if(event.target===$('lightbox'))closeLarge()};document.addEventListener('keydown',event=>{if(event.key==='Escape')closeLarge()});loadQueue(initialPersonId).catch(error=>{$('reviewArea').innerHTML='<div class="empty"><div><h2>People review could not open</h2><p></p></div></div>';$('reviewArea').querySelector('p').textContent=error.message});
 </script></body></html>"""
         page = (template.replace("__APP_NAME__", html.escape(APP_NAME))
                 .replace("__APP_VERSION__", html.escape(APP_VERSION))
@@ -1277,18 +1304,27 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         requested_id = int(requested) if requested.isdigit() else None
         advance = params.get("advance", [""])[0] == "1"
         with self.db() as con:
+            con.execute("DELETE FROM person_review_deferrals WHERE deferred_until<=?", (utc_now(),))
+            deferred_people = int(con.execute(
+                "SELECT COUNT(*) FROM person_review_deferrals"
+            ).fetchone()[0])
             remaining_total = int(con.execute(
                 """SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
-                   WHERE ap.state='suggested' AND a.in_review_bin=0"""
+                   WHERE ap.state='suggested' AND a.in_review_bin=0 AND ap.person_id NOT IN (
+                       SELECT person_id FROM person_review_deferrals
+                   )"""
             ).fetchone()[0])
             people_remaining = int(con.execute(
                 """SELECT COUNT(DISTINCT ap.person_id) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
-                   WHERE ap.state='suggested' AND a.in_review_bin=0"""
+                   WHERE ap.state='suggested' AND a.in_review_bin=0 AND ap.person_id NOT IN (
+                       SELECT person_id FROM person_review_deferrals
+                   )"""
             ).fetchone()[0])
             person = None
             if requested_id and not advance:
                 person = con.execute(
-                    """SELECT p.id,p.name FROM people p WHERE p.id=? AND EXISTS (
+                    """SELECT p.id,p.name FROM people p WHERE p.id=?
+                       AND p.id NOT IN (SELECT person_id FROM person_review_deferrals) AND EXISTS (
                            SELECT 1 FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                            WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0
                        )""", (requested_id,)
@@ -1299,14 +1335,16 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                     row = con.execute("SELECT name FROM people WHERE id=?", (requested_id,)).fetchone()
                     previous_name = row[0] if row else ""
                 person = con.execute(
-                    """SELECT p.id,p.name FROM people p WHERE p.name>? COLLATE NOCASE AND EXISTS (
+                    """SELECT p.id,p.name FROM people p WHERE p.name>? COLLATE NOCASE
+                       AND p.id NOT IN (SELECT person_id FROM person_review_deferrals) AND EXISTS (
                            SELECT 1 FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                            WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0
                        ) ORDER BY p.name COLLATE NOCASE LIMIT 1""", (previous_name,)
                 ).fetchone()
                 if not person:
                     person = con.execute(
-                        """SELECT p.id,p.name FROM people p WHERE EXISTS (
+                        """SELECT p.id,p.name FROM people p
+                           WHERE p.id NOT IN (SELECT person_id FROM person_review_deferrals) AND EXISTS (
                                SELECT 1 FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                                WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0
                            ) ORDER BY p.name COLLATE NOCASE LIMIT 1"""
@@ -1328,7 +1366,32 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
             "suggestions": suggestions,
             "remaining_total": remaining_total,
             "people_remaining": people_remaining,
+            "deferred_people": deferred_people,
             "people_options": people_options,
+        })
+
+    def defer_people_review(self, body):
+        person_id = int(body["person_id"])
+        days = max(1, min(30, int(body.get("days", 7))))
+        now = dt.datetime.now(dt.timezone.utc)
+        deferred_until = (now + dt.timedelta(days=days)).isoformat()
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person is no longer available")
+            if not con.execute(
+                "SELECT 1 FROM asset_people WHERE person_id=? AND state='suggested'", (person_id,)
+            ).fetchone():
+                raise ValueError("this person has no suggestions to defer")
+            con.execute(
+                """INSERT INTO person_review_deferrals(person_id,deferred_at,deferred_until)
+                   VALUES (?,?,?) ON CONFLICT(person_id) DO UPDATE SET
+                   deferred_at=excluded.deferred_at,deferred_until=excluded.deferred_until""",
+                (person_id, now.isoformat(), deferred_until),
+            )
+        self.send_json({
+            "ok": True, "person": person["name"], "days": days,
+            "deferred_until": deferred_until,
         })
 
     def learn_people(self, body):
@@ -1709,6 +1772,7 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         self.send_json({"ok": True, "published": 1})
 
     def diagnostics(self):
+        semantic = semantic_status(type(self).db_path)
         with self.db() as con:
             integrity = str(con.execute("PRAGMA quick_check").fetchone()[0])
             schema_version = int(con.execute("PRAGMA user_version").fetchone()[0])
@@ -1725,6 +1789,8 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
                 "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
                 "publications": int(con.execute("SELECT COUNT(*) FROM metadata_publications").fetchone()[0]),
                 "review_bin": int(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0]),
+                "semantic_indexed": int(semantic["indexed"]),
+                "semantic_remaining": int(semantic["remaining"]),
             }
             latest = con.execute(
                 """SELECT finished_at,scanned,changed,unchanged,removed,errors,cancelled
