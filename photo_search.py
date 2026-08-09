@@ -185,6 +185,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.set_person_aliases(body)
             if route == "/api/person/names":
                 return self.set_person_names(body)
+            if route == "/api/person/merge":
+                return self.merge_people(body)
             if route == "/api/people/review/decision":
                 return self.people_review_decision(body)
             if route == "/api/people/review/batch":
@@ -391,6 +393,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
         error = ""
         rows = []
         people_cards = []
+        people_directory = []
         selected_person_name = ""
         total = 0
         trash_count = 0
@@ -450,6 +453,15 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
                             (person["id"],),
                         )]
                         people_cards.append(dict(person) | {"aliases": aliases})
+                    directory_rows = con.execute(
+                        """SELECT p.id,p.name,
+                               (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                                WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0) confirmed_count,
+                               (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                                WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0) suggested_count
+                            FROM people p ORDER BY p.name COLLATE NOCASE"""
+                    ).fetchall()
+                    people_directory = [dict(row) for row in directory_rows]
                     total = len(people_cards)
                 else:
                     if scope == "people" and person_id:
@@ -493,6 +505,7 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
             }.get(sort, "Photos")
         summary = f"{view_label} • {total:,}" if scope == "people" and not person_id else f"{view_label} • {first:,}–{last:,} of {total:,}"
         data_json = json.dumps(items).replace("</", "<\\/")
+        people_directory_json = json.dumps(people_directory).replace("</", "<\\/")
         base = {"q": query, "date": selected_date, "scope": scope, "sort": sort}
         if person_id:
             base["person"] = person_id
@@ -531,6 +544,8 @@ fetch('/api/map/points').then(response=>response.json()).then(data=>{{clusters=d
             '<main class="people-browser"><div class="people-browser-head"><div><h2>People</h2>'
             '<p>Choose a person to see confirmed photos. Edit names to add nicknames, maiden names, or other aliases.</p></div>'
             f'<div class="people-head-actions"><span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
+            f'<button type="button" class="secondary" id="mergePeopleGallery"'
+            f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
             f'<button type="button" id="reviewPeopleGallery">Review people ({review_count:,})</button></div></div><section class="people-grid">'
             + ("".join(gallery_cards) if gallery_cards else '<p class="people-empty">No people match that name.</p>')
             + '</section></main>'
@@ -571,7 +586,7 @@ header{{min-height:88px;padding:8px 14px}}.top{{margin-bottom:6px}}.top img{{wid
 .metadata-readout{{display:grid;gap:10px;margin-top:10px}}.metadata-group{{display:grid;gap:5px}}.metadata-group h3{{margin:0;color:var(--cyan);font-size:11px;text-transform:uppercase;letter-spacing:.06em}}.metadata-item{{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:5px 0;border-bottom:1px solid #292f40;font-size:12px}}.metadata-item dt{{color:var(--muted)}}.metadata-item dd{{margin:0;word-break:break-word}}.metadata-item a{{color:var(--cyan);text-decoration:none}}.metadata-item a:hover{{text-decoration:underline}}.metadata-empty{{color:var(--muted);font-size:12px;padding:4px 0}}
 .publish-section{{border:1px solid #465d49;border-left:3px solid #58b76b;border-radius:8px;background:#1b2822;padding:11px;margin-top:12px}}.publish-section .section-title{{margin-bottom:6px}}.publish-section label{{font-size:12px;color:#dce7df}}.publish-section textarea{{width:100%;margin-top:5px;min-height:58px}}.publish-actions{{display:flex;gap:8px;align-items:center;margin-top:9px}}.publish-actions .secondary{{margin-left:auto}}.publish-note{{margin:6px 0 0;color:#aebdaf;font-size:11px;line-height:1.4}}.modal.publish-modal{{width:min(1280px,calc(100vw - 40px))}}.preview-table{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}}.preview-table th,.preview-table td{{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #343c50;word-break:normal}}.preview-table th{{color:#9facc0}}.preview-table th:first-child,.preview-table td:first-child{{color:var(--cyan);width:220px;white-space:nowrap}}.confirm-bar{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}}.confirm-bar small{{color:var(--muted);flex:1}}.confirm-buttons{{display:flex;gap:8px;white-space:nowrap}}
 .chip.person{{border-color:#7656b7;background:#302646}}.chip.suggestion{{border-style:dashed;border-color:#a57b43;background:#3a3022}}.suggestion-label{{width:100%;color:#d6b77d;font-size:11px;margin:2px 0 6px}}.chip .accept-person{{background:#39764b}}.library-panel{{display:grid;gap:10px}}.library-panel .row input{{flex:1}}.library-status{{color:var(--cyan);min-height:20px}}.library-choices{{display:grid;gap:6px}}.library-choice{{display:grid;text-align:left;background:#293247}}.library-choice small{{color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}}.scan-metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.scan-metrics span{{padding:8px;background:#222a3a;border-radius:7px;color:var(--muted)}}.scan-metrics strong{{display:block;color:var(--text);font-size:18px}}.diagnostics-panel{{display:grid;gap:13px}}.health-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}.health-summary.ocr-summary{{grid-template-columns:repeat(4,1fr)}}.health-summary div{{background:#222a3a;border-radius:8px;padding:10px}}.health-summary strong{{display:block;font-size:19px;color:var(--cyan)}}.health-summary span{{color:var(--muted);font-size:11px}}.health-paths{{display:grid;gap:5px;color:var(--muted);font-size:11px;word-break:break-all}}.job-card{{background:#111722;border:1px solid #35435f;border-radius:9px;padding:12px}}.job-card h3{{margin:0 0 5px}}.job-card p{{color:var(--muted);margin:0 0 10px}}.job-actions{{display:flex;gap:8px;align-items:center}}.job-actions input{{width:145px}}.job-actions .spacer{{flex:1}}.update-panel{{display:grid;gap:13px}}.update-status-card{{background:#111722;border:1px solid #35435f;border-radius:10px;padding:16px}}.update-status-card strong{{display:block;font-size:22px;margin-bottom:5px}}.update-status-card p{{margin:0}}.update-location{{padding:10px;background:#222a3a;border-radius:8px;color:var(--muted);font-size:11px;word-break:break-all}}.update-actions{{display:flex;gap:8px;justify-content:flex-end}}
-.people-browser{{min-height:0;overflow:auto;padding:24px;background:#10141e}}.people-browser-head{{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:18px}}.people-browser-head h2{{font-size:25px;margin:0}}.people-browser-head p{{color:var(--muted);margin:5px 0 0}}.people-head-actions{{display:flex;align-items:center;gap:9px}}.people-head-actions>span{{color:#c5b7ff;background:#2b2544;border-radius:999px;padding:7px 11px;white-space:nowrap}}.people-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding-bottom:30px}}.person-card{{position:relative;overflow:hidden;background:#1b2030;border:1px solid #343d53;border-radius:12px}}.person-card:hover{{border-color:#7656b7;transform:translateY(-1px)}}.person-card a{{display:block;color:inherit;text-decoration:none}}.person-card img,.person-placeholder{{display:block;width:100%;height:180px;object-fit:cover;background:#090b10}}.person-placeholder{{display:grid;place-items:center;font-size:58px;color:#5f6880}}.person-card-info{{display:grid;gap:5px;padding:12px 12px 48px}}.person-card-info strong{{font-size:16px}}.person-card-info small{{color:var(--cyan)}}.person-card-info span{{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.edit-aliases{{position:absolute;left:12px;bottom:10px;padding:6px 9px;background:#30384b;font-size:12px}}.people-empty{{color:var(--muted)}}.people-result-bar{{position:fixed;z-index:4;top:88px;left:12px;background:#202638;border:1px solid #46506a;border-radius:9px;padding:8px 12px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 25px #000}}.people-result-bar a{{color:var(--cyan);text-decoration:none}}.alias-editor{{display:grid;gap:8px}}.alias-editor input{{width:100%}}.people-gallery-mode #moveToTrash,.people-gallery-mode #previousDay,.people-gallery-mode #nextDay,.people-gallery-mode .date-field,.people-gallery-mode .sort-field{{display:none}}.modal.people-review-modal{{width:min(1180px,calc(100vw - 36px));height:min(780px,calc(100vh - 36px));max-height:none;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr)}}.modal.people-review-modal #modalBody{{min-height:0;overflow:hidden}}.people-review{{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px}}.review-progress{{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}}.review-main{{min-height:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.7fr);gap:16px}}.review-image-wrap{{min-width:0;min-height:0;display:grid;place-items:center;background:#090b10;border-radius:10px;overflow:hidden}}.review-image-wrap img{{display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}}.review-controls{{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:5px}}.review-person{{font-size:25px;font-weight:800}}.review-confidence{{color:#d6b77d}}.review-file{{color:var(--muted);font-size:12px;word-break:break-word}}.review-question{{font-size:18px;margin-top:8px}}.review-decisions{{display:grid;grid-template-columns:1fr 1fr;gap:9px}}.review-decisions button{{padding:13px}}.review-yes{{background:#39764b}}.review-no{{background:#873d4b}}.review-correction{{display:grid;gap:7px;border-top:1px solid var(--line);padding-top:12px}}.review-correction .row input{{flex:1}}.review-footer{{display:flex;align-items:center;gap:9px}}.review-footer .review-spacer{{flex:1}}.review-complete{{height:100%;display:grid;place-items:center;text-align:center;color:#cdd6e5}}.review-complete strong{{font-size:25px;display:block;margin-bottom:8px}}
+.people-browser{{min-height:0;overflow:auto;padding:24px;background:#10141e}}.people-browser-head{{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:18px}}.people-browser-head h2{{font-size:25px;margin:0}}.people-browser-head p{{color:var(--muted);margin:5px 0 0}}.people-head-actions{{display:flex;align-items:center;gap:9px}}.people-head-actions>span{{color:#c5b7ff;background:#2b2544;border-radius:999px;padding:7px 11px;white-space:nowrap}}.people-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding-bottom:30px}}.person-card{{position:relative;overflow:hidden;background:#1b2030;border:1px solid #343d53;border-radius:12px}}.person-card:hover{{border-color:#7656b7;transform:translateY(-1px)}}.person-card a{{display:block;color:inherit;text-decoration:none}}.person-card img,.person-placeholder{{display:block;width:100%;height:180px;object-fit:cover;background:#090b10}}.person-placeholder{{display:grid;place-items:center;font-size:58px;color:#5f6880}}.person-card-info{{display:grid;gap:5px;padding:12px 12px 48px}}.person-card-info strong{{font-size:16px}}.person-card-info small{{color:var(--cyan)}}.person-card-info span{{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.edit-aliases{{position:absolute;left:12px;bottom:10px;padding:6px 9px;background:#30384b;font-size:12px}}.people-empty{{color:var(--muted)}}.people-result-bar{{position:fixed;z-index:4;top:88px;left:12px;background:#202638;border:1px solid #46506a;border-radius:9px;padding:8px 12px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 25px #000}}.people-result-bar a{{color:var(--cyan);text-decoration:none}}.alias-editor,.person-merge{{display:grid;gap:8px}}.alias-editor input,.person-merge select{{width:100%}}.person-merge-options{{display:grid;gap:6px;max-height:270px;overflow:auto;padding:4px}}.person-merge-option{{display:flex;align-items:start;gap:9px;padding:9px;background:#222a3a;border:1px solid #36415a;border-radius:8px;cursor:pointer}}.person-merge-option input{{margin-top:2px}}.person-merge-option span{{display:grid;gap:2px}}.person-merge-option small{{color:var(--muted)}}.person-merge-note{{padding:10px 11px;background:#2d2639;border-left:3px solid #a984f2;border-radius:7px;color:#ded2ff;font-size:12px;line-height:1.45}}.people-gallery-mode #moveToTrash,.people-gallery-mode #previousDay,.people-gallery-mode #nextDay,.people-gallery-mode .date-field,.people-gallery-mode .sort-field{{display:none}}.modal.people-review-modal{{width:min(1180px,calc(100vw - 36px));height:min(780px,calc(100vh - 36px));max-height:none;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr)}}.modal.people-review-modal #modalBody{{min-height:0;overflow:hidden}}.people-review{{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px}}.review-progress{{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}}.review-main{{min-height:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.7fr);gap:16px}}.review-image-wrap{{min-width:0;min-height:0;display:grid;place-items:center;background:#090b10;border-radius:10px;overflow:hidden}}.review-image-wrap img{{display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}}.review-controls{{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:5px}}.review-person{{font-size:25px;font-weight:800}}.review-confidence{{color:#d6b77d}}.review-file{{color:var(--muted);font-size:12px;word-break:break-word}}.review-question{{font-size:18px;margin-top:8px}}.review-decisions{{display:grid;grid-template-columns:1fr 1fr;gap:9px}}.review-decisions button{{padding:13px}}.review-yes{{background:#39764b}}.review-no{{background:#873d4b}}.review-correction{{display:grid;gap:7px;border-top:1px solid var(--line);padding-top:12px}}.review-correction .row input{{flex:1}}.review-footer{{display:flex;align-items:center;gap:9px}}.review-footer .review-spacer{{flex:1}}.review-complete{{height:100%;display:grid;place-items:center;text-align:center;color:#cdd6e5}}.review-complete strong{{font-size:25px;display:block;margin-bottom:8px}}
 @media(max-width:950px){{.upper{{grid-template-columns:1fr 320px}}form.toolbar{{grid-template-columns:1fr 170px auto auto}}.optional{{display:none}}}}
 .menu-panel a{{color:var(--text);padding:10px;text-decoration:none;border-radius:7px;font-weight:700}}.menu-panel a:hover{{background:#30384b}}
 </style></head><body class="{body_class}">
@@ -591,7 +606,7 @@ header{{min-height:88px;padding:8px 14px}}.top{{margin-bottom:6px}}.top img{{wid
 </aside></section><section class="filmstrip" id="filmstrip"></section></main><div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="modalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h2 id="modalTitle"></h2><button type="button" class="modal-close" id="modalClose">Close</button></div><div id="modalBody"></div></section></div>
 <script>
-const items={data_json}; const csrf={json.dumps(self.csrf_token)}; const currentLibrary={json.dumps(str(self.library_root))}; let selectedId={json.dumps(selected_id)}; let currentDetail=null;
+const items={data_json}; const personDirectory={people_directory_json}; const csrf={json.dumps(self.csrf_token)}; const currentLibrary={json.dumps(str(self.library_root))}; let selectedId={json.dumps(selected_id)}; let currentDetail=null;
 const $=id=>document.getElementById(id); const stage=$('stage');
 function esc(s){{return String(s??'').replace(/[&<>\"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}}[c]))}}
 async function api(path,payload){{const r=await fetch(path,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...payload,csrf}})}});const data=await r.json();if(!r.ok)throw new Error(data.error||'Request failed');return data}}
@@ -618,6 +633,7 @@ function closeHelp(){{document.querySelectorAll('.help-popover.open').forEach(x=
 function openModal(title,content){{document.querySelector('.modal').classList.remove('publish-modal','people-review-modal');$('modalTitle').textContent=title;$('modalBody').replaceChildren(content);$('modalBackdrop').classList.add('open')}}
 function textPanel(paragraphs){{const box=document.createElement('div');paragraphs.forEach(text=>{{const p=document.createElement('p');p.textContent=text;box.append(p)}});return box}}
 function editAliases(button){{const personId=Number(button.dataset.personId);const personName=button.dataset.personName;const aliases=JSON.parse(button.dataset.aliases);const box=document.createElement('div');box.className='alias-editor';const note=document.createElement('p');note.textContent='Change the primary name everywhere in LensLedger. Alternate names are optional and only kept when you enter them below.';const primaryLabel=document.createElement('label');primaryLabel.textContent='Primary name';const primary=document.createElement('input');primary.value=personName;primary.placeholder='Full name';primaryLabel.append(primary);const aliasLabel=document.createElement('label');aliasLabel.textContent='Other names for this same person (optional)';const aliasInput=document.createElement('input');aliasInput.value=aliases.join(', ');aliasInput.placeholder='Nickname, maiden name, alternate spelling';aliasLabel.append(aliasInput);const actions=document.createElement('div');actions.className='publish-actions';const cancel=document.createElement('button');cancel.className='secondary';cancel.textContent='Cancel';cancel.onclick=()=>$('modalBackdrop').classList.remove('open');const save=document.createElement('button');save.textContent='Save names';save.onclick=async()=>{{save.disabled=true;try{{await api('/api/person/names',{{person_id:personId,name:primary.value,aliases:aliasInput.value.split(',')}});location.reload()}}catch(e){{save.disabled=false;note.textContent=e.message;note.style.color='#e25c70'}}}};actions.append(cancel,save);box.append(note,primaryLabel,aliasLabel,actions);openModal('Names for '+personName,box);primary.focus();primary.select()}}
+function openPersonMerge(){{if(personDirectory.length<2)return;const box=document.createElement('div');box.className='person-merge';const intro=document.createElement('p');intro.textContent='Choose the one record to keep, then select every duplicate name that belongs to the same person.';const keepLabel=document.createElement('label');keepLabel.textContent='Keep this as the primary name';const primary=document.createElement('select');personDirectory.forEach(person=>{{const option=document.createElement('option');option.value=person.id;option.textContent=person.name;primary.append(option)}});keepLabel.append(primary);const sourceLabel=document.createElement('label');sourceLabel.textContent='Merge these duplicate names into the primary name';const filter=document.createElement('input');filter.placeholder='Filter names to merge';const choices=document.createElement('div');choices.className='person-merge-options';const note=document.createElement('div');note.className='person-merge-note';note.textContent='The names you merge become alternate searchable names. Photo links are combined, and a confirmed decision wins if the same photo has conflicting decisions. Confirmed JPEG metadata is updated with a safety backup. This cannot be automatically undone.';const status=document.createElement('p');status.className='status';const actions=document.createElement('div');actions.className='publish-actions';const cancel=document.createElement('button');cancel.className='secondary';cancel.textContent='Cancel';cancel.onclick=()=>$('modalBackdrop').classList.remove('open');const merge=document.createElement('button');merge.textContent='Merge selected names';const selectedSourceIds=new Set();function renderChoices(){{const primaryId=Number(primary.value);const query=filter.value.trim().toLocaleLowerCase();choices.replaceChildren(...personDirectory.filter(person=>Number(person.id)!==primaryId&&(!query||person.name.toLocaleLowerCase().includes(query))).map(person=>{{const label=document.createElement('label');label.className='person-merge-option';const check=document.createElement('input');check.type='checkbox';check.value=person.id;check.checked=selectedSourceIds.has(Number(person.id));check.onchange=()=>{{if(check.checked)selectedSourceIds.add(Number(person.id));else selectedSourceIds.delete(Number(person.id))}};const details=document.createElement('span');const name=document.createElement('strong');name.textContent=person.name;const count=document.createElement('small');const confirmed=Number(person.confirmed_count)||0;const suggested=Number(person.suggested_count)||0;count.textContent=confirmed+' confirmed · '+suggested+' to review';details.append(name,count);label.append(check,details);return label}}));merge.disabled=!choices.querySelector('input')&&!selectedSourceIds.size}}primary.onchange=()=>{{selectedSourceIds.clear();renderChoices()}};filter.oninput=renderChoices;merge.onclick=async()=>{{const sourceIds=[...selectedSourceIds];if(!sourceIds.length){{status.textContent='Choose at least one duplicate name first.';status.style.color='#e25c70';return}}const kept=personDirectory.find(person=>Number(person.id)===Number(primary.value));const merged=personDirectory.filter(person=>sourceIds.includes(Number(person.id))).map(person=>person.name);if(!confirm('Merge '+merged.join(', ')+' into '+kept.name+'?\\n\\nThose names will become alternate names, their photo links will be combined, and prior review history for the duplicate records will be closed.'))return;merge.disabled=true;cancel.disabled=true;status.style.color='';status.textContent='Merging names and updating confirmed photos…';try{{const result=await api('/api/person/merge',{{target_person_id:Number(primary.value),source_person_ids:sourceIds}});if(result.learning_error){{status.textContent='Names merged, but face suggestions need rebuilding: '+result.learning_error;merge.disabled=false;cancel.disabled=false;return}}location.href='/?scope=people'}}catch(e){{status.textContent=e.message;status.style.color='#e25c70';merge.disabled=false;cancel.disabled=false}}}};actions.append(cancel,merge);box.append(intro,keepLabel,sourceLabel,filter,choices,note,status,actions);renderChoices();openModal('Merge people',box);primary.focus()}}
 let peopleReview=null;let reviewHistory=[];const reviewSkipped=new Set();
 function buildPeopleReview(){{const box=document.createElement('div');box.className='people-review';box.innerHTML='<div class="review-progress"><span id="reviewProgress"></span><span id="reviewRemaining"></span></div><div class="review-main"><div class="review-image-wrap"><img id="reviewImage" alt="Photo being reviewed"></div><div class="review-controls"><div class="review-person" id="reviewPerson"></div><div class="review-confidence" id="reviewConfidence"></div><div class="review-file" id="reviewFile"></div><div class="review-question">Is this person correct?</div><div class="review-decisions"><button type="button" class="review-yes" id="reviewYes">Yes, confirm</button><button type="button" class="review-no" id="reviewNo">No, not them</button></div><div class="review-correction"><strong>It is someone else</strong><div class="row"><input id="reviewCorrectName" list="reviewPeopleOptions" placeholder="Enter or choose the correct name"><datalist id="reviewPeopleOptions"></datalist><button type="button" id="reviewCorrect">Correct name</button></div></div><div class="status" id="reviewStatus"></div></div></div><div class="review-footer"><button type="button" class="secondary" id="reviewSkip">Skip for now</button><button type="button" class="secondary" id="reviewUndo" disabled>Undo last decision</button><span class="review-spacer"></span><button type="button" class="secondary" id="reviewNextPerson">Next person</button></div>';return box}}
 function currentReviewItem(){{return peopleReview?.suggestions.find(item=>!reviewSkipped.has(peopleReview.person.id+':'+item.id))||null}}
@@ -666,7 +682,7 @@ function enableFilmstripDrag(){{const f=$('filmstrip');let active=false,startX=0
 function changeDay(delta){{const input=$('datePicker');let d=input.value?new Date(input.value+'T12:00:00'):new Date();d.setDate(d.getDate()+delta);input.value=d.toISOString().slice(0,10);input.form.submit()}}
 function submitOnEnter(event,action){{if(event.key==='Enter'&&!event.isComposing){{event.preventDefault();action()}}}}
 $('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/people-review');
-$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);$('addPerson').onclick=addPerson;$('newPerson').onkeydown=e=>submitOnEnter(e,addPerson);$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value))e.target.form.querySelector('[name=date]').value='';e.target.form.submit()}};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')}};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')}});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')}};document.addEventListener('click',e=>{{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp()}});document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');closeHelp()}}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}}
+$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);$('addPerson').onclick=addPerson;$('newPerson').onkeydown=e=>submitOnEnter(e,addPerson);$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value))e.target.form.querySelector('[name=date]').value='';e.target.form.submit()}};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')}};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')}});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')}};document.addEventListener('click',e=>{{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp()}});document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');closeHelp()}}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}}
 </script></body></html>"""
         self.send_html(page)
 
@@ -1529,6 +1545,192 @@ $('confirmBatch').onclick=submitBatch;$('skipBatch').onclick=skipBatch;$('nextPe
         self.send_json({
             "ok": True, "name": primary_name, "aliases": aliases,
             "updated_photos": len(affected), "published": len(published),
+        })
+
+    def merge_people(self, body):
+        """Merge duplicate person records into one chosen primary record."""
+        try:
+            target_id = int(body["target_person_id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("choose the person to keep") from exc
+        raw_source_ids = body.get("source_person_ids", [])
+        if not isinstance(raw_source_ids, list):
+            raise ValueError("choose one or more names to merge")
+        source_ids: list[int] = []
+        for value in raw_source_ids:
+            try:
+                person_id = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid person selection") from exc
+            if person_id == target_id:
+                raise ValueError("the person to keep cannot also be merged")
+            if person_id > 0 and person_id not in source_ids:
+                source_ids.append(person_id)
+        if not source_ids:
+            raise ValueError("choose at least one other name to merge")
+        if len(source_ids) > 50:
+            raise ValueError("merge at most 50 names at a time")
+
+        all_ids = [target_id, *source_ids]
+        placeholders = ",".join("?" for _ in all_ids)
+        source_placeholders = ",".join("?" for _ in source_ids)
+        published = []
+        affected_asset_ids: list[int] = []
+        target_name = ""
+        source_names: list[str] = []
+        try:
+            with self.db() as con:
+                rows = con.execute(
+                    f"SELECT id,name FROM people WHERE id IN ({placeholders})", all_ids
+                ).fetchall()
+                people = {int(row["id"]): str(row["name"]) for row in rows}
+                missing = [person_id for person_id in all_ids if person_id not in people]
+                if missing:
+                    raise ValueError("one of those people is no longer available")
+                target_name = people[target_id]
+                source_names = [people[person_id] for person_id in source_ids]
+
+                target_aliases = [str(row[0]) for row in con.execute(
+                    "SELECT alias FROM person_aliases WHERE person_id=?", (target_id,)
+                )]
+                source_aliases = [str(row[0]) for row in con.execute(
+                    f"SELECT alias FROM person_aliases WHERE person_id IN ({source_placeholders})",
+                    source_ids,
+                )]
+                retained_names: list[str] = []
+                retained_keys = {target_name.casefold(), *(name.casefold() for name in target_aliases)}
+                for name in [*source_names, *source_aliases]:
+                    normalized = clean_tag(name)
+                    if normalized and normalized.casefold() not in retained_keys:
+                        retained_names.append(normalized)
+                        retained_keys.add(normalized.casefold())
+                for name in retained_names:
+                    name_conflict = con.execute(
+                        f"SELECT id FROM people WHERE name=? COLLATE NOCASE AND id NOT IN ({placeholders})",
+                        (name, *all_ids),
+                    ).fetchone()
+                    alias_conflict = con.execute(
+                        f"SELECT person_id FROM person_aliases WHERE alias=? COLLATE NOCASE "
+                        f"AND person_id NOT IN ({placeholders})",
+                        (name, *all_ids),
+                    ).fetchone()
+                    if name_conflict or alias_conflict:
+                        raise ValueError(f"“{name}” already belongs to another person")
+
+                association_rows = con.execute(
+                    f"""SELECT asset_id,person_id,state,confidence,face_id,source,updated_at
+                           FROM asset_people WHERE person_id IN ({placeholders})""",
+                    all_ids,
+                ).fetchall()
+                by_asset: dict[int, list[sqlite3.Row]] = {}
+                for row in association_rows:
+                    by_asset.setdefault(int(row["asset_id"]), []).append(row)
+                state_rank = {"rejected": 1, "suggested": 2, "confirmed": 3}
+
+                merged_associations = []
+                for asset_id, candidates in by_asset.items():
+                    winner = max(
+                        candidates,
+                        key=lambda row: (
+                            state_rank[str(row["state"])],
+                            row["face_id"] is not None,
+                            float(row["confidence"]) if row["confidence"] is not None else -1.0,
+                            str(row["updated_at"]),
+                            int(row["person_id"]) == target_id,
+                        ),
+                    )
+                    merged_associations.append((
+                        asset_id,
+                        str(winner["state"]),
+                        winner["confidence"],
+                        winner["face_id"],
+                        str(winner["source"]) if int(winner["person_id"]) == target_id else "person-merge",
+                        utc_now(),
+                    ))
+                affected_asset_ids = sorted(by_asset)
+                con.execute(
+                    f"DELETE FROM asset_people WHERE person_id IN ({placeholders})", all_ids
+                )
+                con.executemany(
+                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    [(asset_id, target_id, state, confidence, face_id, source, updated_at)
+                     for asset_id, state, confidence, face_id, source, updated_at in merged_associations],
+                )
+
+                timestamp = utc_now()
+                con.execute(
+                    f"""UPDATE people_review_actions SET undone_at=COALESCE(undone_at, ?)
+                           WHERE person_id IN ({source_placeholders})
+                              OR corrected_person_id IN ({source_placeholders})""",
+                    (timestamp, *source_ids, *source_ids),
+                )
+                con.execute(
+                    f"UPDATE people_review_actions SET person_id=? WHERE person_id IN ({source_placeholders})",
+                    (target_id, *source_ids),
+                )
+                con.execute(
+                    f"UPDATE people_review_actions SET corrected_person_id=? "
+                    f"WHERE corrected_person_id IN ({source_placeholders})",
+                    (target_id, *source_ids),
+                )
+                con.execute(
+                    f"DELETE FROM person_review_deferrals WHERE person_id IN ({source_placeholders})",
+                    source_ids,
+                )
+                con.execute(
+                    f"DELETE FROM person_face_profiles WHERE person_id IN ({placeholders})", all_ids
+                )
+                con.execute(
+                    f"DELETE FROM person_aliases WHERE person_id IN ({source_placeholders})", source_ids
+                )
+                con.executemany(
+                    "INSERT INTO person_aliases(person_id,alias) VALUES (?,?)",
+                    [(target_id, name) for name in retained_names],
+                )
+                con.execute(f"DELETE FROM people WHERE id IN ({source_placeholders})", source_ids)
+
+                for asset_id in affected_asset_ids:
+                    sync_person_tags(con, asset_id)
+                    rebuild_search_row(con, asset_id)
+                for name in source_names:
+                    con.execute(
+                        """DELETE FROM tags WHERE name=? COLLATE NOCASE AND NOT EXISTS (
+                               SELECT 1 FROM asset_tags WHERE tag_id=tags.id
+                           )""",
+                        (name,),
+                    )
+                if affected_asset_ids:
+                    active_confirmed = con.execute(
+                        f"""SELECT ap.asset_id FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                               WHERE ap.person_id=? AND ap.state='confirmed' AND a.in_review_bin=0
+                                 AND a.extension IN ('.jpg','.jpeg')
+                                 AND ap.asset_id IN ({','.join('?' for _ in affected_asset_ids)})""",
+                        (target_id, *affected_asset_ids),
+                    ).fetchall()
+                    for row in active_confirmed:
+                        published.append(self._publish_people_metadata(
+                            con, int(row["asset_id"]), source_names, operation="people-merge"
+                        ))
+        except Exception:
+            self._restore_people_batch(published)
+            raise
+
+        learning_error = ""
+        suggestions = None
+        try:
+            suggestions = int(learn_faces(self.db_path, apply=True)["suggestions"])
+        except Exception as exc:  # A merge remains valid even if face rebuilding is unavailable.
+            learning_error = str(exc)
+        self.send_json({
+            "ok": True,
+            "person": target_name,
+            "merged_names": source_names,
+            "aliases": retained_names,
+            "updated_photos": len(affected_asset_ids),
+            "published": len(published),
+            "suggestions": suggestions,
+            "learning_error": learning_error,
         })
 
     def set_person_state(self, body):

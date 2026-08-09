@@ -6,6 +6,18 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.22.0 — 2026-08-09
+
+- Add a People-library merge tool for duplicate names and categories.
+- Keep the selected primary name, convert merged primary names and aliases into
+  alternate searchable names, and combine each photo's person decision safely.
+- Preserve the strongest decision when duplicate records overlap on a photo:
+  confirmed, then suggested, then rejected; retain the exact face reference
+  when it belongs to the winning record.
+- Update confirmed JPEG People Shown metadata through the existing safety-backup
+  and pixel-verification path, then rebuild local face profiles and suggestions.
+- Preserve prior review decisions as closed history instead of deleting them.
+
 ## 0.21.0 — 2026-08-09
 
 - Highlight the exact face being evaluated in People review with a responsive
