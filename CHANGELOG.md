@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.22.1 — 2026-08-09
+
+- Create and verify a catalog backup automatically before every People merge,
+  providing a recovery point for this intentionally non-automatic-undo action.
+
 ## 0.22.0 — 2026-08-09
 
 - Add a People-library merge tool for duplicate names and categories.
