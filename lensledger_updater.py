@@ -379,9 +379,10 @@ def _legacy_library_root(database: Path) -> Path:
         paths = [row[0] for row in source.execute(
             "SELECT path FROM assets WHERE path<>'' AND COALESCE(in_review_bin, 0)=0"
         )]
-        paths.extend(row[0] for row in source.execute(
-            "SELECT original_path FROM review_bin WHERE restored_at IS NULL AND original_path<>''"
-        ))
+        if not paths:
+            paths = [row[0] for row in source.execute(
+                "SELECT original_path FROM review_bin WHERE restored_at IS NULL AND original_path<>''"
+            )]
         if not paths:
             raise UpdateError("Cannot determine the legacy photo-library root: the catalog has no photo paths")
         common = os.path.commonpath(paths)
