@@ -18,6 +18,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 from app_paths import libraries_root
 from product import APP_NAME, APP_VERSION
@@ -25,9 +26,12 @@ from product import APP_NAME, APP_VERSION
 
 MEDIA_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".heic",
-    ".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv", ".wav",
+    ".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv",
+    ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf",
 }
-SCHEMA_VERSION = 1
+RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
+SCHEMA_VERSION = 2
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
     rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
@@ -186,7 +190,8 @@ CREATE TABLE IF NOT EXISTS runs (
     changed INTEGER NOT NULL DEFAULT 0,
     unchanged INTEGER NOT NULL DEFAULT 0,
     removed INTEGER NOT NULL DEFAULT 0,
-    errors INTEGER NOT NULL DEFAULT 0
+    errors INTEGER NOT NULL DEFAULT 0,
+    cancelled INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
@@ -233,13 +238,21 @@ def connect(db_path: Path) -> sqlite3.Connection:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN operation TEXT NOT NULL DEFAULT 'full'")
     if "review_action_id" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN review_action_id INTEGER")
+    run_columns = {row[1] for row in con.execute("PRAGMA table_info(runs)")}
+    if "cancelled" not in run_columns:
+        con.execute("ALTER TABLE runs ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
     con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     con.commit()
     return con
 
 
 def media_type(path: Path) -> str:
-    return "video" if path.suffix.lower() in {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"} else "image"
+    extension = path.suffix.lower()
+    if extension in VIDEO_EXTENSIONS:
+        return "video"
+    if extension in RAW_EXTENSIONS:
+        return "raw"
+    return "image"
 
 
 def is_cloud_placeholder(stat_result) -> bool:
@@ -362,16 +375,33 @@ def rebuild_search_row(con: sqlite3.Connection, asset_id: int) -> None:
         )
 
 
-def scan_library(root: Path, db_path: Path) -> int:
+def scan_library(
+    root: Path,
+    db_path: Path,
+    progress: Callable[[dict[str, int | bool]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> int:
     root = root.resolve()
     con = connect(db_path)
     started = utc_now()
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
     known = {row["relative_path"]: row for row in con.execute("SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, in_review_bin FROM assets")}
     seen: set[str] = set()
-    counts = {"scanned": 0, "changed": 0, "unchanged": 0, "removed": 0, "errors": 0}
+    counts: dict[str, int | bool] = {
+        "scanned": 0, "changed": 0, "unchanged": 0, "removed": 0,
+        "errors": 0, "placeholders": 0, "cancelled": False,
+    }
+
+    def report() -> None:
+        if progress:
+            progress(dict(counts))
+
+    report()
 
     for path, rel in iter_media(root):
+        if should_cancel and should_cancel():
+            counts["cancelled"] = True
+            break
         counts["scanned"] += 1
         rel_text = rel.as_posix()
         seen.add(rel_text)
@@ -379,6 +409,8 @@ def scan_library(root: Path, db_path: Path) -> int:
             stat = path.stat()
             old = known.get(rel_text)
             placeholder = is_cloud_placeholder(stat)
+            if placeholder:
+                counts["placeholders"] += 1
             if (old and old["size_bytes"] == stat.st_size and old["mtime_ns"] == stat.st_mtime_ns
                     and (old["metadata_scanned"] or placeholder)):
                 counts["unchanged"] += 1
@@ -415,21 +447,28 @@ def scan_library(root: Path, db_path: Path) -> int:
         except Exception as exc:  # keep indexing the rest of the library
             counts["errors"] += 1
             print(f"ERROR\t{path}\t{exc}", file=sys.stderr)
+        if int(counts["scanned"]) % 100 == 0:
+            report()
 
-    missing = {rel for rel, row in known.items() if not row["in_review_bin"]} - seen
-    for rel_text in missing:
-        asset_id = int(known[rel_text]["id"])
-        con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
-        con.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
-        counts["removed"] += 1
+    if not counts["cancelled"]:
+        missing = {rel for rel, row in known.items() if not row["in_review_bin"]} - seen
+        for rel_text in missing:
+            asset_id = int(known[rel_text]["id"])
+            con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
+            con.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+            counts["removed"] += 1
 
     con.execute(
-        """UPDATE runs SET finished_at=?, scanned=?, changed=?, unchanged=?, removed=?, errors=? WHERE id=?""",
-        (utc_now(), counts["scanned"], counts["changed"], counts["unchanged"], counts["removed"], counts["errors"], run_id),
+        """UPDATE runs SET finished_at=?, scanned=?, changed=?, unchanged=?, removed=?, errors=?, cancelled=? WHERE id=?""",
+        (utc_now(), counts["scanned"], counts["changed"], counts["unchanged"], counts["removed"],
+         counts["errors"], int(bool(counts["cancelled"])), run_id),
     )
     con.commit()
     con.close()
+    report()
     print("\n".join(f"{key}: {value}" for key, value in counts.items()))
+    if counts["cancelled"]:
+        return 3
     return 0 if counts["errors"] == 0 else 2
 
 
@@ -522,6 +561,7 @@ def stats(db_path: Path) -> int:
         "assets": con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0],
         "images": con.execute("SELECT COUNT(*) FROM assets WHERE media_type='image' AND in_review_bin=0").fetchone()[0],
         "videos": con.execute("SELECT COUNT(*) FROM assets WHERE media_type='video' AND in_review_bin=0").fetchone()[0],
+        "raw_files": con.execute("SELECT COUNT(*) FROM assets WHERE media_type='raw' AND in_review_bin=0").fetchone()[0],
         "review_bin": con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=1").fetchone()[0],
         "tags": con.execute("SELECT COUNT(*) FROM tags").fetchone()[0],
         "tag_assignments": con.execute("SELECT COUNT(*) FROM asset_tags").fetchone()[0],

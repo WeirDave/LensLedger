@@ -6,6 +6,21 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.17.0 — 2026-08-09
+
+- Add a guided first-run experience that suggests likely photo folders, explains
+  the private local inventory, and opens LensLedger only after the first scan.
+- Show live discovered, indexed, unchanged, cloud-only, and error counts, with a
+  safe pause/resume path and a clear completion inventory.
+- Remember multiple libraries and provide the same scan controls when switching
+  or adding a library later.
+- Inventory common camera RAW formats separately from browser-previewable images,
+  and stop treating WAV audio as a photo-library asset.
+- Make the Windows launcher check for Python and install required packages for a
+  new user before starting LensLedger.
+- Extend scanner coverage for empty databases, incremental rescans, verified
+  backups, cancelled/resumed scans, missing files, RAW files, and ignored audio.
+
 ## 0.16.0 — 2026-08-09
 
 - Separate application source from personal library data and store new-user

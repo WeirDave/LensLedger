@@ -23,15 +23,21 @@ visible subjects and event context, review people suggestions, inspect embedded
 metadata, and explicitly publish approved descriptions, keywords, or people to
 individual JPEG files.
 
-The scanner is incremental: unchanged files are skipped, new files are added,
-and missing files leave the index. Dropbox and other Windows cloud placeholders
-can be inventoried without forcing a download; deeper metadata analysis waits
-until those files are locally available.
+The guided first run suggests likely photo folders and scans the selected
+library while showing live progress. When it finishes, LensLedger reports the
+number of images, videos, RAW originals, metadata-ready files, and cloud-only
+placeholders it found. The scanner is incremental: unchanged files are skipped,
+new files are added, and missing files leave the index. Dropbox and other
+Windows cloud placeholders can be inventoried without forcing a download;
+deeper metadata analysis waits until those files are locally available.
 
 ## Highlights
 
 - Read-only library discovery and incremental scanning
+- Guided first-library setup with live progress, pause, resume, and an inventory report
+- Remembered library switching and suggested Windows photo locations
 - Separate SQLite index for every selected photo library
+- Camera RAW inventory with an explicit preview-unavailable state
 - Full-text search across paths, dates, subjects, tags, people, and OCR
 - Staged edits that remain in LensLedger until explicitly published
 - Field-by-field metadata preview before JPEG writes
@@ -47,9 +53,10 @@ until those files are locally available.
 1. Download `LensLedger-vX.Y.Z.zip` from the [latest release](https://github.com/WeirDave/LensLedger/releases/latest).
 2. Extract the ZIP to a permanent folder.
 3. Install [Python 3.11 or newer](https://www.python.org/downloads/) and select **Add Python to PATH** during setup.
-4. Open a terminal in the extracted folder and run `python -m pip install -r requirements.txt`.
-5. Double-click **Start LensLedger.cmd**.
-6. Open the menu, choose **Open photo library**, select a folder, and let the initial inventory finish.
+4. Double-click **Start LensLedger.cmd**. On first launch it installs the small
+   Python requirements if they are not already present.
+5. Choose the photo folder you want to inventory and select **Build my library**.
+6. Review the scan report, then select **Open my library**.
 
 LensLedger opens a localhost-only viewer at `http://127.0.0.1:5309`. Keep the
 terminal window open while using the application.
@@ -78,9 +85,10 @@ LensLedger creates runtime files under:
   Face Data\
 ```
 
-Each selected library receives its own database. Photos remain in their
-original folders. Set `LENSLEDGER_DATA_DIR` before launch to use a different
-runtime-data directory.
+Each selected library receives its own database, and LensLedger remembers prior
+libraries so they can be reopened from the menu. Photos remain in their original
+folders. Set `LENSLEDGER_DATA_DIR` before launch to use a different runtime-data
+directory.
 
 ## Database tools
 
@@ -129,8 +137,11 @@ ZIP through GitHub Actions. Release notes live under `docs/releases/`.
 
 ## Current scope
 
-LensLedger indexes common image and video formats, file and folder dates,
-existing XMP keywords, curated tags, Windows OCR, and locally reviewed people.
+LensLedger indexes common image and video formats, common camera RAW originals,
+file and folder dates, existing XMP keywords, curated tags, Windows OCR, and
+locally reviewed people. RAW files are inventoried and searchable, but the
+browser viewer does not decode them yet. Audio files such as WAV are outside the
+photo-library inventory.
 Semantic image embeddings, richer duplicate detection, and a map experience are
 planned as independent workers so models can evolve without rewriting photos or
 rebuilding the basic inventory.

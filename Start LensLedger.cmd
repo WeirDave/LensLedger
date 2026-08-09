@@ -2,6 +2,30 @@
 title LensLedger
 cd /d "%~dp0"
 
+where python >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo LensLedger needs Python 3.11 or newer.
+    echo Download it from https://www.python.org/downloads/ and select "Add Python to PATH".
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Install the small Python dependency set on first launch. Existing healthy
+REM installations skip this step without contacting the network.
+python -c "import PIL" >nul 2>&1
+if errorlevel 1 (
+    echo Preparing LensLedger for first use...
+    python -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo.
+        echo LensLedger could not install its Python requirements.
+        pause
+        exit /b 1
+    )
+)
+
 REM Remove the empty pre-v0.15 working-folder shell after older processes let go
 REM of it. RD without /S is intentionally harmless if the directory is not empty.
 if exist "%~dp0..\_PhotoIndex" rd "%~dp0..\_PhotoIndex" >nul 2>&1

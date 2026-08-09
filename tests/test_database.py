@@ -30,6 +30,33 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 0)
         con.close()
 
+    def test_version_one_database_migrates_cancelled_run_history(self):
+        from photo_index import SCHEMA_VERSION, connect
+
+        database = self.root / "library.sqlite3"
+        con = sqlite3.connect(database)
+        con.execute(
+            """CREATE TABLE runs (
+                id INTEGER PRIMARY KEY,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                scanned INTEGER NOT NULL DEFAULT 0,
+                changed INTEGER NOT NULL DEFAULT 0,
+                unchanged INTEGER NOT NULL DEFAULT 0,
+                removed INTEGER NOT NULL DEFAULT 0,
+                errors INTEGER NOT NULL DEFAULT 0
+            )"""
+        )
+        con.execute("PRAGMA user_version=1")
+        con.commit()
+        con.close()
+
+        migrated = connect(database)
+        columns = {row[1] for row in migrated.execute("PRAGMA table_info(runs)")}
+        self.assertIn("cancelled", columns)
+        self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+        migrated.close()
+
     def test_scan_is_incremental_and_backup_is_valid(self):
         from database_tools import backup, verify
         from photo_index import scan_library
@@ -50,6 +77,47 @@ class DatabaseTests(unittest.TestCase):
         destination = self.root / "backup.sqlite3"
         self.assertEqual(backup(database, destination), 0)
         self.assertEqual(verify(destination), 0)
+
+    def test_cancelled_scan_is_resumable_and_does_not_remove_unseen_assets(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "one.jpg").write_bytes(b"one")
+        removed_before_cancel = library / "two.jpg"
+        removed_before_cancel.write_bytes(b"two")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+        removed_before_cancel.unlink()
+
+        progress = []
+        self.assertEqual(
+            scan_library(library, database, progress=progress.append, should_cancel=lambda: True), 3
+        )
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 2)
+        self.assertEqual(con.execute("SELECT cancelled FROM runs ORDER BY id DESC LIMIT 1").fetchone()[0], 1)
+        con.close()
+        self.assertTrue(progress[-1]["cancelled"])
+
+        self.assertEqual(scan_library(library, database), 0)
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 1)
+        con.close()
+
+    def test_raw_files_are_inventoried_and_wav_files_are_ignored(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "camera.dng").write_bytes(b"raw")
+        (library / "voice.wav").write_bytes(b"audio")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+        con = sqlite3.connect(database)
+        rows = con.execute("SELECT filename,media_type FROM assets ORDER BY filename").fetchall()
+        con.close()
+        self.assertEqual(rows, [("camera.dng", "raw")])
 
 
 if __name__ == "__main__":
