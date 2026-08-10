@@ -124,6 +124,14 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertFalse(status["available"])
         self.assertIn("managed_install_root", status)
 
+    def test_install_update_is_refused_for_an_unmanaged_source_checkout(self):
+        with self.assertRaises(urllib.error.HTTPError) as rejected:
+            self.post("/api/update/install", {})
+        self.assertEqual(rejected.exception.code, 400)
+        body = json.loads(rejected.exception.read().decode("utf-8"))
+        self.assertIn("not a managed installation", body["error"])
+        rejected.exception.close()
+
     def test_csrf_metadata_publish_restore_and_review_bin(self):
         with self.assertRaises(urllib.error.HTTPError) as rejected:
             self.post("/api/subject", {"id": self.asset_id, "subject": "Blue test image"}, csrf="wrong")
