@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.3 — 2026-08-09
+
+- Fix folder-name tagging silently stopping after 2025 (`generate_historical_folder_tags.py`
+  hardcoded a `year <= 2025` cutoff). Scans now infer tags for any folder
+  automatically, forever, and fall back to the folder's own descriptive text
+  when no curated category matches. Added `database_tools.py
+  backfill-folder-tags` to retroactively fix already-indexed folders.
+
 ## 0.23.2 — 2026-08-09
 
 - Fix the "Check for updates" flow silently creating a separate managed
