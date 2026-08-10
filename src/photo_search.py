@@ -347,6 +347,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.people_review_page(params)
         if url.path == "/map":
             return self.map_page()
+        if url.path == "/scan-photos":
+            return self.scan_photos_page()
         if url.path != "/":
             return self.send_error(404)
         return self.viewer_page(params)
@@ -495,6 +497,22 @@ class SearchHandler(BaseHTTPRequestHandler):
 </head><body><header><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><span class="count" id="count">Loading locations…</span><a class="button" href="/">Back to library</a></header>
 <main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to browse every photo from that place.</div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><a class="button secondary" id="viewAllHere">View all photos here</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
 <script src="{asset_url('js/map.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def scan_photos_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scan your photos — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/scan-photos.css')}">
+</head><body {bootstrap_attr({"csrf": self.csrf_token, "currentLibrary": str(self.library_root)})}><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Scan your photos</h1><p>Everything that makes your library searchable, and your backups</p></div><span class="spacer"></span><span class="version">v{APP_VERSION}</span></header>
+<main>
+<section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></section>
+<section class="card job-card"><h2>Photo locations (GPS)</h2><p class="job-intro">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</p><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
+<section class="card job-card"><h2>Local text recognition (OCR)</h2><p class="job-intro">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</p><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
+<section class="card job-card"><h2>Meaning search (optional)</h2><p class="job-intro">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download most people do not need.</p><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><button type="button" id="installSemantic">Set up meaning search</button></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
+<section class="card job-card"><h2>Face detection (optional)</h2><p class="job-intro">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time.</p><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><button type="button" id="installFaceScan">Set up face detection</button></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
+<section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div></section>
+</main>
+<script src="{asset_url('js/scan-photos.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -845,7 +863,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         })}>
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>
 <form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
-<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="diagnostics">🩺 Library health &amp; OCR</button><button type="button" id="updateMenu" data-panel="update">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
+<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><a href="/scan-photos">🔎 Scan your photos</a><button type="button" id="updateMenu" data-panel="update">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">ⓘ</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you click Preview &amp; publish for this photo. Nothing is written automatically.</div></div>
@@ -2126,11 +2144,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                     raise ValueError("wait for the library scan to finish before starting OCR")
             type(self).ocr_job = {
                 "state": "running", "message": "Preparing local text recognition…",
-                "total": 0, "attempted": 0, "with_text": 0, "errors": 0,
+                "total": 0, "attempted": 0, "with_text": 0, "errors": 0, "started_at": utc_now(),
             }
             type(self).ocr_cancel.clear()
         handler_class = type(self)
         database = handler_class.db_path
+
+        started_at = handler_class.ocr_job["started_at"]
 
         def worker():
             try:
@@ -2139,6 +2159,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                         handler_class.ocr_job = {
                             "state": "running",
                             "message": f"Processed {int(counts['attempted']):,} of {int(counts['total']):,} images…",
+                            "started_at": started_at,
                             **counts,
                         }
 
@@ -2191,11 +2212,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                     raise ValueError("pause OCR before starting meaning indexing")
             type(self).semantic_job = {
                 "state": "running", "message": "Loading the optional local meaning model…",
-                "total": 0, "indexed_this_pass": 0, "errors": 0,
+                "total": 0, "indexed_this_pass": 0, "errors": 0, "started_at": utc_now(),
             }
             type(self).semantic_cancel.clear()
         handler_class = type(self)
         database = handler_class.db_path
+        started_at = handler_class.semantic_job["started_at"]
 
         def worker():
             try:
@@ -2207,6 +2229,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             "total": int(counts["total"]),
                             "indexed_this_pass": int(counts["indexed"]),
                             "errors": int(counts["errors"]),
+                            "started_at": started_at,
                         }
 
                 result = build_semantic_index(
@@ -2246,6 +2269,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             type(self).semantic_install_job = {
                 "state": "installing",
                 "message": "Downloading and installing the local meaning-search model software…",
+                "started_at": utc_now(),
             }
         handler_class = type(self)
         requirements = Path(__file__).parent.parent / "requirements-semantic.txt"
@@ -2297,12 +2321,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                     raise ValueError("wait for the library scan to finish before starting face detection")
             type(self).face_scan_job = {
                 "state": "running", "message": "Preparing local face detection…",
-                "total": 0, "processed": 0, "faces_found": 0, "errors": 0,
+                "total": 0, "processed": 0, "faces_found": 0, "errors": 0, "started_at": utc_now(),
             }
             type(self).face_scan_cancel.clear()
         handler_class = type(self)
         database = handler_class.db_path
         library_root = handler_class.library_root
+        started_at = handler_class.face_scan_job["started_at"]
 
         def worker():
             try:
@@ -2312,6 +2337,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             "state": "running",
                             "message": f"Scanned {int(counts['processed']):,} of {int(counts['total']):,} photos, "
                                        f"{int(counts['faces_found']):,} faces found…",
+                            "started_at": started_at,
                             **counts,
                         }
 
@@ -2353,6 +2379,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             type(self).face_install_job = {
                 "state": "installing",
                 "message": "Downloading and installing the local face-detection model software…",
+                "started_at": utc_now(),
             }
         handler_class = type(self)
         requirements = Path(__file__).parent.parent / "requirements-face.txt"
@@ -2424,9 +2451,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "state": "scanning", "message": "Discovering photos and videos…",
                 "target_root": str(root), "scanned": 0, "changed": 0,
                 "unchanged": 0, "removed": 0, "errors": 0, "placeholders": 0,
+                "started_at": utc_now(),
             }
             type(self).library_cancel.clear()
         handler_class = type(self)
+        started_at = handler_class.library_job["started_at"]
 
         def worker():
             try:
@@ -2434,7 +2463,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     with handler_class.library_lock:
                         handler_class.library_job = {
                             "state": "scanning", "message": f"Discovered {int(counts['scanned']):,} media files…",
-                            "target_root": str(root), **counts,
+                            "target_root": str(root), "started_at": started_at, **counts,
                         }
 
                 result = scan_library(

@@ -516,6 +516,24 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Describe a scene, object, or idea", page)
         self.assertIn(self.photo.name, page)
 
+    def test_scan_photos_page_renders_all_job_cards(self):
+        with self.get("/scan-photos") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Scan your photos", page)
+        self.assertIn("Photo locations (GPS)", page)
+        self.assertIn("Local text recognition (OCR)", page)
+        self.assertIn("Meaning search (optional)", page)
+        self.assertIn("Face detection (optional)", page)
+        self.assertIn("/web/js/scan-photos.js", page)
+        with self.get("/web/css/scan-photos.css") as response:
+            self.assertEqual(response.headers.get_content_type(), "text/css")
+        with self.get("/web/js/scan-photos.js") as response:
+            script = response.read().decode("utf-8")
+        self.assertIn("startLocation", script)
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn('href="/scan-photos"', page)
+
     def test_semantic_install_refuses_when_already_installed(self):
         with patch.object(self.photo_search, "semantic_is_available", return_value=True):
             with self.assertRaises(urllib.error.HTTPError) as rejected:

@@ -40,6 +40,7 @@ REQUIRED_FILES = {
     "LICENSE", "README.md",
     "web/css/onboarding.css", "web/js/onboarding.js", "web/css/viewer.css", "web/js/viewer.js",
     "web/css/map.css", "web/js/map.js", "web/css/people-review.css", "web/js/people-review.js",
+    "web/css/scan-photos.css", "web/js/scan-photos.js",
 }
 FORBIDDEN_ROOT_NAMES = {
     ".git", "Face Data", "Libraries", "Metadata Backups", "Database Backups",
