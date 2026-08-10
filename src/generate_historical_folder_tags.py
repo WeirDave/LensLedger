@@ -135,13 +135,6 @@ PATTERN_TAGS: list[tuple[str, str]] = [
 COMPILED_RULES = [(tag, re.compile(pattern, re.IGNORECASE)) for tag, pattern in PATTERN_TAGS]
 
 
-def is_historical(folder: str) -> bool:
-    first = folder.split("/", 1)[0]
-    if first.isdigit() and len(first) == 4:
-        return int(first) <= 2025
-    return first in {"Scanned - Undated", "Visit to Tennessee", "Kids", "Paintings", "!Assorted"}
-
-
 def searchable_folder_text(folder: str) -> str:
     parts = folder.replace("\\", "/").split("/")
     useful = []
@@ -175,7 +168,27 @@ def infer_tags(folder: str) -> list[str]:
         tags.append("Food")
     if "Wedding" in tags and re.search(r"\bhoneymoon\b", text, re.IGNORECASE):
         tags.append("Honeymoon")
+    if not tags:
+        tags.extend(_fallback_tags(text))
     return list(dict.fromkeys(tags))
+
+
+GENERIC_FOLDER_NAMES = {
+    "new folder", "untitled", "misc", "miscellaneous", "photos", "pictures",
+    "images", "web", "originals", "export", "exports", "temp", "backup",
+}
+
+
+def _fallback_tags(text: str) -> list[str]:
+    """Use a folder's own descriptive words as its tag when no curated
+    category recognizes the name. A folder someone deliberately named
+    "Out with Candy" or "Downtown LA and Olvera Street" should never end up
+    with zero tags just because it's not a recognized category of event."""
+    candidates = [part.strip() for segment in text.split(" / ") for part in segment.split(",")]
+    return [
+        part for part in candidates
+        if part and part.casefold() not in GENERIC_FOLDER_NAMES and not part.isdigit()
+    ]
 
 
 def read_existing(path: Path) -> dict[str, list[str]]:
@@ -201,8 +214,6 @@ def generate(db_path: Path, csv_path: Path, dry_run: bool) -> tuple[int, int, Co
     generated_count = 0
     tag_counts: Counter[str] = Counter()
     for folder in folders:
-        if not is_historical(folder):
-            continue
         inferred = infer_tags(folder)
         if not inferred:
             continue

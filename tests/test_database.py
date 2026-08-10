@@ -101,6 +101,75 @@ class DatabaseTests(unittest.TestCase):
         con.close()
         self.assertEqual(row, (1, 33.6846, -117.8265))
 
+    def test_scan_infers_folder_tags_from_a_descriptive_folder_name(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        folder = library / "2026" / "2026_07_04 - July 4th Boat and Fireworks"
+        folder.mkdir(parents=True)
+        (folder / "photo.jpg").write_bytes(b"synthetic")
+        database = self.root / "library.sqlite3"
+
+        self.assertEqual(scan_library(library, database), 0)
+        con = sqlite3.connect(database)
+        tags = {row[0] for row in con.execute(
+            """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+               WHERE at.source='folder_rule'"""
+        )}
+        con.close()
+        self.assertTrue({"Boating", "Fireworks"} <= tags)
+
+    def test_scan_falls_back_to_the_folder_name_when_no_category_matches(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        folder = library / "2026" / "2026_06_20 - Out with Candy"
+        folder.mkdir(parents=True)
+        (folder / "photo.jpg").write_bytes(b"synthetic")
+        database = self.root / "library.sqlite3"
+
+        self.assertEqual(scan_library(library, database), 0)
+        con = sqlite3.connect(database)
+        tags = {row[0] for row in con.execute(
+            """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+               WHERE at.source='folder_rule'"""
+        )}
+        con.close()
+        self.assertIn("Out with Candy", tags)
+
+    def test_backfill_folder_tags_covers_folders_indexed_before_a_pattern_existed(self):
+        from database_tools import backfill_folder_tags
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        folder = library / "2026" / "2026_06_20 - Birthday Party"
+        folder.mkdir(parents=True)
+        (folder / "photo.jpg").write_bytes(b"synthetic")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+
+        # Simulate a folder that was indexed before its tag pattern was ever
+        # recognized -- ordinary scans never revisit unchanged files, so
+        # nothing but an explicit backfill can fix a gap like this.
+        con = sqlite3.connect(database)
+        con.execute("DELETE FROM folder_tags")
+        con.execute("DELETE FROM asset_tags WHERE source='folder_rule'")
+        con.commit()
+        con.close()
+
+        self.assertEqual(backfill_folder_tags(database), 0)
+        con = sqlite3.connect(database)
+        tags = {row[0] for row in con.execute(
+            """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+               WHERE at.source='folder_rule'"""
+        )}
+        fts_hit = con.execute(
+            "SELECT COUNT(*) FROM search_fts WHERE search_fts MATCH 'Birthday'"
+        ).fetchone()[0]
+        con.close()
+        self.assertIn("Birthday", tags)
+        self.assertEqual(fts_hit, 1)
+
     def test_scan_is_incremental_and_backup_is_valid(self):
         from database_tools import backup, verify
         from photo_index import scan_library

@@ -9,7 +9,8 @@ import sqlite3
 from pathlib import Path
 
 from app_paths import database_backup_root, libraries_root
-from photo_index import SCHEMA_VERSION, connect, rebuild_search_row
+from generate_historical_folder_tags import infer_tags
+from photo_index import SCHEMA_VERSION, connect, rebuild_search_row, set_source_tags
 
 
 DEFAULT_DB = libraries_root() / "default.sqlite3"
@@ -118,6 +119,39 @@ def rebuild_search(path: Path) -> int:
     return 0
 
 
+def backfill_folder_tags(path: Path) -> int:
+    """Infer folder tags for every already-indexed folder that has none yet.
+
+    Ordinary scans only touch changed files, so a folder that was indexed
+    before its naming pattern was recognized (or before it existed) never
+    gets revisited. This applies the same inference the scanner now runs
+    automatically on new folders, retroactively, to the whole library.
+    """
+    path = require_database(path)
+    with connect(path) as con:
+        folders = [row[0] for row in con.execute(
+            """SELECT DISTINCT folder FROM assets
+               WHERE in_review_bin=0 AND folder NOT IN (SELECT DISTINCT folder FROM folder_tags)"""
+        )]
+        tagged_folders = 0
+        tagged_assets = 0
+        for folder in folders:
+            inferred = infer_tags(folder)
+            if not inferred:
+                continue
+            for tag in inferred:
+                con.execute("INSERT OR IGNORE INTO folder_tags(folder, tag) VALUES (?, ?)", (folder, tag))
+            tagged_folders += 1
+            for row in con.execute("SELECT id FROM assets WHERE folder = ? AND in_review_bin=0", (folder,)):
+                set_source_tags(con, int(row[0]), "folder_rule", inferred)
+                rebuild_search_row(con, int(row[0]))
+                tagged_assets += 1
+    print(f"folders checked: {len(folders)}")
+    print(f"folders newly tagged: {tagged_folders}")
+    print(f"photos updated: {tagged_assets}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -129,6 +163,10 @@ def build_parser() -> argparse.ArgumentParser:
     backup_parser = commands.add_parser("backup", help="create and verify a consistent database backup")
     backup_parser.add_argument("destination", nargs="?", type=Path)
     commands.add_parser("rebuild-search", help="recreate the full-text search index")
+    commands.add_parser(
+        "backfill-folder-tags",
+        help="infer and apply folder tags for already-indexed folders that have none",
+    )
     return parser
 
 
@@ -146,6 +184,8 @@ def main() -> int:
         return backup(args.db, args.destination)
     if args.command == "rebuild-search":
         return rebuild_search(args.db)
+    if args.command == "backfill-folder-tags":
+        return backfill_folder_tags(args.db)
     raise AssertionError(args.command)
 
 

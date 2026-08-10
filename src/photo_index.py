@@ -23,6 +23,7 @@ from typing import Callable
 from PIL import ExifTags, Image
 
 from app_paths import libraries_root
+from generate_historical_folder_tags import infer_tags
 from product import APP_NAME, APP_VERSION
 
 
@@ -535,6 +536,12 @@ def scan_library(
             if not placeholder:
                 set_source_tags(con, asset_id, "embedded_xmp", extract_xmp_keywords(path))
             folder_names = [r[0] for r in con.execute("SELECT tag FROM folder_tags WHERE folder = ?", (folder,))]
+            if not folder_names:
+                inferred = infer_tags(folder)
+                if inferred:
+                    for tag in inferred:
+                        con.execute("INSERT OR IGNORE INTO folder_tags(folder, tag) VALUES (?, ?)", (folder, tag))
+                    folder_names = inferred
             set_source_tags(con, asset_id, "folder_rule", folder_names)
             apply_asset_annotation(con, asset_id, rel_text)
             con.execute("INSERT OR IGNORE INTO text_data(asset_id) VALUES (?)", (asset_id,))
