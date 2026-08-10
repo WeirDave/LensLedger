@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.8 — 2026-08-09
+
+- Documented every top-level file and folder in README.md, and pointed the
+  meaning-search instructions at the new in-app one-click setup.
+
 ## 0.23.7 — 2026-08-09
 
 - A photo's embedded GPS field now opens LensLedger's own map, centered on
