@@ -6,6 +6,18 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.2 — 2026-08-09
+
+- Fix the "Check for updates" flow silently creating a separate managed
+  install when triggered from an unmanaged copy (like a source checkout) —
+  the install button is now hidden with a clear explanation instead, and
+  the backend refuses the request as a backstop.
+- Fix the update dialog getting stuck on "Installing and restarting…"
+  forever after a real managed-install update — it now polls until the new
+  version responds and reloads automatically.
+- Show a clear "No matches" message when a search comes up empty, instead
+  of a blank filmstrip and a confusing "0–0 of 0" count.
+
 ## 0.23.1 — 2026-08-09
 
 - Fix Windows OCR failing on large images ("Image dimensions are too large")
