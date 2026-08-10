@@ -6,6 +6,19 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.24.2 — 2026-08-10
+
+- Replace the cramped Library health modal with a real, full-width "Scan
+  your photos" page (up to 1366px, no forced scrolling). Every background
+  job (installs, OCR, meaning search, face detection) now shows a real
+  animated spinner and live elapsed time instead of a static message that
+  looked frozen. Added a dedicated "Photo locations (GPS)" scan card,
+  previously an invisible side effect of "Rescan library" with no control
+  of its own.
+- Fixed the photo map showing "no mapped photos yet": location scanning
+  had never actually been run against the real library. Ran it for real —
+  845 photos now located across 58 places.
+
 ## 0.24.1 — 2026-08-09
 
 - Fix face detection permanently re-scanning photos with no one in them.
