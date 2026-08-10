@@ -86,7 +86,8 @@ def like_pattern(value: str) -> str:
     matches instead of searching for those literal characters. Pair with
     ``LIKE ? ESCAPE '\\'`` in the query.
     """
-    return f"%{LIKE_ESCAPE_RE.sub(r'\\\1', value)}%"
+    escaped = LIKE_ESCAPE_RE.sub(r"\\\1", value)
+    return f"%{escaped}%"
 
 
 def search_everything_scope(
