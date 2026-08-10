@@ -38,6 +38,7 @@ from photo_index import (
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
 from semantic_index import (
     build_index as build_semantic_index,
+    is_available as semantic_is_available,
     search as semantic_search,
     status as semantic_status,
 )
@@ -266,6 +267,8 @@ class SearchHandler(BaseHTTPRequestHandler):
     semantic_lock = threading.Lock()
     semantic_job: dict[str, object] = {"state": "idle", "message": ""}
     semantic_cancel = threading.Event()
+    semantic_install_lock = threading.Lock()
+    semantic_install_job: dict[str, object] = {"state": "idle", "message": ""}
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
@@ -406,6 +409,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.start_semantic_index(body)
             if route == "/api/semantic/cancel":
                 return self.cancel_semantic_index(body)
+            if route == "/api/semantic/install":
+                return self.install_semantic_requirements(body)
             if route == "/api/update/check":
                 return self.check_update(body)
             if route == "/api/update/install":
@@ -2140,7 +2145,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         coverage = semantic_status(type(self).db_path)
         with type(self).semantic_lock:
             job = dict(type(self).semantic_job)
-        self.send_json({**coverage, **job})
+        with type(self).semantic_install_lock:
+            install = dict(type(self).semantic_install_job)
+        self.send_json({**coverage, **job, "install": install})
 
     def start_semantic_index(self, body):
         batch_size = max(1, min(64, int(body.get("batch_size", 16))))
@@ -2200,6 +2207,45 @@ class SearchHandler(BaseHTTPRequestHandler):
             type(self).semantic_cancel.set()
             type(self).semantic_job["message"] = "Pausing after the active image batch…"
         self.send_json({"ok": True, "state": "cancelling"}, 202)
+
+    def install_semantic_requirements(self, _body):
+        with type(self).semantic_install_lock:
+            if type(self).semantic_install_job.get("state") == "installing":
+                raise ValueError("Meaning search setup is already in progress")
+            if semantic_is_available():
+                raise ValueError("Meaning search is already installed")
+            type(self).semantic_install_job = {
+                "state": "installing",
+                "message": "Downloading and installing the local meaning-search model software…",
+            }
+        handler_class = type(self)
+        requirements = Path(__file__).parent.parent / "requirements-semantic.txt"
+
+        def worker():
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
+                    capture_output=True, text=True, timeout=1800,
+                )
+                if result.returncode == 0:
+                    with handler_class.semantic_install_lock:
+                        handler_class.semantic_install_job = {
+                            "state": "complete",
+                            "message": "Meaning search is installed. You can build the index below.",
+                        }
+                else:
+                    tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-8:])
+                    with handler_class.semantic_install_lock:
+                        handler_class.semantic_install_job = {
+                            "state": "error",
+                            "message": f"Install failed: {tail or 'unknown error'}",
+                        }
+            except Exception as exc:
+                with handler_class.semantic_install_lock:
+                    handler_class.semantic_install_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-semantic-install", daemon=True).start()
+        self.send_json({"ok": True, "state": "installing"}, 202)
 
     def backup_database(self, _body):
         destination = create_verified_database_backup(type(self).db_path)

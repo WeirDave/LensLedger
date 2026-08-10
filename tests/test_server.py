@@ -4,6 +4,7 @@ import html
 import json
 import os
 import sqlite3
+import subprocess
 import tempfile
 import threading
 import time
@@ -479,6 +480,7 @@ class ServerWorkflowTests(unittest.TestCase):
                     break
                 time.sleep(0.02)
             self.assertEqual(job["state"], "complete")
+
             self.assertEqual(job["indexed_this_pass"], 1)
 
         with patch.object(self.photo_search, "semantic_search", return_value=[(self.asset_id, 0.9)]), patch.object(
@@ -491,6 +493,28 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Meaning (optional)", page)
         self.assertIn("Describe a scene, object, or idea", page)
         self.assertIn(self.photo.name, page)
+
+    def test_semantic_install_refuses_when_already_installed(self):
+        with patch.object(self.photo_search, "semantic_is_available", return_value=True):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/semantic/install", {})
+        self.assertEqual(rejected.exception.code, 400)
+        body = json.loads(rejected.exception.read().decode("utf-8"))
+        self.assertIn("already installed", body["error"])
+        rejected.exception.close()
+
+    def test_semantic_install_runs_and_reports_completion(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with patch.object(self.photo_search, "semantic_is_available", return_value=False), \
+             patch.object(self.photo_search.subprocess, "run", return_value=completed):
+            started = self.json_response(self.post("/api/semantic/install", {}))
+            self.assertEqual(started["state"], "installing")
+            for _ in range(100):
+                job = self.json_response(self.get("/api/semantic/status"))
+                if job["install"]["state"] != "installing":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["install"]["state"], "complete")
 
     def test_everything_scope_search_ranks_by_relevance_without_crashing(self):
         # Regression test: scope='all' combined FTS's MATCH with a

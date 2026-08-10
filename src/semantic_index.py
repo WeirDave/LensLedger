@@ -95,6 +95,18 @@ class OpenClipEncoder:
 
 
 @lru_cache(maxsize=2)
+def is_available() -> bool:
+    """Whether the optional meaning-search packages are importable, without
+    loading the (large) model itself -- cheap enough to call on every
+    status check."""
+    try:
+        import open_clip  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def encoder_for(model: str = DEFAULT_MODEL):
     if model != DEFAULT_MODEL:
         raise RuntimeError(f"This release does not provide the semantic model: {model}")
@@ -116,6 +128,7 @@ def status(db_path: Path) -> dict[str, object]:
         "eligible": eligible,
         "remaining": max(0, eligible - indexed),
         "model": model_row["model"] if model_row else DEFAULT_MODEL,
+        "installed": is_available(),
     }
 
 
