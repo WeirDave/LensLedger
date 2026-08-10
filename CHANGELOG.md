@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.5 — 2026-08-09
+
+- The first-run setup wizard now plainly states where LensLedger's data
+  (index, backups, everything) actually lives, and offers a one-click
+  "Scan for text now" right after the initial library scan completes,
+  instead of leaving OCR to be discovered later in Library health.
+
 ## 0.23.4 — 2026-08-09
 
 - Rename `static/` to `web/` (Python modules already live under `src/`, so
