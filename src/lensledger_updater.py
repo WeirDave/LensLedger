@@ -33,12 +33,13 @@ LEGACY_LAUNCHER_MARKER = "REM LensLedger managed-launcher handoff"
 REQUIRED_FILES = {
     "src/app_paths.py", "assets/lensledger-logo.png", "assets/world-map.svg", "CHANGELOG.md",
     "src/database_tools.py", "src/library_config.py", "src/metadata_reader.py", "src/lensledger_updater.py",
+    "src/generate_historical_folder_tags.py",
     "src/photo_index.py", "src/photo_search.py", "src/product.py", "requirements.txt",
     "requirements-semantic.txt", "Install LensLedger.cmd", "Start LensLedger.cmd",
     "THIRD_PARTY_NOTICES.md", "tools/ExifTool/ExifTool.exe", "src/windows_ocr.ps1",
     "LICENSE", "README.md",
-    "static/css/onboarding.css", "static/js/onboarding.js", "static/css/viewer.css", "static/js/viewer.js",
-    "static/css/map.css", "static/js/map.js", "static/css/people-review.css", "static/js/people-review.js",
+    "web/css/onboarding.css", "web/js/onboarding.js", "web/css/viewer.css", "web/js/viewer.js",
+    "web/css/map.css", "web/js/map.js", "web/css/people-review.css", "web/js/people-review.js",
 }
 FORBIDDEN_ROOT_NAMES = {
     ".git", "Face Data", "Libraries", "Metadata Backups", "Database Backups",
