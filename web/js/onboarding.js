@@ -147,6 +147,17 @@ $('cancel').onclick = async () => {
     $('progressMessage').textContent = error.message;
   }
 };
+$('startOcr').onclick = async () => {
+  $('startOcr').disabled = true;
+  try {
+    await api('/api/ocr/start', { workers: 4 });
+    $('nextStep').classList.add('started');
+    $('nextStep').querySelector('p').textContent = 'Text scanning has started in the background — you can watch its progress any time from Library health.';
+  } catch (error) {
+    $('startOcr').disabled = false;
+    $('nextStep').querySelector('p').textContent = error.message;
+  }
+};
 $('enterLibrary').onclick = () => location.href = '/?sort=newest';
 loadOptions();
 fetch('/api/library/status').then(r => r.json()).then(job => {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import os
 import sqlite3
@@ -99,6 +100,22 @@ class ServerWorkflowTests(unittest.TestCase):
         with self.get("/web/js/viewer.js") as response:
             viewer_script = response.read().decode("utf-8")
         self.assertIn("separate each name with a comma", viewer_script)
+
+    def test_onboarding_page_discloses_where_data_lives_and_offers_ocr(self):
+        from app_paths import data_root
+        from photo_index import connect
+
+        empty_database = self.root / "empty.sqlite3"
+        connect(empty_database).close()
+        self.photo_search.SearchHandler.current_library = (self.library.resolve(), empty_database)
+        try:
+            with self.get("/") as response:
+                page = response.read().decode("utf-8")
+        finally:
+            self.photo_search.SearchHandler.current_library = (self.library.resolve(), self.database)
+        self.assertIn("Let’s find your photo library", page)
+        self.assertIn(html.escape(str(data_root())), page)
+        self.assertIn("startOcr", page)
 
     def test_update_status_runs_in_background_and_reports_current_release(self):
         release = {
