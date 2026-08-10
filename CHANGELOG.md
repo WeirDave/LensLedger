@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.24.0 — 2026-08-09
+
+- Add real full-library face detection. Previously LensLedger could only
+  match faces against a fixed, one-time historical import (2,210 faces
+  total); it had no way to find a face in a photo outside that original
+  set. Library health now has a "Face detection" job that runs actual
+  detection (InsightFace, optional, same install pattern as meaning search)
+  against every photo that has never been face-scanned, feeding directly
+  into the existing suggestion/auto-confirm pipeline with no extra steps.
+
 ## 0.23.8 — 2026-08-09
 
 - Documented every top-level file and folder in README.md, and pointed the
