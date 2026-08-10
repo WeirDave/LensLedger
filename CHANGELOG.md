@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.1 — 2026-08-09
+
+- Fix Windows OCR failing on large images ("Image dimensions are too large")
+  by downscaling to fit the OCR engine's maximum before recognition, instead
+  of erroring out and leaving the photo untagged.
+- Reorganize the project layout: all Python modules now live under `src/`,
+  and `static/` is split into `static/css/` and `static/js/`. Internal-only
+  change with no effect on how LensLedger looks or runs.
+
 ## 0.23.0 — 2026-08-09
 
 - Fix "Everything" search: any text search in the default scope raised a
