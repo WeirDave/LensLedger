@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.24.1 — 2026-08-09
+
+- Fix face detection permanently re-scanning photos with no one in them.
+  A photo with zero detected faces never got marked as scanned, so it
+  would be reprocessed on every future pass forever, and "remaining"
+  would never reach zero even after a fully complete scan. Added
+  `assets.face_scanned` (schema v8), tracked independently of whether a
+  face was actually found — the same convention `ocr_scanned` already
+  uses. Caught live during the first real run against the full library.
+
 ## 0.24.0 — 2026-08-09
 
 - Add real full-library face detection. Previously LensLedger could only
