@@ -730,7 +730,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "oldest": "Oldest photos",
                 "name": "Filename order",
             }.get(sort, "Photos")
-        summary = f"{view_label} • {total:,}" if scope == "people" and not person_id else f"{view_label} • {first:,}–{last:,} of {total:,}"
+        summary = (
+            f"{view_label} • {total:,}" if scope == "people" and not person_id
+            else f"{view_label} • No matches" if not total
+            else f"{view_label} • {first:,}–{last:,} of {total:,}"
+        )
         has_more = last < total
 
         scope_options = "".join(
@@ -746,6 +750,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             if value != "relevance" or (query and scope == "all")
         )
         gallery_mode = scope == "people" and not person_id
+        stage_empty_text = "No photos match this search" if not items else "Choose a photo from the filmstrip"
         gallery_cards = []
         for person in people_cards:
             aliases = person["aliases"]
@@ -807,7 +812,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>
 <form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
 <nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><button type="button" data-panel="diagnostics">🩺 Library health &amp; OCR</button><button type="button" id="updateMenu" data-panel="update">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
-{people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">Choose a photo from the filmstrip</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
+{people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">ⓘ</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you click Preview &amp; publish for this photo. Nothing is written automatically.</div></div>
 <div class="section"><div class="section-title"><h2>1. Primary subject</h2><button type="button" class="info-button" data-help="subjectHelp" aria-label="About primary subjects">ⓘ</button></div><div class="help-popover" id="subjectHelp">One short phrase naming the main thing in this photo. Stored as IPTC/XMP Title/Headline metadata.</div><div class="chips" id="subjectChip"></div><div class="row subject-editor"><input id="subjectInput" placeholder="Example: Formula 1 race cars"><button id="saveSubject">Save subject</button></div></div>
@@ -2016,6 +2021,13 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "state": "checking", "started": started}, 202)
 
     def install_update(self, _body):
+        install_root = Path(__file__).parent.parent.resolve()
+        if not is_managed_install(install_root):
+            raise ValueError(
+                "This copy is not a managed installation, so it cannot update itself. "
+                "Update a source checkout with git pull, or run Install LensLedger.cmd "
+                "once to create a separate managed copy."
+            )
         with type(self).update_lock:
             if type(self).update_job.get("state") != "available":
                 raise ValueError("No verified LensLedger update is ready to install")
@@ -2031,7 +2043,6 @@ class SearchHandler(BaseHTTPRequestHandler):
         helper_root.mkdir(parents=True, exist_ok=True)
         helper = helper_root / "lensledger-updater-helper.py"
         shutil.copy2(Path(__file__).parent / "lensledger_updater.py", helper)
-        install_root = Path(__file__).parent.parent.resolve()
         command = [
             sys.executable, str(helper), "install-latest",
             "--current-root", str(install_root),
