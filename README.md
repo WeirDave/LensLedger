@@ -35,7 +35,9 @@ deeper metadata analysis waits until those files are locally available.
 
 - Read-only library discovery and incremental scanning
 - Guided first-library setup with live progress, pause, resume, and an inventory report
-- Read-only local Photo Map built from embedded GPS coordinates
+- Read-only local Photo Map built from embedded GPS coordinates, with a
+  "view all photos here" action per location
+- Descriptive folder names automatically become real, searchable tags
 - Remembered library switching and suggested Windows photo locations
 - Separate SQLite index for every selected photo library
 - Camera RAW inventory with an explicit preview-unavailable state
@@ -190,18 +192,22 @@ python src\photo_index.py ocr --since 2025-01-01 --workers 4
 
 The standard LensLedger installation stays small. Natural-language image search
 is an explicit opt-in because its local model and machine-learning runtime are
-large. To enable it:
+large. The easiest way to enable it is from **Library health & OCR** in the app:
+the "Meaning search" card explains what it does and has a one-click "Set up
+meaning search" button that installs the required packages as a monitored
+background job.
+
+To do the same from the command line instead:
 
 ```powershell
 python -m pip install -r requirements-semantic.txt
 python src\semantic_index.py --db C:\path\to\library.sqlite3 build
 ```
 
-The same incremental, pausable build is available from **Library health & OCR**
-after the optional packages are installed. Select **Meaning (optional)** as the
-search scope and describe a scene, object, or idea. Image vectors, search text,
-and results remain on the computer. The first build may download the selected
-OpenCLIP model weights from their upstream host.
+Either way, once installed, select **Meaning (optional)** as the search scope
+and describe a scene, object, or idea. Image vectors, search text, and results
+remain on the computer. The first build may download the selected OpenCLIP
+model weights from their upstream host.
 
 ## Safety and privacy
 
@@ -211,6 +217,51 @@ OpenCLIP model weights from their upstream host.
 - Every publication creates a safety copy and verifies that decoded pixels are unchanged.
 - Face matching and OCR run locally; no photo is uploaded by LensLedger.
 - Suggested identities remain review-only until a person confirms them.
+
+## Project layout
+
+Everything at the top level, in one place, so nothing in the repo is a mystery:
+
+```text
+Start LensLedger.cmd     Double-click this to run LensLedger.
+Install LensLedger.cmd   Double-click this ONLY to create a separate, self-updating
+                          managed copy (see "Windows release" above). Most people
+                          running from source never need this one.
+README.md, CHANGELOG.md, LICENSE, THIRD_PARTY_NOTICES.md   Documentation.
+requirements.txt          Base dependencies (small, always installed).
+requirements-semantic.txt Optional: natural-language "meaning" search.
+requirements-face.txt     Optional: legacy face-box recovery.
+
+src/       All Python code -- the server, the indexer, and every supporting module.
+web/       CSS and JavaScript the browser loads (web/css/, web/js/).
+assets/    The app logo and the world-map background image the Photo Map draws on.
+tools/     Bundled ExifTool, used to read and write photo metadata.
+tests/     The automated test suite (see "Development" below).
+docs/releases/   One file per released version -- the source of each GitHub release's notes.
+legacy-from-photos-folder/   A few never-committed files (a one-off backfill script,
+                          original tagging data) recovered from a decommissioned
+                          pre-reorganization copy of the app. Kept for reference, not
+                          part of the running application.
+```
+
+`src/` at a glance -- what each module actually does:
+
+| Module | Purpose |
+| --- | --- |
+| `photo_search.py` | The HTTP server. Nearly everything the browser talks to lives here: routes, page rendering, search, publishing. |
+| `photo_index.py` | Scans your photo folder, owns the SQLite schema, and does the incremental file-by-file indexing. |
+| `product.py` | The app's name, version, and tagline -- the one place that changes for a release. |
+| `app_paths.py` | Computes where per-user runtime data lives (`%LOCALAPPDATA%\LensLedger\`), separate from the app and your photos. |
+| `library_config.py` | Remembers which library is currently open and lets you switch between previously-opened ones. |
+| `metadata_reader.py` | Reads embedded EXIF/IPTC/XMP/GPS from a photo for display -- never writes anything. |
+| `database_tools.py` | CLI for database maintenance: `init`, `status`, `verify`, `backup`, `migrate`, `rebuild-search`, `backfill-folder-tags`. |
+| `generate_historical_folder_tags.py` | Turns descriptive folder names (like "2026_07_04 - July 4th Boat and Fireworks") into real, searchable tags. Runs automatically during scanning. |
+| `face_learning.py` | Matches, clusters, and confirms face suggestions against your People list. |
+| `face_locations.py` | Optional: recovers exact face-box rectangles for embeddings recovered without them. |
+| `generate_face_suggestions.py` | Optional: matches face embeddings against a set of named reference faces. |
+| `semantic_index.py` | Optional natural-language "meaning" search, powered by a local OpenCLIP model. |
+| `lensledger_updater.py` | The self-update and managed-install machinery used by "Check for updates". |
+| `windows_ocr.ps1` | Calls Windows' built-in OCR engine to read visible text in a photo. |
 
 ## Development
 
