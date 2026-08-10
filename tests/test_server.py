@@ -465,6 +465,28 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertTrue(detail["can_restore_publish"])
         self.assertIn("Auto Confirmed Person", [p["name"] for p in detail["confirmed_people"]])
 
+    def test_near_filter_shows_only_photos_at_that_rounded_location(self):
+        from photo_index import scan_library
+
+        second = self.library / "2026-08-10 other place.jpg"
+        Image.new("RGB", (32, 24), (200, 100, 50)).save(second, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        other_id = int(con.execute("SELECT id FROM assets WHERE filename=?", (second.name,)).fetchone()[0])
+        con.execute("UPDATE assets SET gps_latitude=?, gps_longitude=? WHERE id=?", (33.7, -117.8, self.asset_id))
+        con.execute("UPDATE assets SET gps_latitude=?, gps_longitude=? WHERE id=?", (51.5, -0.1, other_id))
+        con.commit()
+        con.close()
+
+        with self.get("/?near=33.7,-117.8&scope=all") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn(self.photo.name, page)
+        self.assertNotIn(second.name, page)
+        self.assertIn("Photos near this location", page)
+
+        items = self.json_response(self.get("/api/library/items?near=33.7,-117.8&scope=all"))
+        self.assertEqual([item["filename"] for item in items["items"]], [self.photo.name])
+
     def test_optional_semantic_job_and_viewer_scope(self):
         def fake_build(_database, **kwargs):
             counts = {"total": 1, "indexed": 1, "errors": 0, "cancelled": False}

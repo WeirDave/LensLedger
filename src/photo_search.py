@@ -478,7 +478,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Photo map — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/map.css')}">
 </head><body><header><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><span class="count" id="count">Loading locations…</span><a class="button" href="/">Back to library</a></header>
-<main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to open its representative photo.</div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
+<main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to browse every photo from that place.</div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><a class="button secondary" id="viewAllHere">View all photos here</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
 <script src="{asset_url('js/map.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
@@ -502,9 +502,15 @@ class SearchHandler(BaseHTTPRequestHandler):
             page_number = max(1, int(params.get("page", ["1"])[0]))
         except ValueError:
             page_number = 1
-        return query, selected_date, scope, person_id, sort, page_number
+        near = params.get("near", [""])[0]
+        try:
+            near_lat_str, near_lon_str = near.split(",", 1)
+            near_point = (round(float(near_lat_str), 1), round(float(near_lon_str), 1))
+        except ValueError:
+            near_point = None
+        return query, selected_date, scope, person_id, sort, page_number, near_point
 
-    def fetch_matching_photos(self, con, query, selected_date, scope, person_id, sort, page_number):
+    def fetch_matching_photos(self, con, query, selected_date, scope, person_id, sort, page_number, near_point=None):
         """Fetch one page of matching photos for the image/context/all/
         semantic scopes, or a specific person's confirmed photos.
 
@@ -519,6 +525,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         """
         clauses = ["a.in_review_bin=0"]
         values: list[object] = []
+        if near_point:
+            clauses.append("ROUND(a.gps_latitude,1)=? AND ROUND(a.gps_longitude,1)=?")
+            values.extend(near_point)
         if scope == "people" and person_id:
             clauses.append("""EXISTS (
                 SELECT 1 FROM asset_people ap
@@ -605,7 +614,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         """JSON pagination endpoint: the filmstrip calls this while
         scrolling to fetch additional pages after the first, which is
         rendered directly into the full page."""
-        query, selected_date, scope, person_id, sort, page_number = self.parse_photo_query(params)
+        query, selected_date, scope, person_id, sort, page_number, near_point = self.parse_photo_query(params)
         if scope == "people" and not person_id:
             return self.send_json({"error": "this scope has no photo pages to fetch"}, 400)
         try:
@@ -615,7 +624,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     if not exists:
                         raise ValueError("That person is no longer available")
                 items, total, selected_date = self.fetch_matching_photos(
-                    con, query, selected_date, scope, person_id, sort, page_number,
+                    con, query, selected_date, scope, person_id, sort, page_number, near_point,
                 )
         except (sqlite3.Error, RuntimeError, ValueError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -626,7 +635,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         with self.db() as con:
             if int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]) == 0:
                 return self.onboarding_page()
-        query, selected_date, scope, person_id, sort, page_number = self.parse_photo_query(params)
+        query, selected_date, scope, person_id, sort, page_number, near_point = self.parse_photo_query(params)
 
         error = ""
         rows: list[dict] = []
@@ -709,7 +718,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             )
                         }
                     rows, total, selected_date = self.fetch_matching_photos(
-                        con, query, selected_date, scope, person_id, sort, page_number,
+                        con, query, selected_date, scope, person_id, sort, page_number, near_point,
                     )
         except (sqlite3.Error, RuntimeError, ValueError) as exc:
             error = str(exc)
@@ -729,6 +738,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             view_label = f'Search: “{query}”'
         elif selected_date:
             view_label = selected_date
+        elif near_point:
+            view_label = "Photos near this location"
         else:
             view_label = {
                 "newest": "Newest photos",
@@ -811,7 +822,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             "items": items, "personDirectory": people_directory, "csrf": self.csrf_token,
             "currentLibrary": str(self.library_root), "viewedPersonId": person_id,
             "selectedId": selected_id, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE,
-            "query": {"q": query, "date": selected_date, "scope": scope, "sort": sort, "person": person_id},
+            "query": {
+                "q": query, "date": selected_date, "scope": scope, "sort": sort, "person": person_id,
+                "near": f"{near_point[0]},{near_point[1]}" if near_point else "",
+            },
             "page": page_number, "hasMore": has_more,
         })}>
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>

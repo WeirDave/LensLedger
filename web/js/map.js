@@ -33,7 +33,18 @@ function show(point) {
     : (point.first_date || 'Unknown') + ' – ' + (point.last_date || 'Unknown');
   document.getElementById('placeCoords').textContent = point.latitude.toFixed(5) + ', ' + point.longitude.toFixed(5);
   document.getElementById('openPhoto').href = '/?date=' + (point.first_date || '') + '&selected=' + point.asset_id;
+  document.getElementById('viewAllHere').href = '/?near=' + point.latitude.toFixed(1) + ',' + point.longitude.toFixed(1) + '&scope=all&sort=newest';
   details.classList.add('open');
+}
+
+function centerOn(latitude, longitude, targetZoom) {
+  zoom = Math.max(1, Math.min(8, targetZoom));
+  const scale = baseScale() * zoom;
+  const markerLeft = (longitude + 180) / 360 * 1440;
+  const markerTop = (90 - latitude) / 180 * 720;
+  panX = scale * (720 - markerLeft);
+  panY = scale * (360 - markerTop);
+  transform();
 }
 
 function setZoom(next, cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2) {
@@ -77,6 +88,17 @@ fetch('/api/map/points').then(response => response.json()).then(data => {
     if (data.pending) document.getElementById('emptyText').textContent = Number(data.pending).toLocaleString() + ' cataloged files still need a location scan. Rescan this library from the library menu, then return here.';
   }
   transform();
+  const deepLat = parseFloat(new URLSearchParams(location.search).get('lat'));
+  const deepLon = parseFloat(new URLSearchParams(location.search).get('lon'));
+  if (!isNaN(deepLat) && !isNaN(deepLon) && clusters.length) {
+    let nearest = clusters[0], bestDistance = Infinity;
+    for (const candidate of clusters) {
+      const distance = Math.hypot(candidate.latitude - deepLat, candidate.longitude - deepLon);
+      if (distance < bestDistance) { bestDistance = distance; nearest = candidate; }
+    }
+    centerOn(nearest.latitude, nearest.longitude, 4);
+    show(nearest);
+  }
 }).catch(error => {
   document.getElementById('empty').classList.add('open');
   document.getElementById('emptyText').textContent = error.message;

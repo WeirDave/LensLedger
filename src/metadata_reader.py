@@ -108,7 +108,7 @@ def read_embedded_metadata(path: Path) -> dict[str, object]:
                 longitude = _gps_decimal(gps.get(4), _text_value(gps.get(3, "")))
                 if latitude is not None and longitude is not None:
                     capture["GPS"] = f"{latitude:.6f}, {longitude:.6f}"
-                    gps_link = f"https://www.openstreetmap.org/?mlat={latitude:.6f}&mlon={longitude:.6f}#map=16/{latitude:.6f}/{longitude:.6f}"
+                    gps_link = f"/map?lat={latitude:.6f}&lon={longitude:.6f}"
             except (KeyError, TypeError, ValueError):
                 pass
 
