@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.6 — 2026-08-09
+
+- Meaning search's Library health panel now explains in plain language what
+  it does and why it's optional, and adds a real one-click "Set up meaning
+  search" that installs the required software as a monitored background
+  job instead of pointing at a README command.
+
 ## 0.23.5 — 2026-08-09
 
 - The first-run setup wizard now plainly states where LensLedger's data
