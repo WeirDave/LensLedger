@@ -6,6 +6,26 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.25.0 — 2026-08-10
+
+- Added "Run all scans": one button on the Scan your photos page now runs
+  photo locations, OCR, meaning search, and face detection back to back,
+  skipping any optional scan you have not set up yet. Previously each scan
+  had to be started by hand after the one before it finished. Verified
+  live against the real 50,909-file library — all four steps ran and
+  completed correctly in sequence.
+- Fixed the "Mapped photos" and "People to review" links on Scan your
+  photos doing nothing when clicked. A local status variable named
+  `location` was shadowing the browser's own `window.location`, so the
+  click handler was setting `.href` on the wrong object entirely.
+- Fixed a library-loading bug where a leftover path (from a deleted temp
+  folder) that no longer existed on disk silently fell back to the OS
+  Pictures folder instead of the real, still-known library — with no
+  indication anything had changed. `load_library_state()` now falls back
+  through every other recently-used library before giving up.
+- Replaced the app's blue accent color with a warm amber across every
+  page, at the user's request.
+
 ## 0.24.2 — 2026-08-10
 
 - Replace the cramped Library health modal with a real, full-width "Scan

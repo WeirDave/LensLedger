@@ -45,6 +45,12 @@ class ServerWorkflowTests(unittest.TestCase):
         photo_search.SearchHandler.ocr_cancel.clear()
         photo_search.SearchHandler.semantic_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.semantic_cancel.clear()
+        photo_search.SearchHandler.semantic_install_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.face_scan_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.face_scan_cancel.clear()
+        photo_search.SearchHandler.face_install_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.scan_all_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.scan_all_cancel.clear()
         photo_search.SearchHandler.people_merge_lock = threading.Lock()
         photo_search.SearchHandler.update_job = {"state": "idle", "message": ""}
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), photo_search.SearchHandler)
@@ -520,6 +526,7 @@ class ServerWorkflowTests(unittest.TestCase):
         with self.get("/scan-photos") as response:
             page = response.read().decode("utf-8")
         self.assertIn("Scan your photos", page)
+        self.assertIn("Run all scans", page)
         self.assertIn("Photo locations (GPS)", page)
         self.assertIn("Local text recognition (OCR)", page)
         self.assertIn("Meaning search (optional)", page)
@@ -604,6 +611,111 @@ class ServerWorkflowTests(unittest.TestCase):
                 time.sleep(0.02)
         self.assertEqual(job["state"], "complete")
         self.assertEqual(job["faces_found"], 3)
+
+    def test_scan_all_chains_location_then_ocr_when_optional_scans_not_set_up(self):
+        with patch.object(self.photo_search, "semantic_is_available", return_value=False), \
+             patch.object(self.photo_search, "face_is_available", return_value=False), \
+             patch("photo_index.run_windows_ocr", return_value=(str(self.photo), "sample recognized text", None)):
+            started = self.json_response(self.post("/api/scan-all/start", {}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(200):
+                job = self.json_response(self.get("/api/scan-all/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["state"], "complete")
+        ocr_job = self.json_response(self.get("/api/ocr/status"))
+        self.assertEqual(ocr_job["state"], "complete")
+        self.assertEqual(ocr_job["attempted"], 1)
+        library_job = self.json_response(self.get("/api/library/status"))
+        self.assertEqual(library_job["state"], "complete")
+
+    def test_scan_all_chains_all_four_steps_when_optional_scans_are_installed(self):
+        order = []
+
+        def fake_semantic(_database, **kwargs):
+            order.append("semantic")
+            counts = {"total": 1, "indexed": 1, "errors": 0, "cancelled": False}
+            kwargs["progress"](counts)
+            return counts
+
+        def fake_faces(_database, _library, **kwargs):
+            order.append("face")
+            counts = {"total": 1, "processed": 1, "faces_found": 2, "errors": 0, "cancelled": False}
+            kwargs["progress"](counts)
+            return counts
+
+        with patch.object(self.photo_search, "semantic_is_available", return_value=True), \
+             patch.object(self.photo_search, "face_is_available", return_value=True), \
+             patch.object(self.photo_search, "build_semantic_index", side_effect=fake_semantic), \
+             patch.object(self.photo_search, "scan_for_faces", side_effect=fake_faces), \
+             patch("photo_index.run_windows_ocr", return_value=(str(self.photo), "sample recognized text", None)):
+            started = self.json_response(self.post("/api/scan-all/start", {}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(200):
+                job = self.json_response(self.get("/api/scan-all/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["state"], "complete")
+        self.assertEqual(order, ["semantic", "face"])
+        semantic_job = self.json_response(self.get("/api/semantic/status"))
+        self.assertEqual(semantic_job["state"], "complete")
+        face_job = self.json_response(self.get("/api/faces/status"))
+        self.assertEqual(face_job["state"], "complete")
+        self.assertEqual(face_job["faces_found"], 2)
+
+    def test_scan_all_can_be_stopped_after_the_current_step(self):
+        def slow_scan_library(_root, _database, **kwargs):
+            should_cancel = kwargs.get("should_cancel")
+            for _ in range(200):
+                if should_cancel and should_cancel():
+                    return 3
+                time.sleep(0.02)
+            return 0
+
+        with patch.object(self.photo_search, "scan_library", side_effect=slow_scan_library):
+            started = self.json_response(self.post("/api/scan-all/start", {}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(50):
+                job = self.json_response(self.get("/api/scan-all/status"))
+                if job.get("step") == "location":
+                    break
+                time.sleep(0.02)
+            cancelled = self.json_response(self.post("/api/scan-all/cancel", {}))
+            self.assertEqual(cancelled["state"], "cancelling")
+            for _ in range(200):
+                job = self.json_response(self.get("/api/scan-all/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["state"], "cancelled")
+
+    def test_scan_all_is_refused_while_already_running(self):
+        def slow_scan_library(_root, _database, **kwargs):
+            should_cancel = kwargs.get("should_cancel")
+            for _ in range(200):
+                if should_cancel and should_cancel():
+                    return 3
+                time.sleep(0.02)
+            return 0
+
+        with patch.object(self.photo_search, "scan_library", side_effect=slow_scan_library):
+            self.json_response(self.post("/api/scan-all/start", {}))
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/scan-all/start", {})
+            self.assertEqual(rejected.exception.code, 400)
+            rejected.exception.close()
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/ocr/start", {})
+            self.assertEqual(rejected.exception.code, 400)
+            rejected.exception.close()
+            self.post("/api/scan-all/cancel", {})
+            for _ in range(200):
+                job = self.json_response(self.get("/api/scan-all/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
 
     def test_everything_scope_search_ranks_by_relevance_without_crashing(self):
         # Regression test: scope='all' combined FTS's MATCH with a

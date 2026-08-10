@@ -235,6 +235,240 @@ def create_verified_database_backup(db_path: Path) -> Path:
     return destination
 
 
+def _run_library_scan_job(handler_class, root, database, started_at):
+    """Run one location/library scan pass, updating handler_class.library_job as it goes."""
+    try:
+        def update_progress(counts):
+            with handler_class.library_lock:
+                handler_class.library_job = {
+                    "state": "scanning", "message": f"Discovered {int(counts['scanned']):,} media files…",
+                    "target_root": str(root), "started_at": started_at, **counts,
+                }
+
+        result = scan_library(
+            root, database, progress=update_progress,
+            should_cancel=handler_class.library_cancel.is_set,
+        )
+        if result not in {0, 2, 3}:
+            raise ValueError("the library index did not complete")
+        with handler_class.library_lock:
+            handler_class.current_library = (root, database)
+        save_library_state(root)
+        with connect(database) as con:
+            summary = {
+                "assets": int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]),
+                "images": int(con.execute("SELECT COUNT(*) FROM assets WHERE media_type='image' AND in_review_bin=0").fetchone()[0]),
+                "videos": int(con.execute("SELECT COUNT(*) FROM assets WHERE media_type='video' AND in_review_bin=0").fetchone()[0]),
+                "raw_files": int(con.execute("SELECT COUNT(*) FROM assets WHERE media_type='raw' AND in_review_bin=0").fetchone()[0]),
+                "metadata_ready": int(con.execute("SELECT COUNT(*) FROM assets WHERE metadata_scanned=1 AND in_review_bin=0").fetchone()[0]),
+                "placeholders": int(con.execute("SELECT COUNT(*) FROM assets WHERE metadata_scanned=0 AND in_review_bin=0").fetchone()[0]),
+            }
+        with handler_class.library_lock:
+            progress_counts = {key: handler_class.library_job.get(key, 0) for key in (
+                "scanned", "changed", "unchanged", "removed", "errors", "placeholders"
+            )}
+            state = "cancelled" if result == 3 else "complete"
+            handler_class.library_job = {
+                "state": state,
+                "message": "Scan paused. Run it again to resume." if result == 3 else f"Library ready: {root}",
+                "target_root": str(root), **progress_counts, "summary": summary,
+            }
+    except Exception as exc:
+        with handler_class.library_lock:
+            handler_class.library_job = {
+                "state": "error", "message": str(exc), "target_root": str(root),
+            }
+
+
+def _run_ocr_job(handler_class, database, since, workers, started_at):
+    """Run one OCR pass, updating handler_class.ocr_job as it goes."""
+    try:
+        def update_progress(counts):
+            with handler_class.ocr_lock:
+                handler_class.ocr_job = {
+                    "state": "running",
+                    "message": f"Processed {int(counts['attempted']):,} of {int(counts['total']):,} images…",
+                    "started_at": started_at,
+                    **counts,
+                }
+
+        result = ocr_assets(
+            database, since, workers, progress=update_progress,
+            should_cancel=handler_class.ocr_cancel.is_set,
+        )
+        with handler_class.ocr_lock:
+            current = dict(handler_class.ocr_job)
+            state = "cancelled" if result == 3 else "complete"
+            current.update({
+                "state": state,
+                "message": "OCR paused safely. Start it again to resume." if result == 3
+                else "OCR pass complete.",
+            })
+            handler_class.ocr_job = current
+    except Exception as exc:
+        with handler_class.ocr_lock:
+            handler_class.ocr_job = {"state": "error", "message": str(exc)}
+
+
+def _run_semantic_index_job(handler_class, database, batch_size, started_at):
+    """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
+    try:
+        def update_progress(counts):
+            with handler_class.semantic_lock:
+                handler_class.semantic_job = {
+                    "state": "running",
+                    "message": f"Indexed {int(counts['indexed']):,} of {int(counts['total']):,} images this pass…",
+                    "total": int(counts["total"]),
+                    "indexed_this_pass": int(counts["indexed"]),
+                    "errors": int(counts["errors"]),
+                    "started_at": started_at,
+                }
+
+        result = build_semantic_index(
+            database, batch_size=batch_size, progress=update_progress,
+            should_cancel=handler_class.semantic_cancel.is_set,
+        )
+        with handler_class.semantic_lock:
+            handler_class.semantic_job = {
+                "state": "cancelled" if result["cancelled"] else "complete",
+                "message": "Meaning indexing paused safely." if result["cancelled"]
+                else "Meaning index is ready.",
+                "total": int(result["total"]),
+                "indexed_this_pass": int(result["indexed"]),
+                "errors": int(result["errors"]),
+            }
+    except Exception as exc:
+        with handler_class.semantic_lock:
+            handler_class.semantic_job = {"state": "error", "message": str(exc)}
+
+
+def _run_face_scan_job(handler_class, database, library_root, started_at):
+    """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
+    try:
+        def update_progress(counts):
+            with handler_class.face_scan_lock:
+                handler_class.face_scan_job = {
+                    "state": "running",
+                    "message": f"Scanned {int(counts['processed']):,} of {int(counts['total']):,} photos, "
+                               f"{int(counts['faces_found']):,} faces found…",
+                    "started_at": started_at,
+                    **counts,
+                }
+
+        result = scan_for_faces(
+            database, library_root, progress=update_progress,
+            should_cancel=handler_class.face_scan_cancel.is_set,
+        )
+        with handler_class.face_scan_lock:
+            current = dict(handler_class.face_scan_job)
+            state = "cancelled" if result["cancelled"] else "complete"
+            current.update({
+                "state": state,
+                "message": "Face detection paused safely. Start it again to resume." if result["cancelled"]
+                else f"Face detection complete. Visit People review's \"Find more matches\" to turn "
+                     f"{result['faces_found']:,} newly-found faces into suggestions.",
+            })
+            handler_class.face_scan_job = current
+    except Exception as exc:
+        with handler_class.face_scan_lock:
+            handler_class.face_scan_job = {"state": "error", "message": str(exc)}
+
+
+class _ScanAllStopped(Exception):
+    """Raised internally to unwind _run_scan_all_job after a cancel request."""
+
+
+_SCAN_ALL_LABELS = {
+    "location": "Scanning photo locations",
+    "ocr": "Running local text recognition (OCR)",
+    "semantic": "Building the meaning-search index",
+    "face": "Scanning for faces",
+}
+
+
+def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
+    """Run location -> OCR -> meaning search -> face detection back to back.
+
+    Meaning search and face detection are only run if the user already
+    installed their optional local models; installing is a separate,
+    explicit, consenting action (large downloads) that this orchestrator
+    never triggers on its own.
+    """
+
+    def set_step(step):
+        with handler_class.scan_all_lock:
+            handler_class.scan_all_job = {
+                "state": "running", "step": step,
+                "message": _SCAN_ALL_LABELS[step] + "…",
+                "started_at": scan_all_started_at,
+            }
+
+    def check_step(job_dict, failure_message):
+        if job_dict.get("state") == "error":
+            raise ValueError(job_dict.get("message") or failure_message)
+        if handler_class.scan_all_cancel.is_set() or job_dict.get("state") == "cancelled":
+            raise _ScanAllStopped()
+
+    try:
+        set_step("location")
+        with handler_class.library_lock:
+            handler_class.library_job = {
+                "state": "scanning", "message": "Discovering photos and videos…",
+                "target_root": str(root), "scanned": 0, "changed": 0,
+                "unchanged": 0, "removed": 0, "errors": 0, "placeholders": 0,
+                "started_at": utc_now(),
+            }
+            handler_class.library_cancel.clear()
+        _run_library_scan_job(handler_class, root, database, handler_class.library_job["started_at"])
+        check_step(handler_class.library_job, "the location scan failed")
+
+        set_step("ocr")
+        with handler_class.ocr_lock:
+            handler_class.ocr_job = {
+                "state": "running", "message": "Preparing local text recognition…",
+                "total": 0, "attempted": 0, "with_text": 0, "errors": 0, "started_at": utc_now(),
+            }
+            handler_class.ocr_cancel.clear()
+        _run_ocr_job(handler_class, database, None, 4, handler_class.ocr_job["started_at"])
+        check_step(handler_class.ocr_job, "OCR failed")
+
+        if semantic_is_available():
+            set_step("semantic")
+            with handler_class.semantic_lock:
+                handler_class.semantic_job = {
+                    "state": "running", "message": "Loading the optional local meaning model…",
+                    "total": 0, "indexed_this_pass": 0, "errors": 0, "started_at": utc_now(),
+                }
+                handler_class.semantic_cancel.clear()
+            _run_semantic_index_job(handler_class, database, 16, handler_class.semantic_job["started_at"])
+            check_step(handler_class.semantic_job, "meaning indexing failed")
+
+        if face_is_available():
+            set_step("face")
+            with handler_class.face_scan_lock:
+                handler_class.face_scan_job = {
+                    "state": "running", "message": "Preparing local face detection…",
+                    "total": 0, "processed": 0, "faces_found": 0, "errors": 0, "started_at": utc_now(),
+                }
+                handler_class.face_scan_cancel.clear()
+            _run_face_scan_job(handler_class, database, root, handler_class.face_scan_job["started_at"])
+            check_step(handler_class.face_scan_job, "face detection failed")
+
+        with handler_class.scan_all_lock:
+            handler_class.scan_all_job = {
+                "state": "complete", "step": None, "message": "All scans complete.",
+            }
+    except _ScanAllStopped:
+        with handler_class.scan_all_lock:
+            handler_class.scan_all_job = {
+                "state": "cancelled", "step": None,
+                "message": "Stopped after the current step. Run it again to continue.",
+            }
+    except Exception as exc:
+        with handler_class.scan_all_lock:
+            handler_class.scan_all_job = {"state": "error", "step": None, "message": str(exc)}
+
+
 class _LibraryAttr:
     """Read library_root/db_path from one atomically-swapped pair.
 
@@ -276,6 +510,9 @@ class SearchHandler(BaseHTTPRequestHandler):
     face_scan_cancel = threading.Event()
     face_install_lock = threading.Lock()
     face_install_job: dict[str, object] = {"state": "idle", "message": ""}
+    scan_all_lock = threading.Lock()
+    scan_all_job: dict[str, object] = {"state": "idle", "message": ""}
+    scan_all_cancel = threading.Event()
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
@@ -339,6 +576,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.semantic_job_status()
         if url.path == "/api/faces/status":
             return self.face_scan_job_status()
+        if url.path == "/api/scan-all/status":
+            return self.scan_all_status()
         if url.path == "/api/update/status":
             return self.update_status()
         if url.path == "/api/people/review/queue":
@@ -428,6 +667,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.cancel_face_scan(body)
             if route == "/api/faces/install":
                 return self.install_face_requirements(body)
+            if route == "/api/scan-all/start":
+                return self.start_scan_all(body)
+            if route == "/api/scan-all/cancel":
+                return self.cancel_scan_all(body)
             if route == "/api/update/check":
                 return self.check_update(body)
             if route == "/api/update/install":
@@ -506,6 +749,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </head><body {bootstrap_attr({"csrf": self.csrf_token, "currentLibrary": str(self.library_root)})}><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Scan your photos</h1><p>Everything that makes your library searchable, and your backups</p></div><span class="spacer"></span><span class="version">v{APP_VERSION}</span></header>
 <main>
 <section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></section>
+<section class="card job-card"><h2>Run all scans</h2><p class="job-intro">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</p><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
 <section class="card job-card"><h2>Photo locations (GPS)</h2><p class="job-intro">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</p><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
 <section class="card job-card"><h2>Local text recognition (OCR)</h2><p class="job-intro">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</p><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
 <section class="card job-card"><h2>Meaning search (optional)</h2><p class="job-intro">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download most people do not need.</p><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><button type="button" id="installSemantic">Set up meaning search</button></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
@@ -2142,6 +2386,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             with type(self).library_lock:
                 if type(self).library_job.get("state") == "scanning":
                     raise ValueError("wait for the library scan to finish before starting OCR")
+            if type(self).scan_all_job.get("state") == "running":
+                raise ValueError("wait for \"Run all scans\" to finish, or stop it first")
             type(self).ocr_job = {
                 "state": "running", "message": "Preparing local text recognition…",
                 "total": 0, "attempted": 0, "with_text": 0, "errors": 0, "started_at": utc_now(),
@@ -2149,38 +2395,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             type(self).ocr_cancel.clear()
         handler_class = type(self)
         database = handler_class.db_path
-
         started_at = handler_class.ocr_job["started_at"]
-
-        def worker():
-            try:
-                def update_progress(counts):
-                    with handler_class.ocr_lock:
-                        handler_class.ocr_job = {
-                            "state": "running",
-                            "message": f"Processed {int(counts['attempted']):,} of {int(counts['total']):,} images…",
-                            "started_at": started_at,
-                            **counts,
-                        }
-
-                result = ocr_assets(
-                    database, since, workers, progress=update_progress,
-                    should_cancel=handler_class.ocr_cancel.is_set,
-                )
-                with handler_class.ocr_lock:
-                    current = dict(handler_class.ocr_job)
-                    state = "cancelled" if result == 3 else "complete"
-                    current.update({
-                        "state": state,
-                        "message": "OCR paused safely. Start it again to resume." if result == 3
-                        else "OCR pass complete.",
-                    })
-                    handler_class.ocr_job = current
-            except Exception as exc:
-                with handler_class.ocr_lock:
-                    handler_class.ocr_job = {"state": "error", "message": str(exc)}
-
-        threading.Thread(target=worker, name="LensLedger-ocr", daemon=True).start()
+        threading.Thread(
+            target=_run_ocr_job, args=(handler_class, database, since, workers, started_at),
+            name="LensLedger-ocr", daemon=True,
+        ).start()
         self.send_json({"ok": True, "state": "running"}, 202)
 
     def cancel_ocr(self, _body):
@@ -2210,6 +2429,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             with type(self).ocr_lock:
                 if type(self).ocr_job.get("state") == "running":
                     raise ValueError("pause OCR before starting meaning indexing")
+            if type(self).scan_all_job.get("state") == "running":
+                raise ValueError("wait for \"Run all scans\" to finish, or stop it first")
             type(self).semantic_job = {
                 "state": "running", "message": "Loading the optional local meaning model…",
                 "total": 0, "indexed_this_pass": 0, "errors": 0, "started_at": utc_now(),
@@ -2218,38 +2439,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         handler_class = type(self)
         database = handler_class.db_path
         started_at = handler_class.semantic_job["started_at"]
-
-        def worker():
-            try:
-                def update_progress(counts):
-                    with handler_class.semantic_lock:
-                        handler_class.semantic_job = {
-                            "state": "running",
-                            "message": f"Indexed {int(counts['indexed']):,} of {int(counts['total']):,} images this pass…",
-                            "total": int(counts["total"]),
-                            "indexed_this_pass": int(counts["indexed"]),
-                            "errors": int(counts["errors"]),
-                            "started_at": started_at,
-                        }
-
-                result = build_semantic_index(
-                    database, batch_size=batch_size, progress=update_progress,
-                    should_cancel=handler_class.semantic_cancel.is_set,
-                )
-                with handler_class.semantic_lock:
-                    handler_class.semantic_job = {
-                        "state": "cancelled" if result["cancelled"] else "complete",
-                        "message": "Meaning indexing paused safely." if result["cancelled"]
-                        else "Meaning index is ready.",
-                        "total": int(result["total"]),
-                        "indexed_this_pass": int(result["indexed"]),
-                        "errors": int(result["errors"]),
-                    }
-            except Exception as exc:
-                with handler_class.semantic_lock:
-                    handler_class.semantic_job = {"state": "error", "message": str(exc)}
-
-        threading.Thread(target=worker, name="LensLedger-semantic", daemon=True).start()
+        threading.Thread(
+            target=_run_semantic_index_job, args=(handler_class, database, batch_size, started_at),
+            name="LensLedger-semantic", daemon=True,
+        ).start()
         self.send_json({"ok": True, "state": "running"}, 202)
 
     def cancel_semantic_index(self, _body):
@@ -2319,6 +2512,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             with type(self).library_lock:
                 if type(self).library_job.get("state") == "scanning":
                     raise ValueError("wait for the library scan to finish before starting face detection")
+            if type(self).scan_all_job.get("state") == "running":
+                raise ValueError("wait for \"Run all scans\" to finish, or stop it first")
             type(self).face_scan_job = {
                 "state": "running", "message": "Preparing local face detection…",
                 "total": 0, "processed": 0, "faces_found": 0, "errors": 0, "started_at": utc_now(),
@@ -2328,38 +2523,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         database = handler_class.db_path
         library_root = handler_class.library_root
         started_at = handler_class.face_scan_job["started_at"]
-
-        def worker():
-            try:
-                def update_progress(counts):
-                    with handler_class.face_scan_lock:
-                        handler_class.face_scan_job = {
-                            "state": "running",
-                            "message": f"Scanned {int(counts['processed']):,} of {int(counts['total']):,} photos, "
-                                       f"{int(counts['faces_found']):,} faces found…",
-                            "started_at": started_at,
-                            **counts,
-                        }
-
-                result = scan_for_faces(
-                    database, library_root, progress=update_progress,
-                    should_cancel=handler_class.face_scan_cancel.is_set,
-                )
-                with handler_class.face_scan_lock:
-                    current = dict(handler_class.face_scan_job)
-                    state = "cancelled" if result["cancelled"] else "complete"
-                    current.update({
-                        "state": state,
-                        "message": "Face detection paused safely. Start it again to resume." if result["cancelled"]
-                        else f"Face detection complete. Visit People review's \"Find more matches\" to turn "
-                             f"{result['faces_found']:,} newly-found faces into suggestions.",
-                    })
-                    handler_class.face_scan_job = current
-            except Exception as exc:
-                with handler_class.face_scan_lock:
-                    handler_class.face_scan_job = {"state": "error", "message": str(exc)}
-
-        threading.Thread(target=worker, name="LensLedger-face-scan", daemon=True).start()
+        threading.Thread(
+            target=_run_face_scan_job, args=(handler_class, database, library_root, started_at),
+            name="LensLedger-face-scan", daemon=True,
+        ).start()
         self.send_json({"ok": True, "state": "running"}, 202)
 
     def cancel_face_scan(self, _body):
@@ -2410,6 +2577,59 @@ class SearchHandler(BaseHTTPRequestHandler):
         threading.Thread(target=worker, name="LensLedger-face-install", daemon=True).start()
         self.send_json({"ok": True, "state": "installing"}, 202)
 
+    def scan_all_status(self):
+        with type(self).scan_all_lock:
+            job = dict(type(self).scan_all_job)
+        self.send_json(job)
+
+    def start_scan_all(self, _body):
+        handler_class = type(self)
+        with handler_class.scan_all_lock:
+            if handler_class.scan_all_job.get("state") == "running":
+                raise ValueError("\"Run all scans\" is already in progress")
+            with handler_class.library_lock:
+                if handler_class.library_job.get("state") == "scanning":
+                    raise ValueError("wait for the current location scan to finish first")
+            with handler_class.ocr_lock:
+                if handler_class.ocr_job.get("state") == "running":
+                    raise ValueError("wait for the current OCR pass to finish first")
+            with handler_class.semantic_lock:
+                if handler_class.semantic_job.get("state") == "running":
+                    raise ValueError("wait for the current meaning-search pass to finish first")
+            with handler_class.face_scan_lock:
+                if handler_class.face_scan_job.get("state") == "running":
+                    raise ValueError("wait for the current face-detection pass to finish first")
+            started_at = utc_now()
+            handler_class.scan_all_job = {
+                "state": "running", "step": None, "message": "Starting…", "started_at": started_at,
+            }
+            handler_class.scan_all_cancel.clear()
+        root = handler_class.library_root
+        database = handler_class.db_path
+        threading.Thread(
+            target=_run_scan_all_job, args=(handler_class, root, database, started_at),
+            name="LensLedger-scan-all", daemon=True,
+        ).start()
+        self.send_json({"ok": True, "state": "running"}, 202)
+
+    def cancel_scan_all(self, _body):
+        handler_class = type(self)
+        with handler_class.scan_all_lock:
+            if handler_class.scan_all_job.get("state") != "running":
+                raise ValueError("\"Run all scans\" is not running")
+            handler_class.scan_all_cancel.set()
+            current_step = handler_class.scan_all_job.get("step")
+            handler_class.scan_all_job["message"] = "Stopping after the current step…"
+        if current_step == "location":
+            handler_class.library_cancel.set()
+        elif current_step == "ocr":
+            handler_class.ocr_cancel.set()
+        elif current_step == "semantic":
+            handler_class.semantic_cancel.set()
+        elif current_step == "face":
+            handler_class.face_scan_cancel.set()
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
+
     def backup_database(self, _body):
         destination = create_verified_database_backup(type(self).db_path)
         self.send_json({"ok": True, "path": str(destination), "bytes": destination.stat().st_size})
@@ -2447,6 +2667,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).library_lock:
             if type(self).library_job.get("state") == "scanning":
                 raise ValueError("another photo library is currently being indexed")
+            if type(self).scan_all_job.get("state") == "running":
+                raise ValueError("wait for \"Run all scans\" to finish, or stop it first")
             type(self).library_job = {
                 "state": "scanning", "message": "Discovering photos and videos…",
                 "target_root": str(root), "scanned": 0, "changed": 0,
@@ -2456,51 +2678,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             type(self).library_cancel.clear()
         handler_class = type(self)
         started_at = handler_class.library_job["started_at"]
-
-        def worker():
-            try:
-                def update_progress(counts):
-                    with handler_class.library_lock:
-                        handler_class.library_job = {
-                            "state": "scanning", "message": f"Discovered {int(counts['scanned']):,} media files…",
-                            "target_root": str(root), "started_at": started_at, **counts,
-                        }
-
-                result = scan_library(
-                    root, database, progress=update_progress,
-                    should_cancel=handler_class.library_cancel.is_set,
-                )
-                if result not in {0, 2, 3}:
-                    raise ValueError("the library index did not complete")
-                with handler_class.library_lock:
-                    handler_class.current_library = (root, database)
-                save_library_state(root)
-                with connect(database) as con:
-                    summary = {
-                        "assets": int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]),
-                        "images": int(con.execute("SELECT COUNT(*) FROM assets WHERE media_type='image' AND in_review_bin=0").fetchone()[0]),
-                        "videos": int(con.execute("SELECT COUNT(*) FROM assets WHERE media_type='video' AND in_review_bin=0").fetchone()[0]),
-                        "raw_files": int(con.execute("SELECT COUNT(*) FROM assets WHERE media_type='raw' AND in_review_bin=0").fetchone()[0]),
-                        "metadata_ready": int(con.execute("SELECT COUNT(*) FROM assets WHERE metadata_scanned=1 AND in_review_bin=0").fetchone()[0]),
-                        "placeholders": int(con.execute("SELECT COUNT(*) FROM assets WHERE metadata_scanned=0 AND in_review_bin=0").fetchone()[0]),
-                    }
-                with handler_class.library_lock:
-                    progress_counts = {key: handler_class.library_job.get(key, 0) for key in (
-                        "scanned", "changed", "unchanged", "removed", "errors", "placeholders"
-                    )}
-                    state = "cancelled" if result == 3 else "complete"
-                    handler_class.library_job = {
-                        "state": state,
-                        "message": "Scan paused. Run it again to resume." if result == 3 else f"Library ready: {root}",
-                        "target_root": str(root), **progress_counts, "summary": summary,
-                    }
-            except Exception as exc:
-                with handler_class.library_lock:
-                    handler_class.library_job = {
-                        "state": "error", "message": str(exc), "target_root": str(root),
-                    }
-
-        threading.Thread(target=worker, name="LensLedger-library-index", daemon=True).start()
+        threading.Thread(
+            target=_run_library_scan_job, args=(handler_class, root, database, started_at),
+            name="LensLedger-library-index", daemon=True,
+        ).start()
         self.send_json({"ok": True, "state": "scanning", "path": str(root)}, 202)
 
     def cancel_library_scan(self, _body):

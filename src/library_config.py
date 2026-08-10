@@ -51,10 +51,22 @@ def load_library_config() -> dict[str, object]:
 
 
 def load_library_state() -> Path:
+    """Resolve the library to open at startup.
+
+    Falls back through the recently-known libraries list before giving up
+    and pointing at the OS Pictures folder -- a `current_root` that no
+    longer exists (a deleted removable drive, a cleaned-up temp folder)
+    should never silently swap the user's real library for an empty
+    default with no indication anything changed.
+    """
     config = load_library_config()
     value = config.get("current_root", "")
     if value:
         root = Path(str(value)).resolve()
+        if root.is_dir():
+            return root
+    for candidate in config.get("libraries", []):
+        root = Path(str(candidate)).resolve()
         if root.is_dir():
             return root
     return DEFAULT_LIBRARY_ROOT.resolve()

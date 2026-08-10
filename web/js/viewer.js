@@ -3,7 +3,7 @@ const items=LL.items; const personDirectory=LL.personDirectory; const csrf=LL.cs
 const $=id=>document.getElementById(id); const stage=$('stage');
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 async function api(path,payload){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,csrf})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Request failed');return data}
-function setStatus(text,error=false){$('status').textContent=text;$('status').style.color=error?'#e25c70':'#16bde9'}
+function setStatus(text,error=false){$('status').textContent=text;$('status').style.color=error?'#e25c70':'#e2903f'}
 function chip(tag,kind){const el=document.createElement('span');el.className='chip '+(kind==='context'?'context':'');el.append(document.createTextNode(tag.name));const b=document.createElement('button');b.textContent='×';b.title='Hide this tag for this photo';b.onclick=()=>removeTag(tag);el.append(b);return el}
 function renderSubject(detail){const holder=$('subjectChip');if(!detail.subject){holder.replaceChildren();$('subjectInput').placeholder='Example: Formula 1 race cars';return}const el=document.createElement('span');el.className='chip subject';el.append(document.createTextNode(detail.subject));const b=document.createElement('button');b.textContent='×';b.title='Clear the primary subject';b.onclick=clearSubject;el.append(b);holder.replaceChildren(el);$('subjectInput').placeholder='Replace the current subject'}
 function renderChips(detail){renderSubject(detail);$('imageTags').replaceChildren(...detail.image_tags.map(t=>chip(t,'image')));$('contextTags').replaceChildren(...detail.context_tags.map(t=>chip(t,'context')));const hidden=detail.hidden_tags.map(name=>{const e=document.createElement('button');e.className='chip hidden';e.textContent='Restore '+name;e.onclick=()=>restoreTag(name);return e});$('hiddenTags').replaceChildren(...hidden);$('hiddenSection').style.display=hidden.length?'block':'none'}
@@ -14,7 +14,7 @@ function renderFocusedFace(media,face){
   const marker=document.createElement('div');
   marker.className='focused-face-box';
   marker.textContent='Face for '+face.name;
-  Object.assign(marker.style,{position:'absolute',zIndex:'1',pointerEvents:'none',border:'3px solid #16bde9',boxShadow:'0 0 0 2px #00131b,0 0 18px #16bde9aa',borderRadius:'4px',color:'#e8fbff',fontWeight:'800',fontSize:'12px'});
+  Object.assign(marker.style,{position:'absolute',zIndex:'1',pointerEvents:'none',border:'3px solid #e2903f',boxShadow:'0 0 0 2px #00131b,0 0 18px #e2903faa',borderRadius:'4px',color:'#fff3e0',fontWeight:'800',fontSize:'12px'});
   const position=()=>{
     if(!media.naturalWidth||!media.naturalHeight)return;
     const scale=Math.min(media.clientWidth/media.naturalWidth,media.clientHeight/media.naturalHeight);
