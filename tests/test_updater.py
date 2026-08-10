@@ -23,7 +23,7 @@ def make_release_tree(root: Path, version: str) -> Path:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("placeholder\n", encoding="utf-8")
-    (root / "product.py").write_text(f'APP_VERSION = "{version}"\n', encoding="utf-8")
+    (root / "src" / "product.py").write_text(f'APP_VERSION = "{version}"\n', encoding="utf-8")
     return root
 
 
