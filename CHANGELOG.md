@@ -6,6 +6,35 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.0 — 2026-08-09
+
+- Fix "Everything" search: any text search in the default scope raised a
+  database error and silently returned zero results, because the query
+  combined SQLite FTS5's `MATCH` with an `OR`, which FTS5 refuses to
+  evaluate. Everything-scope search now works, and matches are ranked by
+  relevance ("Best match") instead of only by date.
+- Replace the filmstrip's fixed 250-photo page limit with infinite scroll: a
+  new pagination endpoint feeds the filmstrip more photos automatically as
+  you scroll, using the same query logic as the initial page so results can
+  never drift out of sync.
+- Confirm near-certain face matches automatically instead of always waiting
+  for a review click. A match at least 90% confident with a wide margin over
+  the runner-up is confirmed and published to the photo's metadata right
+  away, the same safety-backed way a manual confirmation is; anything less
+  certain still goes to the review queue exactly as before.
+- Make the Library health panel's "People to review", "Mapped photos", and
+  "Review Bin" counts clickable, taking you directly to that screen instead
+  of just reporting a number.
+- Close a clickjacking gap (missing `X-Frame-Options`/`Content-Security-
+  Policy`), switch the CSRF check to a constant-time comparison, and fix a
+  narrow race condition where a concurrent request could observe a library
+  switch's new root paired with the old catalog.
+- Move the viewer, onboarding, people-review, and map pages' CSS and
+  JavaScript out of `photo_search.py` into served static files, and add the
+  Content-Security-Policy this now makes possible.
+- Escape SQL `LIKE` wildcards in the people-name search and standardize
+  metadata-backup filename timestamps on microsecond precision.
+
 ## 0.22.5 — 2026-08-09
 
 - Preserve the original pre-managed `Start LensLedger.cmd` and replace it with

@@ -13,13 +13,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_paths import libraries_root
-from photo_index import connect, utc_now
+from photo_index import connect, rebuild_search_row, sync_person_tags, utc_now
 
 
 MIN_PROFILE_FACES = 2
 PROFILE_FACE_THRESHOLD = 0.66
 SUGGESTION_THRESHOLD = 0.76
 SUGGESTION_MARGIN = 0.04
+# A match this confident, with this wide a gap over the runner-up, is safe to
+# confirm immediately instead of waiting on a human decision: the reviewer
+# can still reject it afterward exactly like any other confirmed match, so
+# the cost of a rare wrong auto-confirm is the same one-click correction as
+# today, not a silent, unreviewable mistake.
+AUTO_CONFIRM_THRESHOLD = 0.90
+AUTO_CONFIRM_MARGIN = 0.08
 # Profile centroids are more stable than individual photo embeddings. A score
 # above this level is strong evidence that two labels learned the same person;
 # quarantine both instead of spreading a likely naming mistake.
@@ -189,6 +196,7 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
         eligible_profiles = [
             profile for profile in profiles if profile.person_id not in ambiguous_profile_ids
         ]
+        names = {profile.person_id: profile.name for profile in profiles}
 
         existing = {
             (int(row["asset_id"]), int(row["person_id"])): str(row["state"])
@@ -198,6 +206,7 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
             )
         }
         proposals: dict[tuple[int, int], tuple[float, int]] = {}
+        auto_confirms: dict[tuple[int, int], tuple[float, int]] = {}
         for face in faces:
             ranked = sorted(
                 ((dot(face.vector, profile.centroid), profile) for profile in eligible_profiles),
@@ -207,15 +216,22 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
                 continue
             best_score, best_profile = ranked[0]
             second_score = ranked[1][0] if len(ranked) > 1 else -1.0
+            margin = best_score - second_score
             key = (face.asset_id, best_profile.person_id)
             if key in existing:
                 continue
-            if best_score < SUGGESTION_THRESHOLD or best_score - second_score < SUGGESTION_MARGIN:
+            if best_score >= AUTO_CONFIRM_THRESHOLD and margin >= AUTO_CONFIRM_MARGIN:
+                previous = auto_confirms.get(key)
+                if previous is None or best_score > previous[0]:
+                    auto_confirms[key] = (best_score, face.id)
+                continue
+            if best_score < SUGGESTION_THRESHOLD or margin < SUGGESTION_MARGIN:
                 continue
             previous = proposals.get(key)
             if previous is None or best_score > previous[0]:
                 proposals[key] = (best_score, face.id)
 
+        auto_confirmed_details: list[dict[str, object]] = []
         if apply:
             con.execute("DELETE FROM person_face_profiles")
             for profile in profiles:
@@ -235,6 +251,24 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
                        ) VALUES (?,?,'suggested',?,?,'learned_face',?)""",
                     (asset_id, person_id, score, face_id, utc_now()),
                 )
+            # Auto-confirmed matches are durable state, like any human
+            # confirmation, so (unlike suggestions) they are never bulk
+            # -deleted and re-inserted on the next learn() pass.
+            for (asset_id, person_id), (score, face_id) in auto_confirms.items():
+                con.execute(
+                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                       VALUES (?,?,'confirmed',?,?,'learned_face_auto',?)
+                       ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                           state='confirmed',confidence=excluded.confidence,face_id=excluded.face_id,
+                           source='learned_face_auto',updated_at=excluded.updated_at""",
+                    (asset_id, person_id, score, face_id, utc_now()),
+                )
+                sync_person_tags(con, asset_id)
+                rebuild_search_row(con, asset_id)
+                auto_confirmed_details.append({
+                    "asset_id": asset_id, "person_id": person_id,
+                    "name": names.get(person_id, ""), "confidence": round(score, 4),
+                })
 
         profile_summary = [
             {"person_id": profile.person_id, "name": profile.name,
@@ -242,7 +276,6 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
             for profile in profiles
         ]
         suggestion_counts: dict[str, int] = {}
-        names = {profile.person_id: profile.name for profile in profiles}
         for _, person_id in proposals:
             name = names[person_id]
             suggestion_counts[name] = suggestion_counts.get(name, 0) + 1
@@ -270,6 +303,7 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
             "suggestions_by_person": dict(sorted(suggestion_counts.items())),
             "proposal_samples": proposal_samples,
             "profile_summary": profile_summary,
+            "auto_confirmed": auto_confirmed_details,
             "applied": apply,
         }
 

@@ -37,6 +37,8 @@ REQUIRED_FILES = {
     "requirements-semantic.txt", "Install LensLedger.cmd", "Start LensLedger.cmd",
     "THIRD_PARTY_NOTICES.md", "tools/ExifTool/ExifTool.exe", "windows_ocr.ps1",
     "LICENSE", "README.md",
+    "static/onboarding.css", "static/onboarding.js", "static/viewer.css", "static/viewer.js",
+    "static/map.css", "static/map.js", "static/people-review.css", "static/people-review.js",
 }
 FORBIDDEN_ROOT_NAMES = {
     ".git", "Face Data", "Libraries", "Metadata Backups", "Database Backups",

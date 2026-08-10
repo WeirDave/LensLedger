@@ -67,6 +67,7 @@ jobs:
             THIRD_PARTY_NOTICES.md \
             CHANGELOG.md \
             assets/ \
+            static/ \
             tools/ \
             -x "**/__pycache__/*" "**/*.pyc" "**/*.pyo"
 

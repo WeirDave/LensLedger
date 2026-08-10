@@ -35,8 +35,7 @@ class ServerWorkflowTests(unittest.TestCase):
         self.database = self.root / "library.sqlite3"
         self.assertEqual(scan_library(self.library, self.database), 0)
         photo_search.BACKUP_ROOT = self.data / "Metadata Backups"
-        photo_search.SearchHandler.db_path = self.database
-        photo_search.SearchHandler.library_root = self.library.resolve()
+        photo_search.SearchHandler.current_library = (self.library.resolve(), self.database)
         photo_search.SearchHandler.csrf_token = "test-csrf"
         photo_search.SearchHandler.library_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.library_cancel.clear()
@@ -95,7 +94,11 @@ class ServerWorkflowTests(unittest.TestCase):
         with self.get("/?scope=people") as response:
             people_page = response.read().decode("utf-8")
         self.assertIn("Merge people", people_page)
-        self.assertIn("separate each name with a comma", people_page)
+        self.assertIn("separate each alternate name with a comma", people_page)
+        self.assertIn("/static/viewer.js", people_page)
+        with self.get("/static/viewer.js") as response:
+            viewer_script = response.read().decode("utf-8")
+        self.assertIn("separate each name with a comma", viewer_script)
 
     def test_update_status_runs_in_background_and_reports_current_release(self):
         release = {
@@ -250,8 +253,11 @@ class ServerWorkflowTests(unittest.TestCase):
         )
         with self.get("/people-review") as response:
             page = response.read().decode("utf-8")
-        self.assertIn("Face being checked", page)
-        self.assertIn("ResizeObserver", page)
+        self.assertIn("/static/people-review.js", page)
+        with self.get("/static/people-review.js") as response:
+            script = response.read().decode("utf-8")
+        self.assertIn("Face being checked", script)
+        self.assertIn("ResizeObserver", script)
 
     def test_person_view_exposes_pending_matches_and_the_focused_face(self):
         from photo_index import scan_library, utc_now
@@ -386,6 +392,53 @@ class ServerWorkflowTests(unittest.TestCase):
             lock.rollback()
             lock.close()
 
+    def test_learn_people_publishes_auto_confirmed_matches_to_the_jpeg(self):
+        # face_learning.learn() writes near-certain matches straight to
+        # 'confirmed' (see AUTO_CONFIRM_THRESHOLD); this exercises the
+        # photo_search.py side of that: does /api/people/learn actually
+        # publish those to the JPEG's real XMP metadata, same as a human
+        # confirming would, with a genuine safety backup.
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        person_id = int(con.execute(
+            "INSERT INTO people(name) VALUES ('Auto Confirmed Person')"
+        ).lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+               VALUES (?,?,'confirmed',0.95,'learned_face_auto',?)""",
+            (self.asset_id, person_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        fake_learn_result = {
+            "profiles": 1, "eligible_profiles": 1, "suggestions": 0,
+            "auto_confirmed": [{
+                "asset_id": self.asset_id, "person_id": person_id,
+                "name": "Auto Confirmed Person", "confidence": 0.95,
+            }],
+        }
+        with patch.object(self.photo_search, "learn_faces", return_value=fake_learn_result):
+            result = self.json_response(self.post("/api/people/learn", {}))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["auto_confirmed"], 1)
+
+        con = sqlite3.connect(self.database)
+        con.row_factory = sqlite3.Row
+        publication = con.execute(
+            "SELECT operation, backup_path FROM metadata_publications WHERE asset_id=?", (self.asset_id,)
+        ).fetchone()
+        con.close()
+        self.assertIsNotNone(publication)
+        self.assertEqual(publication["operation"], "people-auto-confirm")
+        self.assertTrue(Path(publication["backup_path"]).is_file())
+
+        detail = self.json_response(self.get(f"/api/asset?id={self.asset_id}"))
+        self.assertTrue(detail["can_restore_publish"])
+        self.assertIn("Auto Confirmed Person", [p["name"] for p in detail["confirmed_people"]])
+
     def test_optional_semantic_job_and_viewer_scope(self):
         def fake_build(_database, **kwargs):
             counts = {"total": 1, "indexed": 1, "errors": 0, "cancelled": False}
@@ -413,6 +466,47 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Meaning (optional)", page)
         self.assertIn("Describe a scene, object, or idea", page)
         self.assertIn(self.photo.name, page)
+
+    def test_everything_scope_search_ranks_by_relevance_without_crashing(self):
+        # Regression test: scope='all' combined FTS's MATCH with a
+        # confirmed-person-name OR inside one WHERE clause, which SQLite's
+        # FTS5 refuses to evaluate at all ("unable to use function MATCH in
+        # the requested context") -- every scope='all' search with a real
+        # query silently returned zero results and an error banner.
+        from photo_index import scan_library, set_source_tags, rebuild_search_row, utc_now
+
+        strong = self.library / "2026-08-11 beach strong.jpg"
+        weak = self.library / "2026-08-12 beach weak.jpg"
+        unrelated = self.library / "2026-08-13 birthday.jpg"
+        for path in (strong, weak, unrelated):
+            Image.new("RGB", (32, 24), (10, 10, 10)).save(path, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+
+        con = sqlite3.connect(self.database)
+        con.row_factory = sqlite3.Row
+        ids = {row["relative_path"]: int(row["id"]) for row in con.execute("SELECT id, relative_path FROM assets")}
+        set_source_tags(con, ids[strong.name], "asset_rule", ["beach", "sunset", "beach party"])
+        con.execute("UPDATE text_data SET ocr_text=? WHERE asset_id=?", ("a faint mention of beach", ids[weak.name]))
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Beach Bob')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_people(asset_id,person_id,state,source,updated_at) VALUES (?,?,'confirmed','manual',?)",
+            (ids[unrelated.name], person_id, utc_now()),
+        )
+        for asset_id in ids.values():
+            rebuild_search_row(con, asset_id)
+        con.commit()
+        con.close()
+
+        page = self.json_response(self.get("/api/library/items?q=beach&scope=all&sort=relevance"))
+        self.assertEqual(page["total"], 3)
+        filenames = [item["filename"] for item in page["items"]]
+        self.assertEqual(filenames[0], strong.name)
+        self.assertLess(filenames.index(weak.name), filenames.index(unrelated.name))
+
+        with self.get("/?q=beach&scope=all") as response:
+            html_page = response.read().decode("utf-8")
+        self.assertNotIn("unable to use function MATCH", html_page)
+        self.assertIn("Best match", html_page)
 
 
 if __name__ == "__main__":

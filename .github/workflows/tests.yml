@@ -45,7 +45,13 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Compile Python sources
-        run: python -m compileall -q app_paths.py database_tools.py face_learning.py lensledger_updater.py library_config.py metadata_reader.py photo_index.py photo_search.py semantic_index.py tests
+        run: python -m compileall -q app_paths.py database_tools.py face_learning.py generate_face_suggestions.py generate_historical_folder_tags.py lensledger_updater.py library_config.py metadata_reader.py photo_index.py photo_search.py semantic_index.py tests
 
       - name: Check dependency consistency
         run: python -m pip check
+
+      - name: Verify bundled ExifTool runs
+        run: |
+          $version = & "tools\ExifTool\ExifTool.exe" -ver
+          if ($LASTEXITCODE -ne 0) { throw "ExifTool.exe exited with code $LASTEXITCODE" }
+          Write-Host "Bundled ExifTool version: $version"
