@@ -122,7 +122,7 @@ remembered and checked again during later managed updates.
 git clone https://github.com/WeirDave/LensLedger.git
 cd LensLedger
 python -m pip install -r requirements.txt
-python photo_search.py
+python src\photo_search.py
 ```
 
 ### Optional legacy face-box recovery
@@ -133,7 +133,7 @@ rebuild them locally with a compatible InsightFace model:
 
 ```powershell
 python -m pip install -r requirements-face.txt
-python face_locations.py --db "C:\path\to\library.sqlite3" --library "C:\path\to\photos"
+python src\face_locations.py --db "C:\path\to\library.sqlite3" --library "C:\path\to\photos"
 ```
 
 Only a strong, unambiguous embedding match is saved. Photos and vectors remain
@@ -166,12 +166,12 @@ Create an empty database, inspect it, verify it, back it up, migrate it, or
 rebuild full-text search:
 
 ```powershell
-python database_tools.py init
-python database_tools.py status
-python database_tools.py verify
-python database_tools.py backup
-python database_tools.py migrate
-python database_tools.py rebuild-search
+python src\database_tools.py init
+python src\database_tools.py status
+python src\database_tools.py verify
+python src\database_tools.py backup
+python src\database_tools.py migrate
+python src\database_tools.py rebuild-search
 ```
 
 Use `--db C:\path\to\library.sqlite3` before the command to target a specific
@@ -180,10 +180,10 @@ database. Backups use SQLite's online backup API and are integrity-checked.
 The indexer also remains available directly:
 
 ```powershell
-python photo_index.py scan "C:\Users\you\Pictures"
-python photo_index.py stats
-python photo_index.py query "beach AND sunset"
-python photo_index.py ocr --since 2025-01-01 --workers 4
+python src\photo_index.py scan "C:\Users\you\Pictures"
+python src\photo_index.py stats
+python src\photo_index.py query "beach AND sunset"
+python src\photo_index.py ocr --since 2025-01-01 --workers 4
 ```
 
 ## Optional local meaning search
@@ -194,7 +194,7 @@ large. To enable it:
 
 ```powershell
 python -m pip install -r requirements-semantic.txt
-python semantic_index.py --db C:\path\to\library.sqlite3 build
+python src\semantic_index.py --db C:\path\to\library.sqlite3 build
 ```
 
 The same incremental, pausable build is available from **Library health & OCR**
@@ -221,6 +221,7 @@ and `semantic_index.py` owns the optional meaning index. This keeps private file
 operations independently testable from the UI.
 
 ```powershell
+$env:PYTHONPATH = "src"
 python -m unittest discover -s tests -v
 python -m compileall -q .
 ```

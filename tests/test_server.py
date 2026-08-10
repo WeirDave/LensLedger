@@ -95,8 +95,8 @@ class ServerWorkflowTests(unittest.TestCase):
             people_page = response.read().decode("utf-8")
         self.assertIn("Merge people", people_page)
         self.assertIn("separate each alternate name with a comma", people_page)
-        self.assertIn("/static/viewer.js", people_page)
-        with self.get("/static/viewer.js") as response:
+        self.assertIn("/static/js/viewer.js", people_page)
+        with self.get("/static/js/viewer.js") as response:
             viewer_script = response.read().decode("utf-8")
         self.assertIn("separate each name with a comma", viewer_script)
 
@@ -253,8 +253,8 @@ class ServerWorkflowTests(unittest.TestCase):
         )
         with self.get("/people-review") as response:
             page = response.read().decode("utf-8")
-        self.assertIn("/static/people-review.js", page)
-        with self.get("/static/people-review.js") as response:
+        self.assertIn("/static/js/people-review.js", page)
+        with self.get("/static/js/people-review.js") as response:
             script = response.read().decode("utf-8")
         self.assertIn("Face being checked", script)
         self.assertIn("ResizeObserver", script)

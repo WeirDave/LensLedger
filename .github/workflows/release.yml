@@ -28,7 +28,7 @@ jobs:
           from pathlib import Path
 
           expected = sys.argv[1]
-          source = Path("product.py").read_text(encoding="utf-8")
+          source = Path("src/product.py").read_text(encoding="utf-8")
           match = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', source, re.MULTILINE)
           if not match or match.group(1) != expected:
               raise SystemExit(f"Release tag v{expected} does not match product.py")
@@ -43,20 +43,20 @@ jobs:
           ZIPNAME="LensLedger-${TAG}.zip"
 
           zip -r "$ZIPNAME" \
-            app_paths.py \
-            database_tools.py \
-            face_learning.py \
-            face_locations.py \
-            generate_face_suggestions.py \
-            generate_historical_folder_tags.py \
-            lensledger_updater.py \
-            library_config.py \
-            metadata_reader.py \
-            photo_index.py \
-            photo_search.py \
-            semantic_index.py \
-            product.py \
-            windows_ocr.ps1 \
+            src/app_paths.py \
+            src/database_tools.py \
+            src/face_learning.py \
+            src/face_locations.py \
+            src/generate_face_suggestions.py \
+            src/generate_historical_folder_tags.py \
+            src/lensledger_updater.py \
+            src/library_config.py \
+            src/metadata_reader.py \
+            src/photo_index.py \
+            src/photo_search.py \
+            src/semantic_index.py \
+            src/product.py \
+            src/windows_ocr.ps1 \
             "Install LensLedger.cmd" \
             "Start LensLedger.cmd" \
             requirements.txt \

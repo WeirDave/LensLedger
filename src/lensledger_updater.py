@@ -31,14 +31,14 @@ MARKER_NAME = ".lensledger-managed.json"
 LEGACY_HANDOFF_REGISTRY = "legacy-launchers.json"
 LEGACY_LAUNCHER_MARKER = "REM LensLedger managed-launcher handoff"
 REQUIRED_FILES = {
-    "app_paths.py", "assets/lensledger-logo.png", "assets/world-map.svg", "CHANGELOG.md",
-    "database_tools.py", "library_config.py", "metadata_reader.py", "lensledger_updater.py",
-    "photo_index.py", "photo_search.py", "product.py", "requirements.txt",
+    "src/app_paths.py", "assets/lensledger-logo.png", "assets/world-map.svg", "CHANGELOG.md",
+    "src/database_tools.py", "src/library_config.py", "src/metadata_reader.py", "src/lensledger_updater.py",
+    "src/photo_index.py", "src/photo_search.py", "src/product.py", "requirements.txt",
     "requirements-semantic.txt", "Install LensLedger.cmd", "Start LensLedger.cmd",
-    "THIRD_PARTY_NOTICES.md", "tools/ExifTool/ExifTool.exe", "windows_ocr.ps1",
+    "THIRD_PARTY_NOTICES.md", "tools/ExifTool/ExifTool.exe", "src/windows_ocr.ps1",
     "LICENSE", "README.md",
-    "static/onboarding.css", "static/onboarding.js", "static/viewer.css", "static/viewer.js",
-    "static/map.css", "static/map.js", "static/people-review.css", "static/people-review.js",
+    "static/css/onboarding.css", "static/js/onboarding.js", "static/css/viewer.css", "static/js/viewer.js",
+    "static/css/map.css", "static/js/map.js", "static/css/people-review.css", "static/js/people-review.js",
 }
 FORBIDDEN_ROOT_NAMES = {
     ".git", "Face Data", "Libraries", "Metadata Backups", "Database Backups",
@@ -70,7 +70,7 @@ def version_tuple(value: str) -> tuple[int, int, int]:
 
 
 def read_tree_version(root: Path) -> str:
-    product = root / "product.py"
+    product = root / "src" / "product.py"
     try:
         text = product.read_text(encoding="utf-8")
     except OSError as exc:
@@ -589,7 +589,7 @@ def migrate_legacy_data(legacy_root: Path, install_root: Path) -> dict[str, str]
     try:
         for command in ("migrate", "verify"):
             result = subprocess.run(
-                [sys.executable, str(install_root / "database_tools.py"), "--db", str(temporary), command],
+                [sys.executable, str(install_root / "src" / "database_tools.py"), "--db", str(temporary), command],
                 capture_output=True, text=True, timeout=180, check=False,
                 creationflags=_creation_flags(),
             )
@@ -666,7 +666,7 @@ def launch_lensledger(install_root: Path) -> None:
         )
     else:
         subprocess.Popen(
-            [sys.executable, str(install_root / "photo_search.py")], cwd=install_root,
+            [sys.executable, str(install_root / "src" / "photo_search.py")], cwd=install_root,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             close_fds=True,
         )
@@ -714,7 +714,7 @@ def main() -> int:
     check = subparsers.add_parser("check", help="check GitHub for a newer verified release")
     check.add_argument("--current", required=True)
     current = subparsers.add_parser("install-current", help="install this extracted release into the managed app folder")
-    current.add_argument("--source", type=Path, default=Path(__file__).parent)
+    current.add_argument("--source", type=Path, default=Path(__file__).parent.parent)
     current.add_argument("--target", type=Path)
     current.add_argument("--legacy-root", type=Path)
     current.add_argument("--no-launch", action="store_true")
@@ -749,7 +749,7 @@ def main() -> int:
         print(f"Update failed: {exc}", file=sys.stderr)
         if args.command == "install-latest" and args.wait_pid:
             current_root = args.current_root.resolve()
-            if (current_root / "photo_search.py").is_file():
+            if (current_root / "src" / "photo_search.py").is_file():
                 try:
                     launch_lensledger(current_root)
                     print("The previous LensLedger copy was restarted.", file=sys.stderr)

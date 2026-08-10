@@ -47,8 +47,8 @@ TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
 PAGE_SIZE = 250
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg"}
-STATIC_ROOT = Path(__file__).parent / "static"
-STATIC_NAME_RE = re.compile(r"[a-z][a-z0-9-]*\.(?:css|js)")
+STATIC_ROOT = Path(__file__).parent.parent / "static"
+STATIC_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)")
 STATIC_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
 
 
@@ -71,7 +71,7 @@ def bootstrap_attr(values: dict[str, object]) -> str:
     return f'data-ll="{html.escape(json.dumps(values), quote=True)}"'
 
 
-EXIFTOOL_PATH = Path(__file__).parent / "tools" / "ExifTool" / "ExifTool.exe"
+EXIFTOOL_PATH = Path(__file__).parent.parent / "tools" / "ExifTool" / "ExifTool.exe"
 BACKUP_ROOT = backup_root()
 
 
@@ -432,13 +432,13 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def onboarding_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Set up {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('onboarding.css')}">
+<title>Set up {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('css/onboarding.css')}">
 </head><body {bootstrap_attr({"csrf": self.csrf_token})}><main class="shell"><header class="brand"><img src="/logo.png" alt=""><div><h1>{APP_NAME}</h1><p>{APP_TAGLINE}</p></div><span class="version">v{APP_VERSION}</span></header><section class="card">
 <div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p></div>
 <div class="steps"><div class="step"><strong>1 · Discover</strong><span>Record file locations, types, dates, and locally available metadata.</span></div><div class="step"><strong>2 · Review</strong><span>See exactly what was found, including cloud files that are not downloaded.</span></div><div class="step"><strong>3 · Enrich</strong><span>Add subjects, people, OCR, and approved metadata at your pace.</span></div></div>
 <section class="chooser"><h3>Choose your first library</h3><p>You can add and switch between more libraries later. Start with the folder that best represents one photo collection.</p><div class="suggestions" id="suggestions"></div><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="C:\\Users\\you\\Pictures"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="actions"><span class="privacy">🔒 The index stays on this computer. Cloud placeholders are counted without forcing a download.</span><span class="spacer"></span><button type="button" id="start">Build my library</button></div></section>
 <section class="progress-panel" id="progressPanel" aria-live="polite"><div class="progress-head"><div><h3 id="progressTitle">Building your library</h3><p id="progressMessage">Preparing scan…</p></div><span class="spacer"></span><button type="button" class="danger" id="cancel">Pause scan</button></div><div class="bar"><span></span></div><div class="metrics"><div class="metric"><strong id="scanned">0</strong><span>discovered</span></div><div class="metric"><strong id="changed">0</strong><span>indexed</span></div><div class="metric"><strong id="unchanged">0</strong><span>unchanged</span></div><div class="metric"><strong id="placeholders">0</strong><span>cloud-only</span></div><div class="metric"><strong id="errors">0</strong><span>errors</span></div></div><div class="complete-grid" id="completeGrid"></div><div class="completion-actions"><button type="button" id="enterLibrary">Open my library</button></div></section>
-</section></main><script src="{static_url('onboarding.js')}" defer></script>
+</section></main><script src="{static_url('js/onboarding.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -471,10 +471,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def map_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Photo map — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('map.css')}">
+<title>Photo map — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('css/map.css')}">
 </head><body><header><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><span class="count" id="count">Loading locations…</span><a class="button" href="/">Back to library</a></header>
 <main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to open its representative photo.</div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
-<script src="{static_url('map.js')}" defer></script>
+<script src="{static_url('js/map.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -797,7 +797,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         )
         viewer_hidden_class = " viewer-hidden" if gallery_mode else ""
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('viewer.css')}"></head><body class="{body_class}" {bootstrap_attr({
+<title>{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('css/viewer.css')}"></head><body class="{body_class}" {bootstrap_attr({
             "items": items, "personDirectory": people_directory, "csrf": self.csrf_token,
             "currentLibrary": str(self.library_root), "viewedPersonId": person_id,
             "selectedId": selected_id, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE,
@@ -819,21 +819,21 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="section" id="hiddenSection"><div class="section-title"><h2>Hidden tags</h2><button type="button" class="info-button" data-help="hiddenTagHelp" aria-label="About hidden tags">ⓘ</button></div><div class="help-popover" id="hiddenTagHelp">These tags are ignored only for this photo. Click one to restore it.</div><div class="chips" id="hiddenTags"></div></div><div class="status" id="status"></div>
 </aside></section><section class="filmstrip" id="filmstrip"></section></main><div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="modalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h2 id="modalTitle"></h2><button type="button" class="modal-close" id="modalClose">Close</button></div><div id="modalBody"></div></section></div>
-<script src="{static_url('viewer.js')}" defer></script></body></html>"""
+<script src="{static_url('js/viewer.js')}" defer></script></body></html>"""
         self.send_html(page)
 
     def people_review_page(self, params):
         requested = params.get("person", [""])[0]
         initial_person_id = int(requested) if requested.isdigit() else None
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Review people — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('people-review.css')}">
+<title>Review people — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{static_url('css/people-review.css')}">
 </head><body {bootstrap_attr({"csrf": self.csrf_token, "initialPersonId": initial_person_id})}>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
 <div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <datalist id="peopleOptions"></datalist>
-<script src="{static_url('people-review.js')}" defer></script>
+<script src="{static_url('js/people-review.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -2002,7 +2002,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         type(self)._begin_update_check()
         with type(self).update_lock:
             job = dict(type(self).update_job)
-        install_root = Path(__file__).parent.resolve()
+        install_root = Path(__file__).parent.parent.resolve()
         job.update({
             "current_version": APP_VERSION,
             "managed_install": is_managed_install(install_root),
@@ -2031,7 +2031,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         helper_root.mkdir(parents=True, exist_ok=True)
         helper = helper_root / "lensledger-updater-helper.py"
         shutil.copy2(Path(__file__).parent / "lensledger_updater.py", helper)
-        install_root = Path(__file__).parent.resolve()
+        install_root = Path(__file__).parent.parent.resolve()
         command = [
             sys.executable, str(helper), "install-latest",
             "--current-root", str(install_root),
@@ -2421,12 +2421,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_bytes(path.read_bytes(), content_type, cache="public, max-age=31536000, immutable")
 
     def serve_logo(self):
-        path = Path(__file__).with_name("assets") / "lensledger-logo.png"
+        path = Path(__file__).parent.parent / "assets" / "lensledger-logo.png"
         if not path.is_file(): return self.send_error(404)
         self.send_bytes(path.read_bytes(), "image/png", cache="private, max-age=86400")
 
     def serve_world_map(self):
-        path = Path(__file__).with_name("assets") / "world-map.svg"
+        path = Path(__file__).parent.parent / "assets" / "world-map.svg"
         if not path.is_file(): return self.send_error(404)
         self.send_bytes(path.read_bytes(), "image/svg+xml", cache="private, max-age=86400")
 

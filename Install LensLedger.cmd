@@ -15,10 +15,10 @@ if errorlevel 1 (
 echo.
 echo Installing LensLedger into your private per-user Programs folder...
 if "%~1"=="" (
-    python lensledger_updater.py install-current
+    python src\lensledger_updater.py install-current
 ) else (
     echo Migrating the existing LensLedger catalog from: %~1
-    python lensledger_updater.py install-current --legacy-root "%~1"
+    python src\lensledger_updater.py install-current --legacy-root "%~1"
 )
 if errorlevel 1 (
     echo.

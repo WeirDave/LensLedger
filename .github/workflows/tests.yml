@@ -42,10 +42,12 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Run database and scanner tests
+        env:
+          PYTHONPATH: src
         run: python -m unittest discover -s tests -v
 
       - name: Compile Python sources
-        run: python -m compileall -q app_paths.py database_tools.py face_learning.py generate_face_suggestions.py generate_historical_folder_tags.py lensledger_updater.py library_config.py metadata_reader.py photo_index.py photo_search.py semantic_index.py tests
+        run: python -m compileall -q src/app_paths.py src/database_tools.py src/face_learning.py src/face_locations.py src/generate_face_suggestions.py src/generate_historical_folder_tags.py src/lensledger_updater.py src/library_config.py src/metadata_reader.py src/photo_index.py src/photo_search.py src/product.py src/semantic_index.py tests
 
       - name: Check dependency consistency
         run: python -m pip check

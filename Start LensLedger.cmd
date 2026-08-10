@@ -35,7 +35,7 @@ REM launch uses the current code. The replacement server opens/refocuses the
 REM browser at the same address after it is ready.
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5309 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
-python photo_search.py
+python src\photo_search.py
 
 if errorlevel 1 (
     echo.
