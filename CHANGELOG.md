@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.23.4 — 2026-08-09
+
+- Rename `static/` to `web/` (Python modules already live under `src/`, so
+  this finishes the layout cleanup: code, web assets, and launchers are now
+  each in their own clearly-named place). Internal-only change with no
+  effect on how LensLedger looks or runs.
+
 ## 0.23.3 — 2026-08-09
 
 - Fix folder-name tagging silently stopping after 2025 (`generate_historical_folder_tags.py`
