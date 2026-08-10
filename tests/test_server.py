@@ -538,6 +538,55 @@ class ServerWorkflowTests(unittest.TestCase):
                 time.sleep(0.02)
         self.assertEqual(job["install"]["state"], "complete")
 
+    def test_face_scan_is_refused_when_not_installed(self):
+        with patch.object(self.photo_search, "face_is_available", return_value=False):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/faces/start", {})
+        self.assertEqual(rejected.exception.code, 400)
+        body = json.loads(rejected.exception.read().decode("utf-8"))
+        self.assertIn("not set up yet", body["error"])
+        rejected.exception.close()
+
+    def test_face_install_refuses_when_already_installed(self):
+        with patch.object(self.photo_search, "face_is_available", return_value=True):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/faces/install", {})
+        self.assertEqual(rejected.exception.code, 400)
+        body = json.loads(rejected.exception.read().decode("utf-8"))
+        self.assertIn("already installed", body["error"])
+        rejected.exception.close()
+
+    def test_face_install_runs_and_reports_completion(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with patch.object(self.photo_search, "face_is_available", return_value=False), \
+             patch.object(self.photo_search.subprocess, "run", return_value=completed):
+            started = self.json_response(self.post("/api/faces/install", {}))
+            self.assertEqual(started["state"], "installing")
+            for _ in range(100):
+                job = self.json_response(self.get("/api/faces/status"))
+                if job["install"]["state"] != "installing":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["install"]["state"], "complete")
+
+    def test_face_scan_runs_and_reports_completion(self):
+        def fake_scan(_database, _library, **kwargs):
+            counts = {"total": 1, "processed": 1, "faces_found": 3, "errors": 0, "cancelled": False}
+            kwargs["progress"](counts)
+            return counts
+
+        with patch.object(self.photo_search, "face_is_available", return_value=True), \
+             patch.object(self.photo_search, "scan_for_faces", side_effect=fake_scan):
+            started = self.json_response(self.post("/api/faces/start", {}))
+            self.assertEqual(started["state"], "running")
+            for _ in range(100):
+                job = self.json_response(self.get("/api/faces/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["state"], "complete")
+        self.assertEqual(job["faces_found"], 3)
+
     def test_everything_scope_search_ranks_by_relevance_without_crashing(self):
         # Regression test: scope='all' combined FTS's MATCH with a
         # confirmed-person-name OR inside one WHERE clause, which SQLite's

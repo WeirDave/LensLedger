@@ -47,6 +47,7 @@ jobs:
             src/database_tools.py \
             src/face_learning.py \
             src/face_locations.py \
+            src/face_scan.py \
             src/generate_face_suggestions.py \
             src/generate_historical_folder_tags.py \
             src/lensledger_updater.py \

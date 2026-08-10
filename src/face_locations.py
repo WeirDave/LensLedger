@@ -28,7 +28,18 @@ def cosine(left, right) -> float:
     return sum(a * b for a, b in zip(_unit(left), _unit(right)))
 
 
-def _load_runtime(model_name: str, model_root: Path | None):
+def is_available() -> bool:
+    """Whether the optional face-detection packages are importable, without
+    loading the (large) model itself."""
+    try:
+        import cv2  # noqa: F401
+        import insightface  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def load_insightface_runtime(model_name: str, model_root: Path | None):
     try:
         import cv2
         import numpy as np
@@ -60,7 +71,7 @@ def recover_face_locations(
     progress: Callable[[dict], None] | None = None,
 ) -> dict:
     """Locate legacy faces, accepting only strong and unambiguous vector matches."""
-    cv2, np, analyzer = _load_runtime(model_name, model_root)
+    cv2, np, analyzer = load_insightface_runtime(model_name, model_root)
     con = connect(database)
     rows = con.execute(
         """SELECT DISTINCT f.asset_id,a.relative_path

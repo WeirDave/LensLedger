@@ -46,7 +46,7 @@ class FaceLocationTests(unittest.TestCase):
                 SimpleNamespace(normed_embedding=[0.0, 1.0], bbox=[100, 20, 150, 70]),
             ]
             analyzer = SimpleNamespace(get=lambda _image: faces)
-            with patch("face_locations._load_runtime", return_value=(cv2, np, analyzer)):
+            with patch("face_locations.load_insightface_runtime", return_value=(cv2, np, analyzer)):
                 result = recover_face_locations(database, library)
 
             self.assertEqual(result["localized"], 1)

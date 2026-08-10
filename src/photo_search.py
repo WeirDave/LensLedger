@@ -25,6 +25,8 @@ from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
 from face_learning import learn as learn_faces
+from face_locations import is_available as face_is_available
+from face_scan import scan_for_faces, status as face_scan_status
 from library_config import (
     choose_library_folder, library_db_path, load_library_config, load_library_state,
     save_library_state, suggested_library_roots,
@@ -269,6 +271,11 @@ class SearchHandler(BaseHTTPRequestHandler):
     semantic_cancel = threading.Event()
     semantic_install_lock = threading.Lock()
     semantic_install_job: dict[str, object] = {"state": "idle", "message": ""}
+    face_scan_lock = threading.Lock()
+    face_scan_job: dict[str, object] = {"state": "idle", "message": ""}
+    face_scan_cancel = threading.Event()
+    face_install_lock = threading.Lock()
+    face_install_job: dict[str, object] = {"state": "idle", "message": ""}
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
@@ -330,6 +337,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.ocr_status()
         if url.path == "/api/semantic/status":
             return self.semantic_job_status()
+        if url.path == "/api/faces/status":
+            return self.face_scan_job_status()
         if url.path == "/api/update/status":
             return self.update_status()
         if url.path == "/api/people/review/queue":
@@ -411,6 +420,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.cancel_semantic_index(body)
             if route == "/api/semantic/install":
                 return self.install_semantic_requirements(body)
+            if route == "/api/faces/start":
+                return self.start_face_scan(body)
+            if route == "/api/faces/cancel":
+                return self.cancel_face_scan(body)
+            if route == "/api/faces/install":
+                return self.install_face_requirements(body)
             if route == "/api/update/check":
                 return self.check_update(body)
             if route == "/api/update/install":
@@ -2259,6 +2274,113 @@ class SearchHandler(BaseHTTPRequestHandler):
                     handler_class.semantic_install_job = {"state": "error", "message": str(exc)}
 
         threading.Thread(target=worker, name="LensLedger-semantic-install", daemon=True).start()
+        self.send_json({"ok": True, "state": "installing"}, 202)
+
+    def face_scan_job_status(self):
+        coverage = face_scan_status(type(self).db_path)
+        with type(self).face_scan_lock:
+            job = dict(type(self).face_scan_job)
+        with type(self).face_install_lock:
+            install = dict(type(self).face_install_job)
+        self.send_json({**coverage, **job, "install": install})
+
+    def start_face_scan(self, _body):
+        with type(self).face_scan_lock:
+            if type(self).face_scan_job.get("state") == "running":
+                raise ValueError("Face detection is already running")
+            if not face_is_available():
+                raise ValueError(
+                    "Face detection is not set up yet. Install it from Library health first."
+                )
+            with type(self).library_lock:
+                if type(self).library_job.get("state") == "scanning":
+                    raise ValueError("wait for the library scan to finish before starting face detection")
+            type(self).face_scan_job = {
+                "state": "running", "message": "Preparing local face detection…",
+                "total": 0, "processed": 0, "faces_found": 0, "errors": 0,
+            }
+            type(self).face_scan_cancel.clear()
+        handler_class = type(self)
+        database = handler_class.db_path
+        library_root = handler_class.library_root
+
+        def worker():
+            try:
+                def update_progress(counts):
+                    with handler_class.face_scan_lock:
+                        handler_class.face_scan_job = {
+                            "state": "running",
+                            "message": f"Scanned {int(counts['processed']):,} of {int(counts['total']):,} photos, "
+                                       f"{int(counts['faces_found']):,} faces found…",
+                            **counts,
+                        }
+
+                result = scan_for_faces(
+                    database, library_root, progress=update_progress,
+                    should_cancel=handler_class.face_scan_cancel.is_set,
+                )
+                with handler_class.face_scan_lock:
+                    current = dict(handler_class.face_scan_job)
+                    state = "cancelled" if result["cancelled"] else "complete"
+                    current.update({
+                        "state": state,
+                        "message": "Face detection paused safely. Start it again to resume." if result["cancelled"]
+                        else f"Face detection complete. Visit People review's \"Find more matches\" to turn "
+                             f"{result['faces_found']:,} newly-found faces into suggestions.",
+                    })
+                    handler_class.face_scan_job = current
+            except Exception as exc:
+                with handler_class.face_scan_lock:
+                    handler_class.face_scan_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-face-scan", daemon=True).start()
+        self.send_json({"ok": True, "state": "running"}, 202)
+
+    def cancel_face_scan(self, _body):
+        with type(self).face_scan_lock:
+            if type(self).face_scan_job.get("state") != "running":
+                raise ValueError("Face detection is not running")
+            type(self).face_scan_cancel.set()
+            type(self).face_scan_job["message"] = "Pausing after the active photo finishes…"
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
+
+    def install_face_requirements(self, _body):
+        with type(self).face_install_lock:
+            if type(self).face_install_job.get("state") == "installing":
+                raise ValueError("Face detection setup is already in progress")
+            if face_is_available():
+                raise ValueError("Face detection is already installed")
+            type(self).face_install_job = {
+                "state": "installing",
+                "message": "Downloading and installing the local face-detection model software…",
+            }
+        handler_class = type(self)
+        requirements = Path(__file__).parent.parent / "requirements-face.txt"
+
+        def worker():
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
+                    capture_output=True, text=True, timeout=1800,
+                )
+                if result.returncode == 0:
+                    with handler_class.face_install_lock:
+                        handler_class.face_install_job = {
+                            "state": "complete",
+                            "message": "Face detection is installed. You can scan for faces below.",
+                        }
+                else:
+                    tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-8:])
+                    with handler_class.face_install_lock:
+                        handler_class.face_install_job = {
+                            "state": "error",
+                            "message": f"Install failed: {tail or 'unknown error'}",
+                        }
+            except Exception as exc:
+                with handler_class.face_install_lock:
+                    handler_class.face_install_job = {"state": "error", "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-face-install", daemon=True).start()
         self.send_json({"ok": True, "state": "installing"}, 202)
 
     def backup_database(self, _body):
