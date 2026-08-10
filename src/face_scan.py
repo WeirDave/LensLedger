@@ -25,8 +25,8 @@ def status(db_path: Path) -> dict[str, object]:
             "SELECT COUNT(*) FROM assets WHERE media_type='image' AND metadata_scanned=1 AND in_review_bin=0"
         ).fetchone()[0])
         scanned = int(con.execute(
-            """SELECT COUNT(DISTINCT a.id) FROM assets a JOIN face_embeddings f ON f.asset_id=a.id
-               WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0"""
+            """SELECT COUNT(*) FROM assets
+               WHERE media_type='image' AND metadata_scanned=1 AND in_review_bin=0 AND face_scanned=1"""
         ).fetchone()[0])
         faces_found = int(con.execute(
             "SELECT COUNT(*) FROM face_embeddings WHERE source='lensledger_scan'"
@@ -50,14 +50,18 @@ def scan_for_faces(
     progress: Callable[[dict], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> dict:
-    """Detect faces in every eligible image that has no face_embeddings row."""
+    """Detect faces in every eligible image not yet face-scanned.
+
+    A photo with zero faces in it is still marked face_scanned so it is
+    never retried forever just because it never got a face_embeddings row
+    -- the same convention ocr_scanned already uses for OCR."""
     cv2, np, analyzer = load_insightface_runtime(model_name, model_root)
     con = connect(database)
     try:
         rows = con.execute(
             """SELECT a.id,a.relative_path FROM assets a
                WHERE a.in_review_bin=0 AND a.media_type='image' AND a.metadata_scanned=1
-                 AND NOT EXISTS (SELECT 1 FROM face_embeddings f WHERE f.asset_id=a.id)
+                 AND a.face_scanned=0
                ORDER BY a.capture_date,a.relative_path"""
         ).fetchall()
         if limit is not None:
@@ -100,6 +104,7 @@ def scan_for_faces(
                     )
                     next_face_id += 1
                     result["faces_found"] += 1
+                con.execute("UPDATE assets SET face_scanned=1 WHERE id=?", (int(asset["id"]),))
             except Exception:
                 result["errors"] += 1
             result["processed"] += 1

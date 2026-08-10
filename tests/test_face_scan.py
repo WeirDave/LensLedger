@@ -76,6 +76,7 @@ class FaceScanTests(unittest.TestCase):
                    VALUES ('recovered_face',1,?,'already-done.jpg',2,?)""",
                 (done_id, b"\x00\x00\x80\x3f\x00\x00\x00\x00"),
             )
+            con.execute("UPDATE assets SET face_scanned=1 WHERE id=?", (done_id,))
             con.commit()
             con.close()
 
@@ -83,6 +84,31 @@ class FaceScanTests(unittest.TestCase):
             with patch("face_scan.load_insightface_runtime", return_value=(cv2, np, analyzer)):
                 result = scan_for_faces(database, library)
             self.assertEqual(result["total"], 1)  # only new.jpg was eligible
+
+    def test_a_photo_with_no_faces_is_not_rescanned_forever(self):
+        from face_scan import scan_for_faces, status
+        from photo_index import scan_library
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "library.sqlite3"
+            library = root / "photos"
+            library.mkdir()
+            (library / "landscape.jpg").write_bytes(b"image")
+            self.assertEqual(scan_library(library, database), 0)
+
+            cv2, np, analyzer = _fake_runtime([])  # no faces in this photo
+            with patch("face_scan.load_insightface_runtime", return_value=(cv2, np, analyzer)):
+                first = scan_for_faces(database, library)
+                self.assertEqual(first, {"total": 1, "processed": 1, "faces_found": 0, "errors": 0, "cancelled": False})
+                # A second pass must not pick the same photo back up just
+                # because it never got a face_embeddings row.
+                second = scan_for_faces(database, library)
+                self.assertEqual(second["total"], 0)
+
+            after = status(database)
+            self.assertEqual(after["scanned"], 1)
+            self.assertEqual(after["remaining"], 0)
 
     def test_scan_can_be_cancelled_mid_pass(self):
         from face_scan import scan_for_faces

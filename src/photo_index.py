@@ -34,7 +34,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS assets (
     mtime_ns INTEGER NOT NULL,
     metadata_scanned INTEGER NOT NULL DEFAULT 0,
     location_scanned INTEGER NOT NULL DEFAULT 0,
+    face_scanned INTEGER NOT NULL DEFAULT 0,
     in_review_bin INTEGER NOT NULL DEFAULT 0,
     gps_latitude REAL,
     gps_longitude REAL,
@@ -279,6 +280,11 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE assets ADD COLUMN gps_latitude REAL")
     if "gps_longitude" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN gps_longitude REAL")
+    if "face_scanned" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN face_scanned INTEGER NOT NULL DEFAULT 0")
+        con.execute(
+            "UPDATE assets SET face_scanned=1 WHERE id IN (SELECT DISTINCT asset_id FROM face_embeddings WHERE asset_id IS NOT NULL)"
+        )
     people_columns = {row[1] for row in con.execute("PRAGMA table_info(asset_people)")}
     if "face_id" not in people_columns:
         con.execute("ALTER TABLE asset_people ADD COLUMN face_id INTEGER REFERENCES face_embeddings(id) ON DELETE SET NULL")
