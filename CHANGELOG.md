@@ -6,6 +6,24 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.25.3 — 2026-08-11
+
+- Fixed `database is locked` errors flooding the console and breaking live
+  status updates during any real scan. `connect()` unconditionally wrote
+  `PRAGMA user_version` and committed on every single connection, including
+  the lightweight status checks the Scan your photos page polls every
+  700ms — a real write competing for SQLite's single writer lock even when
+  nothing needed writing. Invisible before because scans used to finish in
+  seconds (thanks to the placeholder bug fixed in 0.25.2 skipping most of
+  the library); now that scans do real, sustained work, the five
+  concurrently-polling status endpoints collided with the active scan
+  writer constantly. The version write is now skipped whenever the schema
+  is already current, which is true for nearly every connection.
+- Confirmed live: mid-scan, 2,200 files in, the fixed placeholder
+  detection was correctly recognizing 1,766 of them (80%) as real,
+  previously wrongly-skipped files — direct field confirmation the 0.25.2
+  fix works as intended.
+
 ## 0.25.2 — 2026-08-10
 
 - Fixed a major face/OCR/meaning-search coverage bug: `is_cloud_placeholder()`

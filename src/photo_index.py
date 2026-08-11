@@ -308,8 +308,9 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("UPDATE text_data SET ocr_scanned=1 WHERE ocr_text<>''")
     if "ocr_error" not in text_columns:
         con.execute("ALTER TABLE text_data ADD COLUMN ocr_error TEXT NOT NULL DEFAULT ''")
-    con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-    con.commit()
+    if int(con.execute("PRAGMA user_version").fetchone()[0]) != SCHEMA_VERSION:
+        con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        con.commit()
     return con
 
 
