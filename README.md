@@ -53,12 +53,12 @@ deeper metadata analysis waits until those files are locally available.
   direct link into that person's review queue
 - Merge duplicate People names while retaining the alternate spellings for search
 - Per-user data storage, separate from application source and photo folders
-- Library health, verified backups, and resumable local OCR from the viewer
+- A "Scan your photos" page with progress, verified backups, and resumable local OCR
 - Verified, user-approved updates with clean replacement and rollback copies
 
 ## People names
 
-In the **People** view, choose **Edit names** to change a primary name or add
+In the **People** view, choose **Edit name** on a person's card to change their primary name or add
 alternate searchable names such as a nickname, maiden name, or `Me`. Enter one
 alternate name at a time, separating multiple names with commas.
 
@@ -192,7 +192,7 @@ python src\photo_index.py ocr --since 2025-01-01 --workers 4
 
 The standard LensLedger installation stays small. Natural-language image search
 is an explicit opt-in because its local model and machine-learning runtime are
-large. The easiest way to enable it is from **Library health & OCR** in the app:
+large. The easiest way to enable it is from **Scan your photos** in the app:
 the "Meaning search" card explains what it does and has a one-click "Set up
 meaning search" button that installs the required packages as a monitored
 background job.

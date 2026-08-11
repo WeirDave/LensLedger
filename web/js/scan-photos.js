@@ -30,6 +30,38 @@ function elapsedText(startedAt) {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s elapsed` : `${seconds}s elapsed`;
 }
 
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${totalSeconds % 60}s`;
+  return `${totalSeconds}s`;
+}
+
+// Appends "· 42% · ~3m remaining" to an elapsed-time string, using the
+// done/total counts every job already reports each poll. ETA is withheld
+// for the first few seconds, since a rate from one tiny sample is noise.
+function progressSuffix(done, total, startedAt) {
+  if (!total) return '';
+  const pct = Math.min(100, Math.round((done / total) * 100));
+  const elapsedMs = startedAt ? Date.now() - new Date(startedAt).getTime() : 0;
+  let eta = '';
+  if (done > 0 && done < total && elapsedMs > 3000) {
+    const remainingMs = (elapsedMs / done) * (total - done);
+    eta = ` · ~${formatDuration(remainingMs)} remaining`;
+  }
+  return ` · ${pct}%${eta}`;
+}
+
+function setBar(id, done, total) {
+  const wrap = $(id + 'Wrap');
+  wrap.classList.remove('indeterminate');
+  if (!total) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  $(id).style.width = Math.max(0, Math.min(100, Math.round((done / total) * 100))) + '%';
+}
+
 function setSpinner(id, active) {
   $(id).classList.toggle('active', !!active);
 }
@@ -46,18 +78,28 @@ async function refresh() {
     ]);
     const scanAllRunning = scanAll.state === 'running';
     const STEP_LABELS = { location: 'photo locations', ocr: 'OCR', semantic: 'meaning search', face: 'face detection' };
+    const scanAllSteps = ['location', 'ocr', ...(semantic.installed ? ['semantic'] : []), ...(faceScan.installed ? ['face'] : [])];
+    const scanAllStepIndex = scanAllSteps.indexOf(scanAll.step) + 1;
     $('scanAllMessage').textContent = scanAllRunning
-      ? `Running ${STEP_LABELS[scanAll.step] || '…'}…`
+      ? `Step ${scanAllStepIndex} of ${scanAllSteps.length}: running ${STEP_LABELS[scanAll.step] || '…'}…`
       : (scanAll.message || 'Not run yet — runs every scan below, back to back.');
     $('startScanAll').disabled = scanAllRunning;
     $('pauseScanAll').disabled = !scanAllRunning;
     setSpinner('scanAllSpinner', scanAllRunning);
-    $('scanAllElapsed').textContent = scanAllRunning ? elapsedText(scanAll.started_at) : '';
+    let scanAllStepFraction = 0;
+    if (scanAll.step === 'ocr' && ocr.total) scanAllStepFraction = ocr.attempted / ocr.total;
+    else if (scanAll.step === 'semantic' && semantic.total) scanAllStepFraction = semantic.indexed_this_pass / semantic.total;
+    else if (scanAll.step === 'face' && faceScan.total) scanAllStepFraction = faceScan.processed / faceScan.total;
+    $('scanAllElapsed').textContent = scanAllRunning
+      ? elapsedText(scanAll.started_at) + ` · step ${scanAllStepIndex} of ${scanAllSteps.length}`
+      : '';
+    setBar('scanAllBar', scanAllRunning ? (scanAllStepIndex - 1 + scanAllStepFraction) : 0, scanAllRunning ? scanAllSteps.length : 0);
     const c = diagnostics.counts || {};
     $('healthSummary').replaceChildren(
       metric('Library files', c.assets),
       metric('Mapped photos', c.mapped, c.mapped ? () => { window.location.href = '/map'; } : null),
       metric('People to review', c.people_pending, c.people_pending ? () => { window.location.href = '/people-review'; } : null),
+      metric('Faces to name', c.unidentified_faces, c.unidentified_faces ? () => { window.location.href = '/faces-review'; } : null),
       metric('OCR complete', c.ocr_complete),
       metric('Meaning indexed', c.semantic_indexed),
       metric('Review Bin', c.review_bin),
@@ -93,7 +135,9 @@ async function refresh() {
     $('startOcr').disabled = ocrRunning || scanAllRunning;
     $('pauseOcr').disabled = !ocrRunning || scanAllRunning;
     setSpinner('ocrSpinner', ocrRunning);
-    $('ocrElapsed').textContent = ocrRunning ? elapsedText(ocr.started_at) : '';
+    $('ocrElapsed').textContent = ocrRunning
+      ? elapsedText(ocr.started_at) + progressSuffix(ocr.attempted, ocr.total, ocr.started_at) : '';
+    setBar('ocrBar', ocr.attempted, ocrRunning ? ocr.total : 0);
 
     // Meaning search
     const semanticInstall = semantic.install || {};
@@ -106,6 +150,8 @@ async function refresh() {
           : 'Not set up yet — click below to install the local meaning-search model software (a large one-time download).');
       $('installSemantic').disabled = semanticInstalling || scanAllRunning;
       $('semanticMetrics').replaceChildren();
+      $('semanticBarWrap').hidden = !semanticInstalling;
+      $('semanticBarWrap').classList.toggle('indeterminate', semanticInstalling);
     } else {
       $('semanticMessage').textContent = semantic.message || 'Ready. Build the index below to make your photos searchable by meaning.';
       $('semanticMetrics').replaceChildren(
@@ -118,7 +164,10 @@ async function refresh() {
     $('pauseSemantic').disabled = !semanticRunning || scanAllRunning;
     setSpinner('semanticSpinner', semanticRunning || semanticInstalling);
     $('semanticElapsed').textContent = semanticInstalling ? elapsedText(semanticInstall.started_at)
-      : (semanticRunning ? elapsedText(semantic.started_at) : '');
+      : (semanticRunning
+        ? elapsedText(semantic.started_at) + progressSuffix(semantic.indexed_this_pass, semantic.total, semantic.started_at)
+        : '');
+    if (!semanticInstalling) setBar('semanticBar', semantic.indexed_this_pass, semanticRunning ? semantic.total : 0);
 
     // Face detection
     const faceInstall = faceScan.install || {};
@@ -131,6 +180,8 @@ async function refresh() {
           : 'Not set up yet — click below to install the local face-detection model software (a one-time download).');
       $('installFaceScan').disabled = faceInstalling || scanAllRunning;
       $('faceScanMetrics').replaceChildren();
+      $('faceScanBarWrap').hidden = !faceInstalling;
+      $('faceScanBarWrap').classList.toggle('indeterminate', faceInstalling);
     } else {
       $('faceScanMessage').textContent = faceScan.message || 'Ready. Scan for faces below to find people in photos LensLedger has not looked at yet.';
       $('faceScanMetrics').replaceChildren(
@@ -143,7 +194,10 @@ async function refresh() {
     $('pauseFaceScan').disabled = !faceScanRunning || scanAllRunning;
     setSpinner('faceScanSpinner', faceScanRunning || faceInstalling);
     $('faceScanElapsed').textContent = faceInstalling ? elapsedText(faceInstall.started_at)
-      : (faceScanRunning ? elapsedText(faceScan.started_at) : '');
+      : (faceScanRunning
+        ? elapsedText(faceScan.started_at) + progressSuffix(faceScan.processed, faceScan.total, faceScan.started_at)
+        : '');
+    if (!faceInstalling) setBar('faceScanBar', faceScan.processed, faceScanRunning ? faceScan.total : 0);
 
     const anyActive = locationScanning || ocrRunning || semanticRunning || semanticInstalling || faceScanRunning || faceInstalling || scanAllRunning;
     setTimeout(refresh, anyActive ? 700 : 4000);

@@ -1,0 +1,19 @@
+:root{--bg:#0d1018;--panel:#171b26;--panel2:#202638;--line:#30384d;--text:#f4f6fb;--muted:#9ba8bd;--orange:#e2903f;--danger:#e25c70;--green:#4eb46a}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px system-ui,Segoe UI,sans-serif}button,input{font:inherit}button,.button{border:0;border-radius:8px;padding:10px 14px;background:#c9701f;color:white;font-weight:750;cursor:pointer;text-decoration:none}button.secondary,.button.secondary{background:#30384b}button:disabled{opacity:.45;cursor:default}
+header{position:sticky;top:0;z-index:5;background:#141925;border-bottom:1px solid var(--line);padding:12px 20px}.topbar{display:flex;align-items:center;gap:12px;max-width:1800px;margin:auto}.topbar img{width:34px;height:34px;object-fit:contain}.identity{display:grid}.identity strong{font-size:18px}.identity small{color:var(--muted)}.version{color:#ffcf9e;background:#3a2414;border:1px solid #7a4a24;border-radius:999px;padding:3px 8px;font-size:11px}.top-spacer{flex:1}.progress{color:var(--muted);white-space:nowrap}
+.quick-nav{display:flex;gap:14px}.quick-nav a{color:var(--muted);text-decoration:none;font-weight:650;font-size:13px;white-space:nowrap}.quick-nav a:hover{color:var(--text)}
+@media(max-width:900px){.quick-nav{display:none}}
+main{width:min(1600px,100%);margin:auto;padding:18px 20px 60px}
+.intro{color:var(--muted);line-height:1.5;max-width:900px;margin:0 0 18px}
+.face-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.face-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.face-photo{aspect-ratio:1;background:#07090e;overflow:hidden}.face-photo img{display:block;width:100%;height:100%;object-fit:cover}
+.face-info{padding:9px;display:grid;gap:7px}
+.face-info small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.face-form{display:flex;gap:6px}
+.face-form input{min-width:0;flex:1;border:1px solid #46506a;border-radius:7px;background:#232a3a;color:white;padding:8px}
+.face-form .save{padding:8px 10px}
+.not-person{background:#30384b;font-size:12px;padding:7px 10px}
+.face-status{min-height:15px;color:var(--orange);font-size:12px}
+.empty{min-height:45vh;display:grid;place-items:center;text-align:center}.empty h2{font-size:26px;margin:0 0 8px}.empty p{color:var(--muted);max-width:480px;line-height:1.5}
+@media(max-width:700px){.face-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}

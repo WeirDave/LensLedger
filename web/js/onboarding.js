@@ -152,7 +152,7 @@ $('startOcr').onclick = async () => {
   try {
     await api('/api/ocr/start', { workers: 4 });
     $('nextStep').classList.add('started');
-    $('nextStep').querySelector('p').textContent = 'Text scanning has started and keeps running on your computer — it\'s safe to continue to your library or close this tab. Check progress any time from Library health.';
+    $('nextStep').querySelector('p').innerHTML = 'Text scanning has started and keeps running on your computer — it\'s safe to continue to your library or close this tab. Check progress any time from <a href="/scan-photos">Scan your photos</a>.';
   } catch (error) {
     $('startOcr').disabled = false;
     $('nextStep').querySelector('p').textContent = error.message;

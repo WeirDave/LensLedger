@@ -95,7 +95,7 @@ fetch('/api/map/points').then(response => response.json()).then(data => {
   world.append(...markerButtons);
   if (!clusters.length) {
     document.getElementById('empty').classList.add('open');
-    if (data.pending) document.getElementById('emptyText').textContent = Number(data.pending).toLocaleString() + ' cataloged files still need a location scan. Rescan this library from the library menu, then return here.';
+    if (data.pending) document.getElementById('emptyText').innerHTML = Number(data.pending).toLocaleString() + ' cataloged files still need a location scan. Run <a href="/scan-photos">Scan your photos</a> → "Scan for photo locations", then return here.';
   }
   transform();
   const deepLat = parseFloat(new URLSearchParams(location.search).get('lat'));

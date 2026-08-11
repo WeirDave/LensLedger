@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import html
+import io
 import json
 import mimetypes
 import os
@@ -20,6 +21,8 @@ import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from PIL import Image, ImageOps
 
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
@@ -365,8 +368,9 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             current.update({
                 "state": state,
                 "message": "Face detection paused safely. Start it again to resume." if result["cancelled"]
-                else f"Face detection complete. Visit People review's \"Find more matches\" to turn "
-                     f"{result['faces_found']:,} newly-found faces into suggestions.",
+                else f"Face detection complete: {result['faces_found']:,} faces found. "
+                     f"Use \"Name faces\" above to put names on them, then \"Find more matches\" "
+                     f"on People review to find the rest.",
             })
             handler_class.face_scan_job = current
     except Exception as exc:
@@ -409,6 +413,8 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         if handler_class.scan_all_cancel.is_set() or job_dict.get("state") == "cancelled":
             raise _ScanAllStopped()
 
+    ran: list[str] = []
+    skipped: list[str] = []
     try:
         set_step("location")
         with handler_class.library_lock:
@@ -421,6 +427,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             handler_class.library_cancel.clear()
         _run_library_scan_job(handler_class, root, database, handler_class.library_job["started_at"])
         check_step(handler_class.library_job, "the location scan failed")
+        ran.append("photo locations")
 
         set_step("ocr")
         with handler_class.ocr_lock:
@@ -431,6 +438,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             handler_class.ocr_cancel.clear()
         _run_ocr_job(handler_class, database, None, 4, handler_class.ocr_job["started_at"])
         check_step(handler_class.ocr_job, "OCR failed")
+        ran.append("OCR")
 
         if semantic_is_available():
             set_step("semantic")
@@ -442,6 +450,9 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
                 handler_class.semantic_cancel.clear()
             _run_semantic_index_job(handler_class, database, 16, handler_class.semantic_job["started_at"])
             check_step(handler_class.semantic_job, "meaning indexing failed")
+            ran.append("meaning search")
+        else:
+            skipped.append("meaning search")
 
         if face_is_available():
             set_step("face")
@@ -453,10 +464,16 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
                 handler_class.face_scan_cancel.clear()
             _run_face_scan_job(handler_class, database, root, handler_class.face_scan_job["started_at"])
             check_step(handler_class.face_scan_job, "face detection failed")
+            ran.append("face detection")
+        else:
+            skipped.append("face detection")
 
+        message = "Ran: " + ", ".join(ran) + "."
+        if skipped:
+            message += " Skipped (not set up yet): " + ", ".join(skipped) + " — set up below."
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {
-                "state": "complete", "step": None, "message": "All scans complete.",
+                "state": "complete", "step": None, "message": message,
             }
     except _ScanAllStopped:
         with handler_class.scan_all_lock:
@@ -556,6 +573,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.serve_world_map()
         if url.path == "/media":
             return self.serve_media(params)
+        if url.path == "/media-face":
+            return self.serve_face_media(params)
         if url.path == "/api/asset":
             return self.asset_detail(params)
         if url.path == "/api/trash":
@@ -582,8 +601,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.update_status()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
+        if url.path == "/api/faces/unidentified":
+            return self.unidentified_faces(params)
         if url.path == "/people-review":
             return self.people_review_page(params)
+        if url.path == "/faces-review":
+            return self.faces_review_page()
         if url.path == "/map":
             return self.map_page()
         if url.path == "/scan-photos":
@@ -613,6 +636,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.restore_tag(body)
             if route == "/api/person/add":
                 return self.add_person(body)
+            if route == "/api/faces/name":
+                return self.name_face(body)
+            if route == "/api/faces/ignore":
+                return self.ignore_face(body)
             if route == "/api/person/state":
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
@@ -702,7 +729,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></div>
 <div class="steps"><div class="step"><strong>1 · Discover</strong><span>Record file locations, types, dates, and locally available metadata.</span></div><div class="step"><strong>2 · Review</strong><span>See exactly what was found, including cloud files that are not downloaded.</span></div><div class="step"><strong>3 · Enrich</strong><span>Add subjects, people, OCR, and approved metadata at your pace.</span></div></div>
 <section class="chooser"><h3>Choose your first library</h3><p>You can add and switch between more libraries later. Start with the folder that best represents one photo collection.</p><div class="suggestions" id="suggestions"></div><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="C:\\Users\\you\\Pictures"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="actions"><span class="privacy">🔒 The index stays on this computer. Cloud placeholders are counted without forcing a download.</span><span class="spacer"></span><button type="button" id="start">Build my library</button></div></section>
-<section class="progress-panel" id="progressPanel" aria-live="polite"><div class="progress-head"><div><h3 id="progressTitle">Building your library</h3><p id="progressMessage">Preparing scan…</p></div><span class="spacer"></span><button type="button" class="danger" id="cancel">Pause scan</button></div><div class="bar"><span></span></div><div class="metrics"><div class="metric"><strong id="scanned">0</strong><span>discovered</span></div><div class="metric"><strong id="changed">0</strong><span>indexed</span></div><div class="metric"><strong id="unchanged">0</strong><span>unchanged</span></div><div class="metric"><strong id="placeholders">0</strong><span>cloud-only</span></div><div class="metric"><strong id="errors">0</strong><span>errors</span></div></div><div class="complete-grid" id="completeGrid"></div><div class="next-step" id="nextStep"><p>Want LensLedger to also read visible text in your photos (signs, screenshots, receipts) so it's searchable? This runs in the background on your computer — it keeps going even if you move on or close this tab — and you can pause it any time from Library health.</p><button type="button" class="secondary" id="startOcr">Scan for text now</button></div><div class="completion-actions"><button type="button" id="enterLibrary">Open my library</button></div></section>
+<section class="progress-panel" id="progressPanel" aria-live="polite"><div class="progress-head"><div><h3 id="progressTitle">Building your library</h3><p id="progressMessage">Preparing scan…</p></div><span class="spacer"></span><button type="button" class="danger" id="cancel">Pause scan</button></div><div class="bar"><span></span></div><div class="metrics"><div class="metric"><strong id="scanned">0</strong><span>discovered</span></div><div class="metric"><strong id="changed">0</strong><span>indexed</span></div><div class="metric"><strong id="unchanged">0</strong><span>unchanged</span></div><div class="metric"><strong id="placeholders">0</strong><span>cloud-only</span></div><div class="metric"><strong id="errors">0</strong><span>errors</span></div></div><div class="complete-grid" id="completeGrid"></div><div class="next-step" id="nextStep"><p>Want LensLedger to also read visible text in your photos (signs, screenshots, receipts) so it's searchable? This runs in the background on your computer — it keeps going even if you move on or close this tab — and you can pause it any time from the "Scan your photos" page.</p><button type="button" class="secondary" id="startOcr">Scan for text now</button></div><div class="completion-actions"><button type="button" id="enterLibrary">Open my library</button></div></section>
 </section></main><script src="{asset_url('js/onboarding.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
@@ -737,7 +764,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     def map_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Photo map — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/map.css')}">
-</head><body><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><span class="count" id="count">Loading locations…</span></header>
+</head><body><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><nav class="quick-nav"><a href="/scan-photos">🔎 Scan photos</a><a href="/people-review">👥 Review people</a></nav><span class="count" id="count">Loading locations…</span></header>
 <main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to browse every photo from that place.</div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><a class="button secondary" id="viewAllHere">View all photos here</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
 <script src="{asset_url('js/map.js')}" defer></script>
 </body></html>"""
@@ -746,14 +773,14 @@ class SearchHandler(BaseHTTPRequestHandler):
     def scan_photos_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scan your photos — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/scan-photos.css')}">
-</head><body {bootstrap_attr({"csrf": self.csrf_token, "currentLibrary": str(self.library_root)})}><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Scan your photos</h1><p>Everything that makes your library searchable, and your backups</p></div><span class="spacer"></span><span class="version">v{APP_VERSION}</span></header>
+</head><body {bootstrap_attr({"csrf": self.csrf_token, "currentLibrary": str(self.library_root)})}><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Scan your photos</h1><p>Everything that makes your library searchable, and your backups</p></div><span class="spacer"></span><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/faces-review">🙂 Name faces</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span></header>
 <main>
 <section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></section>
-<section class="card job-card"><h2>Run all scans</h2><p class="job-intro">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</p><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
+<section class="card job-card"><h2>Run all scans</h2><p class="job-intro">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</p><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
 <section class="card job-card"><h2>Photo locations (GPS)</h2><p class="job-intro">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</p><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
-<section class="card job-card"><h2>Local text recognition (OCR)</h2><p class="job-intro">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</p><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
-<section class="card job-card"><h2>Meaning search (optional)</h2><p class="job-intro">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download most people do not need.</p><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><button type="button" id="installSemantic">Set up meaning search</button></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
-<section class="card job-card"><h2>Face detection (optional)</h2><p class="job-intro">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time.</p><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><button type="button" id="installFaceScan">Set up face detection</button></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
+<section class="card job-card"><h2>Local text recognition (OCR)</h2><p class="job-intro">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</p><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
+<section class="card job-card"><h2>Meaning search (optional)</h2><p class="job-intro">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</p><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><button type="button" id="installSemantic">Set up meaning search</button></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
+<section class="card job-card"><h2>Face detection (optional)</h2><p class="job-intro">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</p><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><button type="button" id="installFaceScan">Set up face detection</button></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div></section>
 </main>
 <script src="{asset_url('js/scan-photos.js')}" defer></script>
@@ -1061,11 +1088,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f'<span>{html.escape(alias_text)}</span></div></a>'
                 f'<button type="button" class="edit-aliases" data-person-id="{int(person["id"])}" '
                 f'data-person-name="{html.escape(person["name"], quote=True)}" '
-                f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit names</button></article>'
+                f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit name</button></article>'
             )
         people_gallery_html = (
             '<main class="people-browser"><div class="people-browser-head"><div><h2>People</h2>'
-            '<p>Choose a person to see confirmed photos. Edit names to add nicknames, maiden names, or other aliases; separate each alternate name with a comma.</p></div>'
+            '<p>Choose a person to see confirmed photos. Use Edit name on a card to add nicknames, maiden names, or other aliases for that one person; separate each alternate name with a comma.</p></div>'
             f'<div class="people-head-actions"><span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
@@ -1129,12 +1156,23 @@ class SearchHandler(BaseHTTPRequestHandler):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Review people — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
 </head><body {bootstrap_attr({"csrf": self.csrf_token, "initialPersonId": initial_person_id})}>
-<header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
+<header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><nav class="quick-nav"><a href="/faces-review">🙂 Name faces</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
 <div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <datalist id="peopleOptions"></datalist>
 <script src="{asset_url('js/people-review.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def faces_review_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Name faces — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
+</head><body {bootstrap_attr({"csrf": self.csrf_token})}>
+<header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="findMatches">Find more matches</button></div></header>
+<main><p class="intro">Faces LensLedger has detected but nobody has named yet. Type a name and press Enter to confirm it, or mark a face as not a person (pets, statues, reflections). Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="face-grid" id="faceGrid"></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<datalist id="peopleOptions"></datalist>
+<script src="{asset_url('js/faces-review.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -1844,6 +1882,143 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise
         self.send_json({"ok": True, "published": 1})
 
+    def unidentified_faces(self, params):
+        """Detected faces with no confirmed name yet, newest first.
+
+        A face only qualifies once it has a recovered bounding box (so a
+        crop can be shown) and no confirmed asset_people row already points
+        at it -- the same "confirmed" bar People review uses."""
+        try:
+            limit = max(1, min(100, int(params.get("limit", ["30"])[0])))
+        except ValueError:
+            limit = 30
+        where = """f.ignored_at IS NULL AND a.in_review_bin=0
+                    AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                    AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                    AND NOT EXISTS (
+                        SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                    )"""
+        with self.db() as con:
+            total = int(con.execute(
+                f"SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE {where}"
+            ).fetchone()[0])
+            rows = con.execute(
+                f"""SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date
+                    FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                    WHERE {where} ORDER BY f.id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            people_names = [row[0] for row in con.execute(
+                "SELECT name FROM people ORDER BY name COLLATE NOCASE"
+            )]
+        self.send_json({
+            "total": total,
+            "people_options": people_names,
+            "faces": [
+                {
+                    "face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
+                    "filename": row["filename"], "folder": row["folder"],
+                    "capture_date": row["capture_date"],
+                }
+                for row in rows
+            ],
+        })
+
+    def serve_face_media(self, params):
+        """Serve a padded crop of one detected face as a JPEG thumbnail."""
+        try:
+            face_id = int(params.get("face_id", [""])[0])
+        except ValueError:
+            return self.send_error(400)
+        with self.db() as con:
+            row = con.execute(
+                """SELECT a.path,f.box_left,f.box_top,f.box_right,f.box_bottom
+                   FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                   WHERE f.id=? AND a.in_review_bin=0""",
+                (face_id,),
+            ).fetchone()
+        if not row or row["box_left"] is None:
+            return self.send_error(404)
+        path = Path(row["path"]).resolve()
+        try:
+            path.relative_to(self.library_root)
+        except ValueError:
+            return self.send_error(403)
+        if not path.is_file():
+            return self.send_error(404)
+        try:
+            with Image.open(path) as image:
+                image = ImageOps.exif_transpose(image).convert("RGB")
+                width, height = image.size
+                left, top, right, bottom = row["box_left"], row["box_top"], row["box_right"], row["box_bottom"]
+                pad_x = (right - left) * width * 0.35
+                pad_y = (bottom - top) * height * 0.35
+                crop_left = max(0, int(left * width - pad_x))
+                crop_top = max(0, int(top * height - pad_y))
+                crop_right = min(width, int(right * width + pad_x))
+                crop_bottom = min(height, int(bottom * height + pad_y))
+                if crop_right <= crop_left or crop_bottom <= crop_top:
+                    return self.send_error(404)
+                cropped = image.crop((crop_left, crop_top, crop_right, crop_bottom))
+                cropped.thumbnail((360, 360))
+                buffer = io.BytesIO()
+                cropped.save(buffer, format="JPEG", quality=85)
+        except Exception:
+            return self.send_error(404)
+        data = buffer.getvalue()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def name_face(self, body):
+        """Attach a name directly to one detected face -- the missing link
+        between face detection (which only fills face_embeddings) and the
+        name-first confirmation flow the rest of People review is built on.
+        Because face_id is set, face_learning.build_profile can use this
+        confirmation even when the photo has other, unnamed faces in it."""
+        face_id = int(body["face_id"]); name = clean_tag(str(body.get("name", "")))
+        if not name:
+            raise ValueError("enter a person's name")
+        published = []
+        try:
+            with self.db() as con:
+                face = con.execute(
+                    "SELECT asset_id FROM face_embeddings WHERE id=?", (face_id,)
+                ).fetchone()
+                if not face or face["asset_id"] is None:
+                    raise ValueError("this face is no longer available")
+                asset_id = int(face["asset_id"])
+                self.get_active_asset(con, asset_id)
+                person_id = self.resolve_or_create_person(con, name)
+                con.execute(
+                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                       VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
+                       ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                           state='confirmed',face_id=excluded.face_id,source='manual_face',
+                           updated_at=excluded.updated_at""",
+                    (asset_id, person_id, face_id, utc_now()),
+                )
+                sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
+                published.append(self._publish_people_metadata(con, asset_id))
+        except Exception:
+            self._restore_people_batch(published)
+            raise
+        self.send_json({"ok": True, "published": 1, "person_id": person_id})
+
+    def ignore_face(self, body):
+        face_id = int(body["face_id"])
+        with self.db() as con:
+            updated = con.execute(
+                "UPDATE face_embeddings SET ignored_at=? WHERE id=? AND ignored_at IS NULL",
+                (utc_now(), face_id),
+            ).rowcount
+        if not updated:
+            raise ValueError("this face was already handled")
+        self.send_json({"ok": True})
+
     def set_person_aliases(self, body):
         person_id = int(body["person_id"])
         raw_aliases = body.get("aliases", [])
@@ -2232,6 +2407,15 @@ class SearchHandler(BaseHTTPRequestHandler):
                     WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0 AND x.ocr_scanned=0""").fetchone()[0]),
                 "ocr_errors": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_error<>''").fetchone()[0]),
                 "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
+                "unidentified_faces": int(con.execute(
+                    """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                       WHERE f.ignored_at IS NULL AND a.in_review_bin=0
+                         AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                         )"""
+                ).fetchone()[0]),
                 "publications": int(con.execute("SELECT COUNT(*) FROM metadata_publications").fetchone()[0]),
                 "review_bin": int(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0]),
                 "semantic_indexed": int(semantic["indexed"]),
@@ -2508,7 +2692,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 raise ValueError("Face detection is already running")
             if not face_is_available():
                 raise ValueError(
-                    "Face detection is not set up yet. Install it from Library health first."
+                    'Face detection is not set up yet. Click "Set up face detection" on the Scan your photos page first.'
                 )
             with type(self).library_lock:
                 if type(self).library_job.get("state") == "scanning":

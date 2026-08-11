@@ -3,6 +3,8 @@
 a.back{color:var(--muted);text-decoration:none;font-weight:650}a.back:hover{color:var(--text)}
 header{display:flex;align-items:center;gap:14px;padding:16px min(5vw,40px);border-bottom:1px solid var(--line);background:#0e1220cc;position:sticky;top:0;backdrop-filter:blur(6px);z-index:2}
 header img{width:38px;height:38px;object-fit:contain}header h1{margin:0;font-size:19px}header p{margin:1px 0 0;color:var(--muted);font-size:12px}header .spacer{flex:1}.version{color:#ffcf9e;background:#3a2414;border:1px solid #7a4a24;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800}
+.quick-nav{display:flex;gap:14px}.quick-nav a{color:var(--muted);text-decoration:none;font-weight:650;font-size:13px;white-space:nowrap}.quick-nav a:hover{color:var(--text)}
+@media(max-width:900px){.quick-nav{display:none}}
 main{width:min(1366px,calc(100% - 48px));margin:26px auto 60px;display:grid;gap:18px}
 .card{background:#171b26ed;border:1px solid var(--line);border-radius:14px;padding:22px}
 .card h2{margin:0 0 14px;font-size:17px}
@@ -21,6 +23,11 @@ main{width:min(1366px,calc(100% - 48px));margin:26px auto 60px;display:grid;gap:
 .spinner.active{display:inline-block}
 .job-status .elapsed{color:var(--muted);font-size:12px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.progress-bar{height:8px;border-radius:99px;background:#232a3a;overflow:hidden;margin:0 0 12px}
+.progress-bar span{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#c9701f,var(--orange));transition:width .4s ease}
+.progress-bar[hidden]{display:none}
+.progress-bar.indeterminate span{width:35%;animation:indeterminate 1.25s infinite alternate}
+@keyframes indeterminate{from{margin-left:0}to{margin-left:65%}}
 .job-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:4px}.job-actions input{width:150px;border:1px solid #46506a;border-radius:8px;background:#232a3a;color:white;padding:9px 10px}.job-actions .spacer{flex:1}
 .backup-row{display:flex;align-items:center;gap:12px}.backup-row span{color:var(--muted);font-size:13px}
 @media(max-width:700px){.health-summary{grid-template-columns:1fr 1fr}main{width:calc(100% - 24px)}.card{padding:16px}}

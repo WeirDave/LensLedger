@@ -34,7 +34,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -294,6 +294,8 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
             con.execute(f"ALTER TABLE face_embeddings ADD COLUMN {name} REAL")
     if "localized_at" not in face_columns:
         con.execute("ALTER TABLE face_embeddings ADD COLUMN localized_at TEXT")
+    if "ignored_at" not in face_columns:
+        con.execute("ALTER TABLE face_embeddings ADD COLUMN ignored_at TEXT")
     publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
     if "operation" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN operation TEXT NOT NULL DEFAULT 'full'")

@@ -6,6 +6,44 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.26.0 — 2026-08-11
+
+- Added a real "Name faces" page (`/faces-review`) — a grid of cropped
+  thumbnails for every detected face nobody has named yet, with an inline
+  name field per face. Face detection previously only filled a database
+  table with unlabeled embeddings; there was no screen to browse them, so
+  the only way to teach LensLedger a face was to already know who was in a
+  photo and type their name onto it elsewhere first. Naming a face here
+  links the name directly to that exact face (not just the whole photo),
+  which "Find more matches" on People review can then use to train a
+  profile even from group photos with several unnamed faces in them.
+  Faces can also be marked "Not a person" (pets, statues, reflections) so
+  they stop showing up and stop being considered for matching.
+- Added real progress: OCR, meaning search, and face detection now show a
+  percentage bar and an estimated time remaining on the Scan your photos
+  page, computed from the done/total counts each job already reported
+  every poll but the UI was discarding. Install buttons for the optional
+  face/meaning-search downloads show an animated indeterminate bar while
+  installing instead of a bare spinner.
+- Fixed "Run all scans" reporting "All scans complete" identically whether
+  it ran all four steps or silently skipped meaning search and face
+  detection because they were not installed. It now reports exactly which
+  steps ran and which were skipped, and the meaning-search/face-detection
+  cards state their download size and explain why they're not bundled
+  (large downloads, and the face model's license does not permit
+  redistribution).
+- Fixed several stale/dead-end navigation issues: replaced leftover
+  references to the removed "Library health" modal (renamed to "Scan your
+  photos" in 0.24.2) across onboarding, error messages, and README with
+  the current name, several as real links; added a small nav (Scan
+  photos / Review people / Name faces / Photo map) to the header of
+  every non-viewer page, since Scan your photos and People review
+  previously had no way to reach each other except through the main
+  viewer's hamburger menu.
+- Renamed the per-person "Edit names" button (plural) to "Edit name" —
+  it only ever edits one person's name, and the plural read like a bulk
+  action across the whole People grid.
+
 ## 0.25.3 — 2026-08-11
 
 - Fixed `database is locked` errors flooding the console and breaking live
