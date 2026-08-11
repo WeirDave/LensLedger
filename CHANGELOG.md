@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.25.1 — 2026-08-10
+
+- Clarified the "Scan for text now" message on the setup page: it now
+  says the OCR scan runs on your computer and keeps going even if you
+  close the browser tab or move on to your library, instead of leaving
+  that ambiguous.
+
 ## 0.25.0 — 2026-08-10
 
 - Added "Run all scans": one button on the Scan your photos page now runs
