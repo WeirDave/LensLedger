@@ -322,13 +322,79 @@ def media_type(path: Path) -> str:
     return "image"
 
 
-def is_cloud_placeholder(stat_result) -> bool:
-    """Return True for an unhydrated Windows cloud file placeholder."""
+def _actual_allocation_size(path: Path) -> int | None:
+    """Bytes actually resident on disk for `path`, without hydrating a cloud file.
+
+    Opened with FILE_FLAG_OPEN_REPARSE_POINT so a cloud-file reparse point is
+    opened as itself rather than followed -- this never triggers a download.
+    Returns None if the query is unsupported (non-Windows, or the call failed).
+    """
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class _FILE_STANDARD_INFO(ctypes.Structure):
+        _fields_ = [
+            ("AllocationSize", ctypes.c_longlong),
+            ("EndOfFile", ctypes.c_longlong),
+            ("NumberOfLinks", wintypes.DWORD),
+            ("DeletePending", wintypes.BOOLEAN),
+            ("Directory", wintypes.BOOLEAN),
+        ]
+
+    FILE_STANDARD_INFO_CLASS = 1
+    GENERIC_READ = 0x80000000
+    FILE_SHARE_ALL = 0x00000001 | 0x00000002 | 0x00000004
+    OPEN_EXISTING = 3
+    FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+    FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+    INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.CreateFileW(
+        str(path), GENERIC_READ, FILE_SHARE_ALL, None, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, None,
+    )
+    if not handle or handle == INVALID_HANDLE_VALUE:
+        return None
+    try:
+        info = _FILE_STANDARD_INFO()
+        if not kernel32.GetFileInformationByHandleEx(
+            handle, FILE_STANDARD_INFO_CLASS, ctypes.byref(info), ctypes.sizeof(info)
+        ):
+            return None
+        return int(info.AllocationSize)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def is_cloud_placeholder(stat_result, path: Path | None = None) -> bool:
+    """Return True for an unhydrated Windows cloud file placeholder.
+
+    OneDrive and Dropbox both set RECALL_ON_*/OFFLINE attribute bits on files
+    under their control even when fully downloaded -- those bits alone mean
+    "cloud-managed," not "absent." The only reliable signal that a file is
+    genuinely not downloaded is that its actual on-disk allocation is smaller
+    than its logical size (a real placeholder is a near-zero-allocation sparse
+    file); a hydrated file's allocation is always >= its logical size, rounded
+    up to a cluster. When `path` is given, the attribute bits are only used to
+    decide whether this check is worth running at all -- they never decide the
+    answer by themselves.
+    """
     attributes = getattr(stat_result, "st_file_attributes", 0)
     offline = 0x00001000
     recall_on_open = 0x00040000
     recall_on_data_access = 0x00400000
-    return bool(attributes & (offline | recall_on_open | recall_on_data_access))
+    flagged = bool(attributes & (offline | recall_on_open | recall_on_data_access))
+    if not flagged:
+        return False
+    if path is None:
+        return True
+    allocation = _actual_allocation_size(path)
+    if allocation is None:
+        return True
+    return allocation < stat_result.st_size
 
 
 def capture_date_from_path(path: Path) -> str | None:
@@ -506,7 +572,7 @@ def scan_library(
         try:
             stat = path.stat()
             old = known.get(rel_text)
-            placeholder = is_cloud_placeholder(stat)
+            placeholder = is_cloud_placeholder(stat, path)
             if placeholder:
                 counts["placeholders"] += 1
             if (old and old["size_bytes"] == stat.st_size and old["mtime_ns"] == stat.st_mtime_ns

@@ -232,6 +232,32 @@ class DatabaseTests(unittest.TestCase):
         con.close()
         self.assertEqual(rows, [("camera.dng", "raw")])
 
+    def test_cloud_placeholder_detection_trusts_allocation_size_not_just_attributes(self):
+        from types import SimpleNamespace
+
+        import photo_index
+
+        recall_on_data_access = 0x00400000
+        flagged_stat = SimpleNamespace(st_file_attributes=recall_on_data_access, st_size=1000)
+        plain_stat = SimpleNamespace(st_file_attributes=0, st_size=1000)
+        fake_path = Path("C:/fake/file.jpg")
+
+        self.assertFalse(photo_index.is_cloud_placeholder(plain_stat, fake_path))
+
+        # Dropbox/OneDrive set these attribute bits on fully-downloaded files
+        # too, so a cluster-rounded allocation at or above the logical size
+        # must not be treated as a placeholder.
+        with patch.object(photo_index, "_actual_allocation_size", return_value=4096):
+            self.assertFalse(photo_index.is_cloud_placeholder(flagged_stat, fake_path))
+
+        # A real placeholder has near-zero allocation despite reporting the
+        # full logical size.
+        with patch.object(photo_index, "_actual_allocation_size", return_value=0):
+            self.assertTrue(photo_index.is_cloud_placeholder(flagged_stat, fake_path))
+
+        # No path given: fall back to the conservative attribute-only read.
+        self.assertTrue(photo_index.is_cloud_placeholder(flagged_stat))
+
     def test_ocr_can_pause_resume_and_remembers_images_without_text(self):
         from photo_index import ocr_assets, scan_library
 

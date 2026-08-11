@@ -62,6 +62,9 @@ async function refresh() {
       metric('Meaning indexed', c.semantic_indexed),
       metric('Review Bin', c.review_bin),
     );
+    $('cloudScope').textContent = c.cloud_only
+      ? `Scans below only cover the ${Number(c.metadata_ready || 0).toLocaleString()} of ${Number(c.assets || 0).toLocaleString()} files already downloaded to this computer. The other ${Number(c.cloud_only).toLocaleString()} are cloud-only placeholders (OneDrive/Dropbox files not yet synced locally) — LensLedger never opens those automatically, since doing so would silently trigger a large download. "Complete" below means complete for the downloaded files, not your whole library.`
+      : '';
     $('healthPaths').replaceChildren(
       Object.assign(document.createElement('div'), { textContent: 'Database health: ' + diagnostics.integrity + ' · schema ' + diagnostics.schema_version + '/' + diagnostics.current_schema + ' · ' + (diagnostics.database_bytes / 1048576).toFixed(1) + ' MB' }),
       Object.assign(document.createElement('div'), { textContent: 'Library: ' + diagnostics.library }),

@@ -6,6 +6,35 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.25.2 — 2026-08-10
+
+- Fixed a major face/OCR/meaning-search coverage bug: `is_cloud_placeholder()`
+  treated any file carrying OneDrive/Dropbox's cloud-management attribute
+  bits as unavailable, even when the file was fully downloaded. Dropbox
+  sets those bits on hydrated files too, not just true placeholders, so
+  LensLedger had been silently skipping content scans on files that were
+  sitting right there on disk — about 48,900 of this library's 50,909
+  files. It now checks actual on-disk allocation vs. logical file size
+  (queried without ever triggering a download) to tell a genuinely
+  un-downloaded placeholder from a fully-synced file. Confirmed against
+  real files: a 400MB `.tif` and a 119KB `.jpg` that were both being
+  wrongly skipped are now correctly recognized as fully present.
+- Added an honest scope notice to the Scan your photos page: it now says
+  up front how many files are actually downloaded and scannable vs. still
+  cloud-only, so "scan complete" can no longer be misread as "your whole
+  library is done."
+- Fixed the Photo map's photo preview cropping tall/wide photos to a fixed
+  box; it now shows the complete photo, letterboxed if needed.
+- Fixed clicking a map marker giving no indication which one you picked;
+  the selected marker now stays visibly highlighted until you pick another
+  or close the panel.
+- Fixed the Photo map's "Back to library" link living in the top-right as
+  a button, inconsistent with every other page's top-left "← Photo
+  library" link — moved it to match.
+- New app logo (transparent background) and a site-wide color pass:
+  replaced every remaining blue/purple accent (badges, chips, marker
+  colors, background glows) with warm orange/red tones to match.
+
 ## 0.25.1 — 2026-08-10
 
 - Clarified the "Scan for text now" message on the setup page: it now
