@@ -950,6 +950,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         total = 0
         trash_count = 0
         review_count = 0
+        unidentified_faces_count = 0
         try:
             with self.db() as con:
                 trash_count = int(con.execute(
@@ -957,6 +958,15 @@ class SearchHandler(BaseHTTPRequestHandler):
                 ).fetchone()[0])
                 review_count = int(con.execute(
                     "SELECT COUNT(*) FROM asset_people WHERE state='suggested'"
+                ).fetchone()[0])
+                unidentified_faces_count = int(con.execute(
+                    """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                       WHERE f.ignored_at IS NULL AND a.in_review_bin=0
+                         AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                         )"""
                 ).fetchone()[0])
                 if scope == "people" and not person_id:
                     people_query = like_pattern(query)
@@ -1134,7 +1144,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         })}>
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="danger" id="moveToTrash">🗑 Move to Trash</button></div>
 <form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><label class="date-field">Date<input type="date" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"></label><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
-<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><a href="/scan-photos">🔎 Scan your photos</a><button type="button" id="updateMenu" data-panel="update">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
+<nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><a href="/faces-review">🙂 Name faces ({unidentified_faces_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><a href="/scan-photos">🔎 Scan your photos</a><button type="button" id="updateMenu" data-panel="update">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button></div><aside class="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">ⓘ</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you click Preview &amp; publish for this photo. Nothing is written automatically.</div></div>
@@ -1887,7 +1897,12 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         A face only qualifies once it has a recovered bounding box (so a
         crop can be shown) and no confirmed asset_people row already points
-        at it -- the same "confirmed" bar People review uses."""
+        at it -- the same "confirmed" bar People review uses. Capped to one
+        face per photo per batch: a single crowd photo can have dozens of
+        detections, and without this a big group shot would flood the whole
+        page with crops of itself instead of showing a diverse sample. The
+        photo's other faces surface on later batches once this one is named
+        or ignored."""
         try:
             limit = max(1, min(100, int(params.get("limit", ["30"])[0])))
         except ValueError:
@@ -1903,9 +1918,14 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f"SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE {where}"
             ).fetchone()[0])
             rows = con.execute(
-                f"""SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date
-                    FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                    WHERE {where} ORDER BY f.id DESC LIMIT ?""",
+                f"""WITH ranked AS (
+                        SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date,
+                               ROW_NUMBER() OVER (PARTITION BY f.asset_id ORDER BY f.id) AS rn
+                        FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                        WHERE {where}
+                    )
+                    SELECT face_id, asset_id, filename, folder, capture_date
+                    FROM ranked WHERE rn=1 ORDER BY face_id DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
             people_names = [row[0] for row in con.execute(

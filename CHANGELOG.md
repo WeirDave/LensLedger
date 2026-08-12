@@ -6,6 +6,25 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.26.1 — 2026-08-11
+
+- Fixed same-day feedback on 0.26.0's new "Name faces" page: a single
+  crowd or burst-mode photo (a Grand Prix crowd shot alone had 37
+  detections) could flood the entire review batch with crops of itself —
+  confirmed live against the real library, a "July 4th Boat and Fireworks"
+  burst was supplying 4 of the first 6 cards. `/api/faces/unidentified`
+  now caps results to one face per photo per batch (via `ROW_NUMBER() ...
+  PARTITION BY asset_id`); a photo's other faces surface on later batches
+  once its first face is named or ignored. Verified against the real
+  library: a batch of 30 now spans 30 distinct photos instead of a handful
+  repeated up to 4 times each.
+- Fixed "Name faces" being unreachable from the page most people actually
+  land on: the new page was only linked from Scan your photos, People
+  review, and Photo map's header nav — never from the main viewer's
+  hamburger menu, which is where most sessions start. Added "🙂 Name
+  faces (N)" there, next to "Review people," with a live unnamed-face
+  count.
+
 ## 0.26.0 — 2026-08-11
 
 - Added a real "Name faces" page (`/faces-review`) — a grid of cropped
