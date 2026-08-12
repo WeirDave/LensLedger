@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
-from face_learning import learn as learn_faces
+from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as learn_faces
 from face_locations import is_available as face_is_available
 from face_scan import scan_for_faces, status as face_scan_status
 from library_config import (
@@ -1180,7 +1180,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <title>Name faces — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
 </head><body {bootstrap_attr({"csrf": self.csrf_token})}>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="findMatches">Find more matches</button></div></header>
-<main><p class="intro">Faces LensLedger has detected but nobody has named yet. Type a name and press Enter to confirm it, or mark a face as not a person (pets, statues, reflections). Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="face-grid" id="faceGrid"></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><p class="intro">Faces LensLedger has detected but nobody has named yet. Type a name and press Enter to confirm it, or mark a face as not a person (pets, statues, reflections). Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups"></div><div class="face-grid" id="faceGrid"></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <datalist id="peopleOptions"></datalist>
 <script src="{asset_url('js/faces-review.js')}" defer></script>
 </body></html>"""
@@ -2006,7 +2006,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         try:
             with self.db() as con:
                 face = con.execute(
-                    "SELECT asset_id FROM face_embeddings WHERE id=?", (face_id,)
+                    "SELECT asset_id,embedding_f32 FROM face_embeddings WHERE id=?", (face_id,)
                 ).fetchone()
                 if not face or face["asset_id"] is None:
                     raise ValueError("this face is no longer available")
@@ -2023,10 +2023,48 @@ class SearchHandler(BaseHTTPRequestHandler):
                 )
                 sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
                 published.append(self._publish_people_metadata(con, asset_id))
+                matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
         except Exception:
             self._restore_people_batch(published)
             raise
-        self.send_json({"ok": True, "published": 1, "person_id": person_id})
+        self.send_json({"ok": True, "published": 1, "person_id": person_id, "matches": matches})
+
+    def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=16):
+        """Other still-unidentified faces that likely show the same person as
+        the one just named -- lets the Name-faces page group repeats of one
+        person behind a single "confirm all" instead of one dropdown pick
+        each. Direct face-to-face similarity (not a person profile centroid)
+        so it works from the very first photo named, before enough confirmed
+        faces exist to build a profile in face_learning.build_profile."""
+        vector = decode_vector(embedding_blob) if embedding_blob else ()
+        if not vector:
+            return []
+        rows = con.execute(
+            """SELECT f.id AS face_id, f.embedding_f32, a.filename, a.folder, a.capture_date
+               FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+               WHERE f.id!=? AND f.ignored_at IS NULL AND a.in_review_bin=0
+                     AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                     AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                     AND NOT EXISTS (
+                         SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                     )
+               ORDER BY f.id DESC LIMIT 4000""",
+            (face_id,),
+        ).fetchall()
+        scored = []
+        for row in rows:
+            candidate = decode_vector(row["embedding_f32"])
+            if not candidate:
+                continue
+            score = dot(vector, candidate)
+            if score >= SUGGESTION_THRESHOLD:
+                scored.append((score, row))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            {"face_id": int(row["face_id"]), "score": round(score, 4),
+             "filename": row["filename"], "folder": row["folder"], "capture_date": row["capture_date"]}
+            for score, row in scored[:limit]
+        ]
 
     def ignore_face(self, body):
         face_id = int(body["face_id"])

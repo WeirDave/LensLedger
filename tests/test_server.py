@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import array
 import html
 import json
 import os
@@ -290,6 +291,51 @@ class ServerWorkflowTests(unittest.TestCase):
             script = response.read().decode("utf-8")
         self.assertIn("Face being checked", script)
         self.assertIn("ResizeObserver", script)
+
+    def test_naming_a_face_returns_similar_unidentified_faces_as_matches(self):
+        from face_learning import SUGGESTION_THRESHOLD
+        from photo_index import scan_library, utc_now
+
+        second_photo = self.library / "2026-08-10 second.jpg"
+        Image.new("RGB", (32, 24), (60, 120, 180)).save(second_photo, quality=92)
+        third_photo = self.library / "2026-08-11 third.jpg"
+        Image.new("RGB", (32, 24), (10, 10, 10)).save(third_photo, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        second_asset_id = int(con.execute(
+            "SELECT id FROM assets WHERE relative_path=?", (second_photo.name,)
+        ).fetchone()[0])
+        third_asset_id = int(con.execute(
+            "SELECT id FROM assets WHERE relative_path=?", (third_photo.name,)
+        ).fetchone()[0])
+
+        def insert_face(source_face_id, asset_id, filename, vector):
+            return int(con.execute(
+                """INSERT INTO face_embeddings(
+                       source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,
+                       box_left,box_top,box_right,box_bottom,localized_at
+                   ) VALUES ('test',?,?,?,?,?,0.1,0.2,0.4,0.6,?)""",
+                (source_face_id, asset_id, filename, 2, vector, utc_now()),
+            ).lastrowid)
+
+        named_face_id = insert_face(1, self.asset_id, self.photo.name, array.array("f", [1.0, 0.0]).tobytes())
+        similar_face_id = insert_face(2, second_asset_id, second_photo.name, array.array("f", [0.99, 0.14]).tobytes())
+        different_face_id = insert_face(3, third_asset_id, third_photo.name, array.array("f", [0.0, 1.0]).tobytes())
+        con.commit()
+        con.close()
+
+        result = self.json_response(self.post("/api/faces/name", {"face_id": named_face_id, "name": "Match Person"}))
+        self.assertTrue(result["ok"])
+        match_ids = {match["face_id"]: match["score"] for match in result["matches"]}
+        self.assertIn(similar_face_id, match_ids)
+        self.assertGreaterEqual(match_ids[similar_face_id], SUGGESTION_THRESHOLD)
+        self.assertNotIn(different_face_id, match_ids)
+        self.assertNotIn(named_face_id, match_ids)
+
+        unidentified = self.json_response(self.get("/api/faces/unidentified"))
+        remaining_ids = {face["face_id"] for face in unidentified["faces"]}
+        self.assertNotIn(named_face_id, remaining_ids)
+        self.assertIn(similar_face_id, remaining_ids)
 
     def test_person_view_exposes_pending_matches_and_the_focused_face(self):
         from photo_index import scan_library, utc_now

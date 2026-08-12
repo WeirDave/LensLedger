@@ -6,6 +6,20 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.27.0 — 2026-08-11
+
+- Naming a face on "Name faces" now groups other still-unnamed faces that
+  look like the same person right under it, with that name pre-filled, so
+  confirming a repeat is one click ("Confirm all") instead of picking the
+  same name from the dropdown over and over — matching the "is this also
+  X?" grouping Google Photos does. Matching runs on direct face-to-face
+  embedding similarity (cosine, threshold 0.76, the same value People
+  review's "Find more matches" already uses for suggestions), so it works
+  from the very first photo named for someone, not just after enough
+  confirmed faces exist to build a person profile. Any face in a group can
+  be unchecked before confirming, or the whole group dismissed with "Not
+  these" to review those faces normally instead.
+
 ## 0.26.5 — 2026-08-11
 
 - Documented 0.26.4's install-vs-extracted-ZIP distinction in the README:

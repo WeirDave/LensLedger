@@ -4,6 +4,10 @@ const $ = id => document.getElementById(id);
 const PAGE_SIZE = 30;
 let loading = false;
 let remaining = 0;
+// Face ids currently parked inside a match group (not resolved, just pulled
+// out of the grid). loadMore() must skip these or the next top-up fetch
+// re-adds the very card a match group just removed.
+const pending = new Set();
 
 async function api(path, data) {
   const response = await fetch(path, {
@@ -20,14 +24,82 @@ function updateProgress() {
 }
 
 function checkEmpty() {
-  $('emptyState').hidden = $('faceGrid').children.length > 0;
+  $('emptyState').hidden = $('faceGrid').children.length > 0 || $('matchGroups').children.length > 0;
 }
 
 function removeCard(card) {
   card.remove();
   remaining = Math.max(0, remaining - 1);
   updateProgress();
-  if ($('faceGrid').children.length < 12 && remaining > 0) loadMore();
+  if ($('faceGrid').children.length < 12 && remaining > pending.size) loadMore();
+  checkEmpty();
+}
+
+// Releases face ids back into the normal queue -- called on dismiss, and on
+// any match that didn't end up confirmed -- and tops the grid back up.
+function releasePending(ids) {
+  ids.forEach(id => pending.delete(id));
+  if ($('faceGrid').children.length < 12 && remaining > pending.size) loadMore();
+  checkEmpty();
+}
+
+// After naming a face, other unidentified faces the backend judged similar
+// (see _find_similar_unidentified_faces in photo_search.py) get grouped here
+// with that name pre-filled, so confirming a repeat is one click instead of
+// picking the same name from the dropdown over and over -- the behavior the
+// user asked for, modeled on Google Photos' "is this also X?" grouping.
+function addMatchGroup(name, matches) {
+  const ids = matches.map(match => match.face_id);
+  ids.forEach(id => pending.add(id));
+  ids.forEach(id => {
+    const existing = $('faceGrid').querySelector(`[data-face-id="${id}"]`);
+    if (existing) existing.remove();
+  });
+  const group = document.createElement('div');
+  group.className = 'match-group';
+  group.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span>'
+    + '<span class="spacer"></span>'
+    + '<button type="button" class="secondary dismiss">Not these</button>'
+    + '<button type="button" class="confirm-all">Confirm all</button></div>'
+    + '<div class="match-thumbs"></div><div class="match-status"></div>';
+  group.querySelector('strong').textContent = 'Also looks like ' + name;
+  group.querySelector('.match-count').textContent = matches.length + (matches.length === 1 ? ' photo' : ' photos');
+  const thumbs = group.querySelector('.match-thumbs');
+  matches.forEach(match => {
+    const thumb = document.createElement('label');
+    thumb.className = 'match-thumb';
+    thumb.dataset.faceId = match.face_id;
+    thumb.innerHTML = '<input type="checkbox" checked><img loading="lazy" alt="Possible match">';
+    thumb.querySelector('img').src = '/media-face?face_id=' + match.face_id;
+    thumbs.append(thumb);
+  });
+  const status = group.querySelector('.match-status');
+  group.querySelector('.dismiss').onclick = () => { group.remove(); releasePending(ids); };
+  group.querySelector('.confirm-all').onclick = async () => {
+    const allThumbs = [...thumbs.querySelectorAll('.match-thumb')];
+    const checked = allThumbs.filter(t => t.querySelector('input').checked);
+    const skipped = allThumbs.filter(t => !t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
+    if (!checked.length) { group.remove(); releasePending(ids); return; }
+    group.querySelectorAll('button').forEach(b => b.disabled = true);
+    status.textContent = 'Confirming…';
+    let failed = 0;
+    for (const thumb of checked) {
+      try {
+        await api('/api/faces/name', { face_id: Number(thumb.dataset.faceId), name });
+        remaining = Math.max(0, remaining - 1);
+        pending.delete(Number(thumb.dataset.faceId));
+        thumb.remove();
+      } catch (error) {
+        failed += 1;
+        status.textContent = error.message;
+      }
+    }
+    updateProgress();
+    if (!failed) { group.remove(); releasePending(skipped); }
+    else group.querySelectorAll('button').forEach(b => b.disabled = false);
+  };
+  $('matchGroups').prepend(group);
+  if ($('faceGrid').children.length < 12 && remaining > pending.size) loadMore();
   checkEmpty();
 }
 
@@ -53,8 +125,9 @@ function buildCard(face) {
     input.disabled = true; saveButton.disabled = true; notPersonButton.disabled = true;
     status.textContent = 'Saving…';
     try {
-      await api('/api/faces/name', { face_id: face.face_id, name });
+      const result = await api('/api/faces/name', { face_id: face.face_id, name });
       removeCard(card);
+      if (result.matches && result.matches.length) addMatchGroup(name, result.matches);
     } catch (error) {
       status.textContent = error.message;
       input.disabled = false; saveButton.disabled = false; notPersonButton.disabled = false;
@@ -101,7 +174,7 @@ async function loadMore() {
     }));
     const existing = new Set([...$('faceGrid').children].map(el => el.dataset.faceId));
     data.faces
-      .filter(face => !existing.has(String(face.face_id)))
+      .filter(face => !existing.has(String(face.face_id)) && !pending.has(face.face_id))
       .forEach(face => $('faceGrid').append(buildCard(face)));
     checkEmpty();
   } catch (error) {
