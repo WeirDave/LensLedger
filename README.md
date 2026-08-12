@@ -69,9 +69,12 @@ alternate name at a time, separating multiple names with commas.
 1. Download `LensLedger-vX.Y.Z.zip` from the [latest release](https://github.com/WeirDave/LensLedger/releases/latest).
 2. Extract the ZIP to a temporary folder.
 3. Install [Python 3.11 or newer](https://www.python.org/downloads/) and select **Add Python to PATH** during setup.
-4. Double-click **Install LensLedger.cmd**. LensLedger installs into your private
-   per-user Programs folder and starts automatically. The extracted ZIP can then
-   be deleted.
+4. Double-click **Install LensLedger.cmd** — not `Start LensLedger.cmd`. Install
+   is what copies LensLedger into your private per-user Programs folder and
+   marks it as a managed installation; it starts automatically once that's
+   done. The extracted ZIP can then be deleted. (Running `Start LensLedger.cmd`
+   directly from the extracted folder instead still works, but that copy can
+   never update itself — see *Updates and rollback* below.)
 5. On first launch it installs the small Python requirements if they are not
    already present.
 6. Choose the photo folder you want to inventory and select **Build my library**.
@@ -85,6 +88,20 @@ terminal window open while using the application.
 LensLedger checks for a newer GitHub release when the viewer opens and at most
 once every six hours while it remains in use. It only shows a notification; an
 update is never installed until you open **Check for updates** and approve it.
+
+Self-updating this way only works for the **managed** installation that step 4
+above creates. Two other setups look similar but can't self-update, and
+LensLedger tells you which one you're in rather than failing silently:
+
+- **Extracted ZIP, run directly.** If you double-click `Start LensLedger.cmd`
+  from the extracted release folder instead of `Install LensLedger.cmd`,
+  LensLedger runs exactly the same, but there's no managed copy for an update
+  to replace. Both the startup console and **Check for updates** will tell you
+  this and point you at `Install LensLedger.cmd` — run it once, from that same
+  folder, to fix it. Your photo library and catalog are never touched by this.
+- **A `git clone` source checkout** (see *Run from source* below). Also can't
+  self-update, but for a different reason: there's no release ZIP to replace
+  a working tree with. Use `git pull` instead.
 
 The updater downloads the release through GitHub's release API, verifies the
 asset against GitHub's SHA-256 digest, rejects unsafe ZIP paths, validates the
@@ -126,6 +143,12 @@ cd LensLedger
 python -m pip install -r requirements.txt
 python src\photo_search.py
 ```
+
+A source checkout doesn't self-update — **Check for updates** will tell you
+so rather than offer a nonsensical install step. To update, `git pull` and
+restart. Backend (`.py`) changes need a restart to take effect; front-end
+(`.js`/`.css`) changes are read from disk on every request and show up on a
+plain browser refresh.
 
 ### Optional legacy face-box recovery
 

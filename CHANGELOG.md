@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.26.5 — 2026-08-11
+
+- Documented 0.26.4's install-vs-extracted-ZIP distinction in the README:
+  Quick start now flags that step 4 must be `Install LensLedger.cmd`, not
+  `Start LensLedger.cmd`, for self-updates to ever work; Updates and
+  rollback spells out the two unmanaged cases (extracted ZIP run
+  directly, vs. a `git clone` checkout) and what to do about each; and
+  Run from source states plainly that a checkout needs `git pull` plus a
+  restart for backend changes, while front-end-only changes just need a
+  browser refresh.
+
 ## 0.26.4 — 2026-08-11
 
 - Clarified the "Check for updates" dead end for anyone who runs LensLedger
