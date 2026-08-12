@@ -6,6 +6,21 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.28.0 — 2026-08-11
+
+- The update panel now detects when a source checkout's running process is
+  stale relative to the code already on disk — the case where `git pull`
+  (or any other edit) changed the `.py` files but nobody restarted the
+  server yet, which previously showed the confusing "run from an extracted
+  download, run Install LensLedger.cmd" message even for a real git
+  checkout, because the running process's own APP_VERSION was baked in at
+  startup and had no way to notice the file on disk had moved on. It's
+  now compared fresh against `product.py` on every status check. When
+  they disagree, the panel offers a one-click "Restart to apply" that
+  restarts this process in place — no download, no file changes, nothing
+  git-related — instead of pointing at `git pull`, which the user had
+  usually already run.
+
 ## 0.27.0 — 2026-08-11
 
 - Naming a face on "Name faces" now groups other still-unnamed faces that

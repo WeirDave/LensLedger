@@ -157,6 +157,35 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("not a managed installation", body["error"])
         rejected.exception.close()
 
+    def test_update_status_reports_restart_ready_when_running_process_is_stale(self):
+        # The test suite itself runs from this repo's real checkout, so
+        # `on_disk_version` always reflects the real product.py. Patching only
+        # APP_VERSION (the value baked into this running process) simulates
+        # `git pull` having moved the on-disk code past what's loaded in memory.
+        release = {
+            "version": "0.0.0-test-stale", "tag": "v0.0.0-test-stale", "name": "Stale",
+            "page_url": "https://example.test/release", "asset_api_url": "https://example.test/asset",
+            "asset_name": "LensLedger-stale.zip", "asset_size": 10, "digest": "sha256:" + "0" * 64,
+        }
+        with patch.object(
+            self.photo_search, "check_for_update",
+            return_value={"current_version": "0.0.0-test-stale", "available": False, "release": release},
+        ), patch.object(self.photo_search, "APP_VERSION", "0.0.0-test-stale"):
+            status = self.json_response(self.get("/api/update/status"))
+        self.assertTrue(status["is_source_checkout"])
+        self.assertEqual(status["current_version"], "0.0.0-test-stale")
+        self.assertIsNotNone(status["on_disk_version"])
+        self.assertNotEqual(status["on_disk_version"], "0.0.0-test-stale")
+        self.assertTrue(status["restart_ready"])
+
+    def test_restart_source_marks_state_restarting_without_actually_spawning_a_process(self):
+        with patch.object(self.photo_search.SearchHandler, "_spawn_updater_helper", lambda self, extra_args: None), \
+             patch.object(self.photo_search.SearchHandler, "_schedule_shutdown", lambda self: None):
+            result = self.json_response(self.post("/api/update/restart-source", {}))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "restarting")
+        self.assertEqual(self.photo_search.SearchHandler.update_job["state"], "restarting")
+
     def test_csrf_metadata_publish_restore_and_review_bin(self):
         with self.assertRaises(urllib.error.HTTPError) as rejected:
             self.post("/api/subject", {"id": self.asset_id, "subject": "Blue test image"}, csrf="wrong")

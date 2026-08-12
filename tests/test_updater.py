@@ -247,6 +247,19 @@ class UpdaterTests(unittest.TestCase):
             self.assertTrue(migrated_backup_path.is_file())
             self.assertEqual(hashlib.sha256(database.read_bytes()).hexdigest(), before)
 
+    def test_restart_source_waits_for_the_old_process_then_relaunches_with_no_file_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            calls = []
+            with patch.object(updater, "wait_for_process", lambda pid: calls.append(("wait", pid))), \
+                 patch.object(updater, "launch_lensledger", lambda install_root: calls.append(("launch", install_root))), \
+                 patch(
+                     "sys.argv",
+                     ["lensledger_updater.py", "restart-source", "--current-root", str(root), "--wait-pid", "4242"],
+                 ):
+                self.assertEqual(updater.main(), 0)
+            self.assertEqual(calls, [("wait", 4242), ("launch", root.resolve())])
+
 
 if __name__ == "__main__":
     unittest.main()

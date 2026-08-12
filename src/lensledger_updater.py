@@ -726,6 +726,12 @@ def main() -> int:
     latest.add_argument("--wait-pid", type=int, default=0)
     latest.add_argument("--legacy-root", type=Path)
     latest.add_argument("--no-launch", action="store_true")
+    restart = subparsers.add_parser(
+        "restart-source",
+        help="restart a source checkout once its running process exits, with no download or file changes",
+    )
+    restart.add_argument("--current-root", type=Path, required=True)
+    restart.add_argument("--wait-pid", type=int, default=0)
     handoff = subparsers.add_parser(
         "handoff-legacy-launcher",
         help="redirect one legacy LensLedger shortcut to the managed installation",
@@ -740,6 +746,11 @@ def main() -> int:
             result = install_current(args.source, args.target, args.legacy_root, not args.no_launch)
         elif args.command == "handoff-legacy-launcher":
             result = handoff_legacy_launcher(args.legacy_root, args.target)
+        elif args.command == "restart-source":
+            wait_for_process(args.wait_pid)
+            current_root = args.current_root.resolve()
+            launch_lensledger(current_root)
+            result = {"restarted": True, "root": str(current_root)}
         else:
             result = install_latest(
                 args.current_root, args.current, args.wait_pid, args.legacy_root,

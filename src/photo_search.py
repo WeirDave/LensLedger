@@ -64,6 +64,18 @@ def asset_url(name: str) -> str:
     return f"/web/{name}?v={APP_VERSION}"
 
 
+def _on_disk_app_version(install_root: Path) -> str | None:
+    """Read APP_VERSION straight from product.py on disk, bypassing the
+    already-imported APP_VERSION above -- which stays frozen at whatever it
+    was when this process started, even after `git pull` changes the file."""
+    try:
+        text = (install_root / "src" / "product.py").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+    return match.group(1) if match else None
+
+
 def bootstrap_attr(values: dict[str, object]) -> str:
     """A data-ll="..." <body> attribute that hands page data to an externally-
     served JS file, which reads it with JSON.parse(document.body.dataset.ll).
@@ -702,6 +714,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.check_update(body)
             if route == "/api/update/install":
                 return self.install_update(body)
+            if route == "/api/update/restart-source":
+                return self.restart_source(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -2547,18 +2561,52 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).update_lock:
             job = dict(type(self).update_job)
         install_root = Path(__file__).parent.parent.resolve()
+        source_checkout = (install_root / ".git").is_dir()
+        on_disk_version = _on_disk_app_version(install_root) if source_checkout else None
         job.update({
             "current_version": APP_VERSION,
             "managed_install": is_managed_install(install_root),
-            "is_source_checkout": (install_root / ".git").is_dir(),
+            "is_source_checkout": source_checkout,
             "current_install_root": str(install_root),
             "managed_install_root": str(managed_install_root()),
+            "on_disk_version": on_disk_version,
+            # The running process's APP_VERSION is baked in at import time and stays
+            # stale until restarted; `git pull` (or any other on-disk change) doesn't
+            # touch it. Comparing against a fresh read of product.py lets the update
+            # panel tell "you're behind the on-disk code" apart from "you're behind
+            # the latest GitHub release" and offer a plain restart for the former.
+            "restart_ready": bool(source_checkout and on_disk_version and on_disk_version != APP_VERSION),
         })
         self.send_json(job)
 
     def check_update(self, _body):
         started = type(self)._begin_update_check(force=True)
         self.send_json({"ok": True, "state": "checking", "started": started}, 202)
+
+    def _spawn_updater_helper(self, extra_args):
+        helper_root = updates_root()
+        helper_root.mkdir(parents=True, exist_ok=True)
+        helper = helper_root / "lensledger-updater-helper.py"
+        shutil.copy2(Path(__file__).parent / "lensledger_updater.py", helper)
+        command = [sys.executable, str(helper), *extra_args]
+        log_path = helper_root / "last-update.log"
+        log_stream = log_path.open("w", encoding="utf-8")
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            subprocess.Popen(
+                command, cwd=helper_root, stdin=subprocess.DEVNULL,
+                stdout=log_stream, stderr=subprocess.STDOUT,
+                close_fds=True, creationflags=flags,
+            )
+        finally:
+            log_stream.close()
+
+    def _schedule_shutdown(self):
+        def stop_server():
+            threading.Event().wait(1.0)
+            self.server.shutdown()
+
+        threading.Thread(target=stop_server, name="LensLedger-update-shutdown", daemon=True).start()
 
     def install_update(self, _body):
         install_root = Path(__file__).parent.parent.resolve()
@@ -2579,39 +2627,47 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "release": release,
             }
 
-        helper_root = updates_root()
-        helper_root.mkdir(parents=True, exist_ok=True)
-        helper = helper_root / "lensledger-updater-helper.py"
-        shutil.copy2(Path(__file__).parent / "lensledger_updater.py", helper)
-        command = [
-            sys.executable, str(helper), "install-latest",
+        command_args = [
+            "install-latest",
             "--current-root", str(install_root),
             "--current", APP_VERSION,
             "--wait-pid", str(os.getpid()),
         ]
         if (install_root / "photo-index.sqlite3").is_file():
-            command.extend(["--legacy-root", str(install_root)])
-        log_path = helper_root / "last-update.log"
-        log_stream = log_path.open("w", encoding="utf-8")
-        try:
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-            subprocess.Popen(
-                command, cwd=helper_root, stdin=subprocess.DEVNULL,
-                stdout=log_stream, stderr=subprocess.STDOUT,
-                close_fds=True, creationflags=flags,
-            )
-        finally:
-            log_stream.close()
-
-        def stop_server():
-            threading.Event().wait(1.0)
-            self.server.shutdown()
-
-        threading.Thread(target=stop_server, name="LensLedger-update-shutdown", daemon=True).start()
+            command_args.extend(["--legacy-root", str(install_root)])
+        self._spawn_updater_helper(command_args)
+        self._schedule_shutdown()
         self.send_json({
             "ok": True,
             "state": "restarting",
             "message": "The verified update is being installed. LensLedger will reopen automatically.",
+        }, 202)
+
+    def restart_source(self, _body):
+        """Restart this process in place -- no download, no file changes. For a
+        source checkout where `git pull` (or any other on-disk edit) already
+        moved the code past what this running process has loaded; see
+        update_status's `restart_ready`."""
+        install_root = Path(__file__).parent.parent.resolve()
+        if not (install_root / ".git").is_dir():
+            raise ValueError("This copy is not a source checkout, so there is no on-disk code to restart into.")
+        with type(self).update_lock:
+            type(self).update_job = {
+                "state": "restarting",
+                "message": "Restarting LensLedger to load the code already on disk…",
+                "current_version": APP_VERSION,
+            }
+
+        self._spawn_updater_helper([
+            "restart-source",
+            "--current-root", str(install_root),
+            "--wait-pid", str(os.getpid()),
+        ])
+        self._schedule_shutdown()
+        self.send_json({
+            "ok": True,
+            "state": "restarting",
+            "message": "Restarting to load the code already on disk. LensLedger will reopen automatically.",
         }, 202)
 
     def ocr_status(self):
