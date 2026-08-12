@@ -6,6 +6,34 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.29.0 — 2026-08-11
+
+- Replaced the toolbar's native "Date" filter — a plain `<input type="date">`
+  — with a hand-built calendar dropdown. Every browser renders that native
+  control's popup differently (and Firefox's, in particular, buries year
+  navigation behind clicking the month label), so it's now plain HTML/CSS/JS
+  LensLedger fully controls: identical appearance and behavior in every
+  browser, plus an explicit Year dropdown for jumping straight to any year
+  back to 1900 in one click, alongside a Month dropdown and the usual
+  day grid, Today, and Clear.
+- Fixed the "Who is this?" field on Name faces (and the equivalent fields on
+  People review and the main photo viewer) triggering the browser's own
+  address-autofill suggestions — typing a person's name could pop up a
+  saved street address instead of, or on top of, the list of known people.
+  These fields now set `autocomplete="off"`.
+- Fixed the Save button on Name faces silently disappearing on narrower face
+  cards. The card's info panel is a CSS grid with an implicit column that
+  was sizing itself to its widest content (the un-shrinkable input+button
+  row) rather than the card's actual width, and the overflow was being
+  clipped rather than shown — a `grid-template-columns:minmax(0,1fr)` fix
+  lets the row shrink to fit instead.
+- Changed the small caption under each Name faces card to lead with the
+  filename instead of date + folder — the filename is what actually
+  distinguishes one photo from another (several faces from the same burst
+  share a date and folder), so it's now shown first and preserved when the
+  caption is too long to fit, with the full date/folder/filename available
+  as a hover tooltip.
+
 ## 0.28.0 — 2026-08-11
 
 - The update panel now detects when a source checkout's running process is

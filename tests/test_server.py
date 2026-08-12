@@ -109,6 +109,28 @@ class ServerWorkflowTests(unittest.TestCase):
             viewer_script = response.read().decode("utf-8")
         self.assertIn("separate each name with a comma", viewer_script)
 
+    def test_custom_date_picker_renders_hidden_field_and_trigger_label(self):
+        # The toolbar's date filter used to be a native <input type="date">,
+        # which renders a different picker UI per browser. It's now a hand
+        # -built dropdown; the hidden field it drives must still carry the
+        # real ?date= value so form submission and changeDay() keep working.
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn('id="dateTrigger"', page)
+        self.assertIn(">Any date<", page)
+        self.assertIn('type="hidden" name="date" id="datePicker" value=""', page)
+        self.assertNotIn('type="date"', page)
+
+        with self.get("/?date=2019-03-15") as response:
+            dated_page = response.read().decode("utf-8")
+        self.assertIn('id="datePicker" value="2019-03-15"', dated_page)
+        self.assertIn(">2019-03-15<", dated_page)
+
+        with self.get("/web/js/viewer.js") as response:
+            script = response.read().decode("utf-8")
+        self.assertIn("function openCalendar", script)
+        self.assertIn("function chooseDate", script)
+
     def test_onboarding_page_discloses_where_data_lives_and_offers_ocr(self):
         from app_paths import data_root
         from photo_index import connect

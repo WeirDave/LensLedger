@@ -109,11 +109,20 @@ function buildCard(face) {
   card.dataset.faceId = face.face_id;
   card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"></div>'
     + '<div class="face-info"><small></small>'
-    + '<div class="face-form"><input list="peopleOptions" placeholder="Who is this?"><button type="button" class="save">Save</button></div>'
+    + '<div class="face-form"><input list="peopleOptions" placeholder="Who is this?" autocomplete="off"><button type="button" class="save">Save</button></div>'
     + '<button type="button" class="not-person">Not a person</button>'
     + '<div class="face-status"></div></div>';
   card.querySelector('img').src = '/media-face?face_id=' + face.face_id;
-  card.querySelector('small').textContent = (face.capture_date || 'Date unknown') + ' · ' + face.folder;
+  // The filename identifies which exact photo this is (folder + date alone
+  // often don't, e.g. several faces from the same burst); show it first so
+  // ellipsis truncation eats the folder path instead of the useful part.
+  const folderParts = (face.folder || '').split('/').filter(Boolean);
+  const shortPath = folderParts.length
+    ? '…/' + folderParts[folderParts.length - 1] + '/' + face.filename
+    : face.filename;
+  const small = card.querySelector('small');
+  small.textContent = shortPath;
+  small.title = (face.capture_date || 'Date unknown') + ' · ' + (face.folder ? face.folder + '/' : '') + face.filename;
   const input = card.querySelector('input');
   const saveButton = card.querySelector('.save');
   const notPersonButton = card.querySelector('.not-person');

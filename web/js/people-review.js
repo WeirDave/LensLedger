@@ -110,7 +110,7 @@ function buildCard(item) {
   const card = document.createElement('article');
   card.className = 'review-card';
   card.dataset.id = item.id;
-  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, enter the correct name (optional)</label><input list="peopleOptions" placeholder="Correct name"></div></div>';
+  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, enter the correct name (optional)</label><input list="peopleOptions" placeholder="Correct name" autocomplete="off"></div></div>';
   const img = card.querySelector('img');
   img.src = '/media?id=' + item.id;
   markFace(card.querySelector('.photo-box'), img, item);
