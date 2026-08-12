@@ -6,6 +6,28 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.30.2 — 2026-08-12
+
+- Fixed the update panel misreporting a source checkout run from a git
+  worktree (rather than a plain clone) as not being a source checkout at
+  all — `.git` is a file in a worktree, not a directory, and the checks
+  in `src/photo_search.py` only accepted a directory. `restart_ready`
+  now correctly detects on-disk code changes, and "Restart to apply" no
+  longer 400s, from a worktree checkout.
+- Removed an embedded "people review" modal in the main viewer
+  (`web/js/viewer.js`, `web/css/viewer.css`) that had been fully
+  unreachable since the real "Review people" entry points were switched
+  to link straight to the standalone `/people-review` page — nothing in
+  the app ever set the menu-panel key that would have opened it. Also
+  removed a handful of smaller strays found in the same sweep: an
+  `openLibraryPanel()` left behind after `openLibraryPanelV2()`
+  superseded it, an unused HTML-escaping helper, and several CSS rules
+  (a leftover pre-`/scan-photos`-split diagnostics-panel block, an old
+  sidebar hint style, an unused metadata-grid layout, an unused
+  filmstrip pager) with no remaining caller or template anywhere in the
+  app. No user-facing behavior changes — everything removed here was
+  confirmed dead first.
+
 ## 0.30.1 — 2026-08-12
 
 - Fixed the new person picker (v0.30.0) being invisible in practice: its

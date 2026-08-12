@@ -2562,7 +2562,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).update_lock:
             job = dict(type(self).update_job)
         install_root = Path(__file__).parent.parent.resolve()
-        source_checkout = (install_root / ".git").is_dir()
+        source_checkout = (install_root / ".git").exists()
         on_disk_version = _on_disk_app_version(install_root) if source_checkout else None
         job.update({
             "current_version": APP_VERSION,
@@ -2651,7 +2651,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         moved the code past what this running process has loaded; see
         update_status's `restart_ready`."""
         install_root = Path(__file__).parent.parent.resolve()
-        if not (install_root / ".git").is_dir():
+        if not (install_root / ".git").exists():
             raise ValueError("This copy is not a source checkout, so there is no on-disk code to restart into.")
         with type(self).update_lock:
             type(self).update_job = {
