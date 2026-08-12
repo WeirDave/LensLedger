@@ -252,13 +252,56 @@ class UpdaterTests(unittest.TestCase):
             root = Path(temporary)
             calls = []
             with patch.object(updater, "wait_for_process", lambda pid: calls.append(("wait", pid))), \
-                 patch.object(updater, "launch_lensledger", lambda install_root: calls.append(("launch", install_root))), \
+                 patch.object(
+                     updater, "launch_lensledger",
+                     lambda install_root, old_window_pid=None: calls.append(("launch", install_root, old_window_pid)),
+                 ), \
                  patch(
                      "sys.argv",
-                     ["lensledger_updater.py", "restart-source", "--current-root", str(root), "--wait-pid", "4242"],
+                     ["lensledger_updater.py", "restart-source", "--current-root", str(root),
+                      "--wait-pid", "4242", "--old-window-pid", "777"],
                  ):
                 self.assertEqual(updater.main(), 0)
-            self.assertEqual(calls, [("wait", 4242), ("launch", root.resolve())])
+            self.assertEqual(calls, [("wait", 4242), ("launch", root.resolve(), 777)])
+
+    def test_close_old_launcher_window_only_shells_out_for_a_positive_pid_on_windows(self):
+        with patch.object(updater.os, "name", "nt"), patch.object(updater.subprocess, "run") as mocked_run:
+            updater.close_old_launcher_window(0)
+            updater.close_old_launcher_window(-5)
+            mocked_run.assert_not_called()
+        with patch.object(updater.os, "name", "posix"), patch.object(updater.subprocess, "run") as mocked_run:
+            updater.close_old_launcher_window(4242)
+            mocked_run.assert_not_called()
+
+    def test_close_old_launcher_window_targets_the_exact_pid_and_launcher_script(self):
+        with patch.object(updater.os, "name", "nt"), patch.object(updater.subprocess, "run") as mocked_run:
+            updater.close_old_launcher_window(4242)
+        mocked_run.assert_called_once()
+        command = mocked_run.call_args.args[0]
+        script = command[command.index("-Command") + 1]
+        self.assertIn("4242", script)
+        self.assertIn("Start LensLedger.cmd", script)
+        self.assertIn("cmd.exe", script)
+
+    def test_launch_lensledger_starts_the_new_copy_before_closing_the_old_window(self):
+        order = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater.subprocess, "Popen", lambda *a, **k: order.append("launch")), \
+                 patch.object(updater, "close_old_launcher_window", lambda pid: order.append(("close", pid))):
+                updater.launch_lensledger(root, old_window_pid=777)
+        self.assertEqual(order, ["launch", ("close", 777)])
+
+    def test_launch_lensledger_skips_closing_when_no_old_window_pid_is_given(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater.subprocess, "Popen") as mocked_popen, \
+                 patch.object(updater, "close_old_launcher_window") as mocked_close:
+                updater.launch_lensledger(root)
+        mocked_popen.assert_called_once()
+        mocked_close.assert_not_called()
 
 
 if __name__ == "__main__":

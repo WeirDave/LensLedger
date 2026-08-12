@@ -2632,6 +2632,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "--current-root", str(install_root),
             "--current", APP_VERSION,
             "--wait-pid", str(os.getpid()),
+            "--old-window-pid", str(os.getppid()),
         ]
         if (install_root / "photo-index.sqlite3").is_file():
             command_args.extend(["--legacy-root", str(install_root)])
@@ -2662,6 +2663,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "restart-source",
             "--current-root", str(install_root),
             "--wait-pid", str(os.getpid()),
+            "--old-window-pid", str(os.getppid()),
         ])
         self._schedule_shutdown()
         self.send_json({

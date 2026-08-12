@@ -659,7 +659,41 @@ def wait_for_process(process_id: int, timeout_seconds: int = 180) -> None:
     raise UpdateError("LensLedger did not close in time; the update was not installed")
 
 
-def launch_lensledger(install_root: Path) -> None:
+def close_old_launcher_window(pid: int) -> None:
+    """Best-effort cleanup for the disposable cmd.exe console that ran the
+    previous instance via Start LensLedger.cmd -- that script always ends
+    with `pause`, so the window it opened never closes itself once Python
+    exits; left alone, every restart leaves one more dead "Press any key to
+    continue" window behind.
+
+    Only ever acts on a PID positively identified as that exact launcher: a
+    cmd.exe process whose own command line names Start LensLedger.cmd. The
+    given PID is whatever the caller's os.getppid() was -- for a plain
+    `python src/photo_search.py` run from an interactive shell (as in
+    development, or any launch not via the .cmd), that parent won't match
+    and is left untouched, since it could be a shell the user is otherwise
+    using."""
+    if os.name != "nt" or pid <= 0:
+        return
+    script = (
+        f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\" -ErrorAction SilentlyContinue; "
+        "if ($p -and $p.Name -eq 'cmd.exe' -and $p.CommandLine -like '*Start LensLedger.cmd*') { "
+        f"Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue }}"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            timeout=10, capture_output=True, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> None:
+    """Start a fresh LensLedger. When `old_window_pid` is given, the new
+    copy is started first and only then is the old launcher window closed
+    (see close_old_launcher_window) -- so a failure to launch never leaves
+    the user with no LensLedger window at all, just a stale extra one."""
     if os.name == "nt":
         subprocess.Popen(
             ["cmd.exe", "/c", str(install_root / "Start LensLedger.cmd")], cwd=install_root,
@@ -672,6 +706,8 @@ def launch_lensledger(install_root: Path) -> None:
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             close_fds=True,
         )
+    if old_window_pid:
+        close_old_launcher_window(old_window_pid)
 
 
 def install_current(source: Path, target: Path | None = None, legacy_root: Path | None = None,
@@ -693,7 +729,7 @@ def install_current(source: Path, target: Path | None = None, legacy_root: Path 
 
 def install_latest(current_root: Path, current_version: str, wait_pid: int = 0,
                    legacy_root: Path | None = None, launch: bool = True,
-                   token: str | None = None) -> dict[str, object]:
+                   token: str | None = None, old_window_pid: int | None = None) -> dict[str, object]:
     release, staged = stage_latest(current_version, token)
     target = current_root.resolve() if is_managed_install(current_root) else managed_install_root()
     wait_for_process(wait_pid)
@@ -705,7 +741,7 @@ def install_latest(current_root: Path, current_version: str, wait_pid: int = 0,
     if handoffs:
         result["legacy_launchers"] = handoffs
     if launch:
-        launch_lensledger(target)
+        launch_lensledger(target, old_window_pid)
     result["release"] = asdict(release)
     return result
 
@@ -724,6 +760,7 @@ def main() -> int:
     latest.add_argument("--current-root", type=Path, required=True)
     latest.add_argument("--current", required=True)
     latest.add_argument("--wait-pid", type=int, default=0)
+    latest.add_argument("--old-window-pid", type=int, default=0)
     latest.add_argument("--legacy-root", type=Path)
     latest.add_argument("--no-launch", action="store_true")
     restart = subparsers.add_parser(
@@ -732,6 +769,7 @@ def main() -> int:
     )
     restart.add_argument("--current-root", type=Path, required=True)
     restart.add_argument("--wait-pid", type=int, default=0)
+    restart.add_argument("--old-window-pid", type=int, default=0)
     handoff = subparsers.add_parser(
         "handoff-legacy-launcher",
         help="redirect one legacy LensLedger shortcut to the managed installation",
@@ -749,12 +787,12 @@ def main() -> int:
         elif args.command == "restart-source":
             wait_for_process(args.wait_pid)
             current_root = args.current_root.resolve()
-            launch_lensledger(current_root)
+            launch_lensledger(current_root, args.old_window_pid or None)
             result = {"restarted": True, "root": str(current_root)}
         else:
             result = install_latest(
                 args.current_root, args.current, args.wait_pid, args.legacy_root,
-                not args.no_launch,
+                not args.no_launch, old_window_pid=args.old_window_pid or None,
             )
         print(json.dumps(result, indent=2))
         return 0
@@ -764,7 +802,7 @@ def main() -> int:
             current_root = args.current_root.resolve()
             if (current_root / "src" / "photo_search.py").is_file():
                 try:
-                    launch_lensledger(current_root)
+                    launch_lensledger(current_root, args.old_window_pid or None)
                     print("The previous LensLedger copy was restarted.", file=sys.stderr)
                 except OSError as restart_error:
                     print(f"The previous copy could not restart: {restart_error}", file=sys.stderr)

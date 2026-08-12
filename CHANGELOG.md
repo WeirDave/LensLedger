@@ -6,6 +6,22 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.29.1 — 2026-08-11
+
+- Fixed a restart (whether the update panel's "Restart to apply"/"Download,
+  install & restart", or manually re-running `Start LensLedger.cmd` while an
+  old instance is still up) leaving the old console window behind. That
+  script always ends with `pause`, so its window never closed itself once
+  Python exited — every restart left one more dead "Press any key to
+  continue" window stacking up. The new copy now starts first, and only
+  once it's confirmed running is the old window closed — never the other
+  way around, so a failed relaunch can't leave you with no LensLedger
+  window at all. The old window is only ever closed when it's positively
+  identified as that exact disposable launcher (a `cmd.exe` whose own
+  command line names `Start LensLedger.cmd`); anything else, including an
+  interactive shell you happened to launch LensLedger from directly, is
+  left alone.
+
 ## 0.29.0 — 2026-08-11
 
 - Replaced the toolbar's native "Date" filter — a plain `<input type="date">`

@@ -43,9 +43,12 @@ if not exist "%~dp0.lensledger-managed.json" if not exist "%~dp0.git" (
 )
 
 REM Stop any previous LensLedger server on its dedicated local port so every
-REM launch uses the current code. The replacement server opens/refocuses the
-REM browser at the same address after it is ready.
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5309 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+REM launch uses the current code, and close that old launcher's now-dead
+REM window too (it would otherwise sit forever at the "pause" below) --
+REM but only when it's unambiguously this same script, never an unrelated
+REM window, which is why the check below matches on the parent process
+REM being cmd.exe with this exact script on its command line.
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5309 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $ownerId = $_.OwningProcess; $owner = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownerId) -ErrorAction SilentlyContinue; if ($owner) { $parent = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $owner.ParentProcessId) -ErrorAction SilentlyContinue; if ($parent -and $parent.Name -eq 'cmd.exe' -and $parent.CommandLine -like '*Start LensLedger.cmd*') { Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue } }; Stop-Process -Id $ownerId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
 python src\photo_search.py
 
