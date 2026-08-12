@@ -1184,7 +1184,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><nav class="quick-nav"><a href="/faces-review">🙂 Name faces</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
 <div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
-<div class="lightbox" id="lightbox"><div class="lightbox-head"><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
+<div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/people-review.js')}" defer></script>
 </body></html>"""
@@ -1698,9 +1698,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             "auto_confirmed": len(result["auto_confirmed"]),
         })
 
+    FACE_DISPOSITION_COLUMNS = {"not_a_person": "ignored_at", "unknown_person": "unknown_at"}
+
     def _apply_people_review_decision(self, con, asset_id, person_id, action, corrected_name=""):
         asset_id = int(asset_id); person_id = int(person_id); action = str(action)
-        if action not in {"confirmed", "rejected", "corrected"}:
+        if action not in {"confirmed", "rejected", "corrected", *self.FACE_DISPOSITION_COLUMNS}:
             raise ValueError("invalid review decision")
         corrected_name = clean_tag(str(corrected_name))
         if action == "corrected" and not corrected_name:
@@ -1715,7 +1717,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         previous = dict(original)
         corrected_person_id = None
         corrected_previous = None
-        final_action = action
+        face_disposition = None
+        if action in self.FACE_DISPOSITION_COLUMNS:
+            face_disposition = action
+            final_action = "rejected"
+            if original["face_id"] is not None:
+                column = self.FACE_DISPOSITION_COLUMNS[action]
+                con.execute(
+                    f"""UPDATE face_embeddings SET {column}=?
+                        WHERE id=? AND ignored_at IS NULL AND unknown_at IS NULL""",
+                    (utc_now(), original["face_id"]),
+                )
+        else:
+            final_action = action
         if action == "corrected":
             corrected_person_id = self.resolve_or_create_person(con, corrected_name)
             if corrected_person_id == person_id:
@@ -1744,11 +1758,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         cursor = con.execute(
             """INSERT INTO people_review_actions(
                    asset_id,person_id,action,previous_json,corrected_person_id,
-                   corrected_previous_json,created_at
-               ) VALUES (?,?,?,?,?,?,?)""",
+                   corrected_previous_json,face_disposition,created_at
+               ) VALUES (?,?,?,?,?,?,?,?)""",
             (asset_id, person_id, "corrected" if corrected_person_id else final_action,
              json.dumps(previous), corrected_person_id,
-             json.dumps(corrected_previous) if corrected_person_id else None, utc_now()),
+             json.dumps(corrected_previous) if corrected_person_id else None,
+             face_disposition, utc_now()),
         )
         sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
         return int(cursor.lastrowid)
@@ -1765,7 +1780,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     con, body["asset_id"], body["person_id"], action,
                     body.get("corrected_name", ""),
                 )
-                removed = [person["name"]] if action in {"rejected", "corrected"} else []
+                removed = [person["name"]] if action in {"rejected", "corrected", *self.FACE_DISPOSITION_COLUMNS} else []
                 published.append(self._publish_people_metadata(
                     con, int(body["asset_id"]), removed, action_id
                 ))
@@ -1796,7 +1811,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                         con, item["asset_id"], person_id, action,
                         item.get("corrected_name", ""),
                     ))
-                    if action in {"rejected", "corrected"}:
+                    if action in {"rejected", "corrected", *self.FACE_DISPOSITION_COLUMNS}:
                         removals.setdefault(int(item["asset_id"]), set()).add(person["name"])
                 actions_by_asset = dict(zip(asset_ids, action_ids))
                 for asset_id in asset_ids:
@@ -1821,6 +1836,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                 (previous["state"], previous["confidence"], previous["face_id"], previous["source"],
                  previous["updated_at"], action["asset_id"], action["person_id"]),
         )
+        disposition_column = self.FACE_DISPOSITION_COLUMNS.get(action["face_disposition"])
+        if disposition_column and previous["face_id"] is not None:
+            con.execute(
+                f"UPDATE face_embeddings SET {disposition_column}=NULL WHERE id=?",
+                (previous["face_id"],),
+            )
         corrected_id = action["corrected_person_id"]
         if corrected_id:
             corrected_previous = json.loads(action["corrected_previous_json"])

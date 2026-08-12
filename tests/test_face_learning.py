@@ -255,6 +255,52 @@ class LearnOrchestrationTests(unittest.TestCase):
             con.close()
             self.assertEqual(count, 1)
 
+    def test_learn_excludes_faces_marked_not_a_person_or_unknown(self):
+        # Both People-review dispositions ("Not a person" -> ignored_at,
+        # "Unknown person" -> unknown_at) must remove a face from every
+        # future learn() pass -- for any person, not just the one it was
+        # reviewed under -- even when it would otherwise score as a
+        # near-certain match.
+        from face_learning import learn
+        from photo_index import connect, utc_now
+
+        def add_face(con, root, name, angle, source_id):
+            asset_id = int(con.execute(
+                """INSERT INTO assets(path,relative_path,folder,filename,extension,media_type,
+                       size_bytes,mtime_ns,capture_date,indexed_at)
+                   VALUES (?,?,?,?,'.jpg','image',10,1,'2026-08-09',?)""",
+                (str(root / name), name, "", name, utc_now()),
+            ).lastrowid)
+            face_id = int(con.execute(
+                """INSERT INTO face_embeddings(source,source_face_id,asset_id,relative_path,
+                       dimensions,embedding_f32) VALUES ('test',?,?,?,2,?)""",
+                (source_id, asset_id, name, array.array("f", unit_vector(angle)).tobytes()),
+            ).lastrowid)
+            return asset_id, face_id
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "library.sqlite3"
+            con = connect(database)
+            person_id = int(con.execute("INSERT INTO people(name) VALUES ('Friend')").lastrowid)
+            for index, angle in enumerate((0.0, 4.0, -4.0)):
+                _insert_confirmed_face(con, root, person_id, f"known-{index}.jpg", angle, index * 2 + 1)
+
+            not_a_person_asset, not_a_person_face = add_face(con, root, "not-a-person.jpg", 1.0, 900)
+            unknown_asset, unknown_face = add_face(con, root, "unknown.jpg", 1.5, 901)
+            con.execute("UPDATE face_embeddings SET ignored_at=? WHERE id=?", (utc_now(), not_a_person_face))
+            con.execute("UPDATE face_embeddings SET unknown_at=? WHERE id=?", (utc_now(), unknown_face))
+            con.commit()
+            con.close()
+
+            result = learn(database)
+            suggested_assets = {sample["asset_id"] for sample in result["proposal_samples"].get("Friend", [])}
+            auto_confirmed_assets = {entry["asset_id"] for entry in result["auto_confirmed"]}
+
+            for excluded_asset in (not_a_person_asset, unknown_asset):
+                self.assertNotIn(excluded_asset, suggested_assets)
+                self.assertNotIn(excluded_asset, auto_confirmed_assets)
+
 
 if __name__ == "__main__":
     unittest.main()

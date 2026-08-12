@@ -7,6 +7,8 @@ let batch = [];
 let rejected = new Set();
 let skipped = new Set();
 let corrections = new Map();
+let dispositions = new Map();
+const DISPOSITION_LABELS = { not_a_person: 'Not a person', unknown_person: 'Unknown person' };
 let history = [];
 let knownPeople = [];
 const $ = id => document.getElementById(id);
@@ -46,6 +48,7 @@ async function loadQueue(personId = null, advance = false) {
 function render() {
   rejected.clear();
   corrections.clear();
+  dispositions.clear();
   $('confirmBatch').disabled = false;
   if (!queue?.person) {
     $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
@@ -113,7 +116,7 @@ function buildCard(item) {
   const card = document.createElement('article');
   card.className = 'review-card';
   card.dataset.id = item.id;
-  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, choose the correct name (optional)</label><div class="correction-picker"></div></div></div>';
+  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, choose the correct name (optional)</label><div class="correction-picker"></div><div class="correction-alt"><button type="button" class="disposition-btn" data-disposition="not_a_person">Not a person</button><button type="button" class="disposition-btn" data-disposition="unknown_person">Unknown person</button></div></div></div>';
   const img = card.querySelector('img');
   img.src = '/media?id=' + item.id;
   markFace(card.querySelector('.photo-box'), img, item);
@@ -122,6 +125,10 @@ function buildCard(item) {
   card.querySelector('.confidence').textContent = Math.round((item.confidence || 0) * 100) + '%';
   card.querySelector('.toggle-wrong').onclick = () => toggleCard(card, item);
   card.querySelector('.expand').onclick = () => openLarge(item);
+  img.ondblclick = () => openLarge(item);
+  card.querySelectorAll('.disposition-btn').forEach(button => {
+    button.onclick = () => setDisposition(card, item, button.dataset.disposition);
+  });
   card.correctionPicker = createPersonPicker({
     container: card.querySelector('.correction-picker'),
     getNames: () => knownPeople,
@@ -129,6 +136,9 @@ function buildCard(item) {
     onChoose: name => {
       registerKnownPerson(name);
       corrections.set(item.id, name);
+      dispositions.delete(item.id);
+      clearDispositionButtons(card);
+      card.querySelector('.state-badge').textContent = '✕ Does not contain ' + queue.person.name;
     },
   });
   return card;
@@ -140,20 +150,42 @@ function escapeText(value) {
   return span.innerHTML;
 }
 
+function clearDispositionButtons(card) {
+  card.querySelectorAll('.disposition-btn').forEach(button => button.classList.remove('active'));
+}
+
+function markWrong(card, item) {
+  if (rejected.has(item.id)) return;
+  rejected.add(item.id);
+  card.classList.add('wrong');
+  card.querySelector('.state-badge').textContent = '✕ Does not contain ' + queue.person.name;
+  card.querySelector('.toggle-wrong').textContent = 'Marked as not containing this person';
+}
+
+function setDisposition(card, item, value) {
+  markWrong(card, item);
+  dispositions.set(item.id, value);
+  corrections.delete(item.id);
+  card.correctionPicker.reset();
+  clearDispositionButtons(card);
+  card.querySelector('[data-disposition="' + value + '"]').classList.add('active');
+  card.querySelector('.state-badge').textContent = DISPOSITION_LABELS[value];
+  updateSummary();
+}
+
 function toggleCard(card, item) {
   const key = item.id;
   if (rejected.has(key)) {
     rejected.delete(key);
     corrections.delete(key);
+    dispositions.delete(key);
     card.correctionPicker.reset();
+    clearDispositionButtons(card);
     card.classList.remove('wrong');
     card.querySelector('.state-badge').textContent = '✓ Contains person';
     card.querySelector('.toggle-wrong').textContent = 'This photo contains ' + queue.person.name;
   } else {
-    rejected.add(key);
-    card.classList.add('wrong');
-    card.querySelector('.state-badge').textContent = '✕ Does not contain ' + queue.person.name;
-    card.querySelector('.toggle-wrong').textContent = 'Marked as not containing this person';
+    markWrong(card, item);
   }
   updateSummary();
 }
@@ -165,16 +197,27 @@ function updateSummary() {
   $('confirmBatch').textContent = 'Save & publish ' + batch.length + ' decision' + (batch.length === 1 ? '' : 's');
 }
 
+let openItem = null;
+
 function openLarge(item) {
+  openItem = item;
   $('largePhoto').src = '/media?id=' + item.id;
   markFace($('largePhotoBox'), $('largePhoto'), item, false);
   $('lightbox').classList.add('open');
 }
 
 function closeLarge() {
+  openItem = null;
   $('lightbox').classList.remove('open');
   $('largePhoto').removeAttribute('src');
   $('largePhotoBox').querySelectorAll('.face-box,.location-note').forEach(node => node.remove());
+}
+
+function setDispositionFromLightbox(value) {
+  if (!openItem) return;
+  const card = document.querySelector('.review-card[data-id="' + openItem.id + '"]');
+  if (card) setDisposition(card, openItem, value);
+  closeLarge();
 }
 
 async function submitBatch() {
@@ -183,11 +226,14 @@ async function submitBatch() {
   $('status').textContent = 'Saving decisions and publishing metadata…';
   try {
     const decisions = batch.map(item => {
+      const disposition = dispositions.get(item.id);
       const corrected = (corrections.get(item.id) || '').trim();
+      let action = 'confirmed';
+      if (rejected.has(item.id)) action = disposition || (corrected ? 'corrected' : 'rejected');
       return {
         asset_id: item.id,
-        action: rejected.has(item.id) ? (corrected ? 'corrected' : 'rejected') : 'confirmed',
-        corrected_name: corrected,
+        action,
+        corrected_name: disposition ? '' : corrected,
       };
     });
     const result = await api('/api/people/review/batch', { person_id: queue.person.id, decisions });
@@ -264,6 +310,8 @@ $('deferPerson').onclick = deferPerson;
 $('undoBatch').onclick = undoBatch;
 $('learnMore').onclick = runLearning;
 $('closeLightbox').onclick = closeLarge;
+$('lightboxNotAPerson').onclick = () => setDispositionFromLightbox('not_a_person');
+$('lightboxUnknownPerson').onclick = () => setDispositionFromLightbox('unknown_person');
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeLarge(); });
 loadQueue(initialPersonId).catch(error => {

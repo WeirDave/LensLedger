@@ -140,7 +140,7 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
         faces_by_asset: dict[int, list[Face]] = {}
         for row in con.execute(
             """SELECT id,asset_id,embedding_f32 FROM face_embeddings
-               WHERE asset_id IS NOT NULL AND ignored_at IS NULL ORDER BY id"""
+               WHERE asset_id IS NOT NULL AND ignored_at IS NULL AND unknown_at IS NULL ORDER BY id"""
         ):
             vector = decode_vector(row["embedding_f32"])
             if not vector:

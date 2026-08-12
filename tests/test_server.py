@@ -376,6 +376,93 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Face being checked", script)
         self.assertIn("ResizeObserver", script)
 
+    def test_people_review_decision_not_a_person_marks_the_face_and_undoes_cleanly(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,dimensions,embedding_f32
+               ) VALUES ('test',1,?,?,2,?)""",
+            (self.asset_id, self.photo.name, b"12345678"),
+        ).lastrowid)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Maybe Someone')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+               VALUES (?,?,'suggested',0.8,?,'test',?)""",
+            (self.asset_id, person_id, face_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        result = self.json_response(self.post(
+            "/api/people/review/decision",
+            {"asset_id": self.asset_id, "person_id": person_id, "action": "not_a_person"},
+        ))
+        self.assertTrue(result["ok"])
+        action_id = result["action_id"]
+
+        con = sqlite3.connect(self.database)
+        state, = con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?", (self.asset_id, person_id)
+        ).fetchone()
+        self.assertEqual(state, "rejected")
+        ignored_at, unknown_at = con.execute(
+            "SELECT ignored_at, unknown_at FROM face_embeddings WHERE id=?", (face_id,)
+        ).fetchone()
+        self.assertIsNotNone(ignored_at)
+        self.assertIsNone(unknown_at)
+        con.close()
+
+        undone = self.json_response(self.post("/api/people/review/undo", {"action_id": action_id}))
+        self.assertTrue(undone["ok"])
+        con = sqlite3.connect(self.database)
+        state, = con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?", (self.asset_id, person_id)
+        ).fetchone()
+        self.assertEqual(state, "suggested")
+        ignored_at, = con.execute("SELECT ignored_at FROM face_embeddings WHERE id=?", (face_id,)).fetchone()
+        self.assertIsNone(ignored_at)
+        con.close()
+
+    def test_people_review_batch_decision_unknown_person_marks_the_face_and_publishes(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,dimensions,embedding_f32
+               ) VALUES ('test',1,?,?,2,?)""",
+            (self.asset_id, self.photo.name, b"12345678"),
+        ).lastrowid)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Batch Someone')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+               VALUES (?,?,'suggested',0.8,?,'test',?)""",
+            (self.asset_id, person_id, face_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        result = self.json_response(self.post(
+            "/api/people/review/batch",
+            {"person_id": person_id, "decisions": [{"asset_id": self.asset_id, "action": "unknown_person"}]},
+        ))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["published"], 1)
+
+        con = sqlite3.connect(self.database)
+        state, = con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?", (self.asset_id, person_id)
+        ).fetchone()
+        self.assertEqual(state, "rejected")
+        unknown_at, ignored_at = con.execute(
+            "SELECT unknown_at, ignored_at FROM face_embeddings WHERE id=?", (face_id,)
+        ).fetchone()
+        self.assertIsNotNone(unknown_at)
+        self.assertIsNone(ignored_at)
+        con.close()
+
     def test_naming_a_face_returns_similar_unidentified_faces_as_matches(self):
         from face_learning import SUGGESTION_THRESHOLD
         from photo_index import scan_library, utc_now

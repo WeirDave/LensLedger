@@ -43,7 +43,8 @@ def main() -> int:
             ).fetchone()[0])
 
         faces = con.execute(
-            "SELECT id,asset_id,embedding_f32 FROM face_embeddings WHERE asset_id IS NOT NULL"
+            """SELECT id,asset_id,embedding_f32 FROM face_embeddings
+               WHERE asset_id IS NOT NULL AND ignored_at IS NULL AND unknown_at IS NULL"""
         ).fetchall()
         for face in faces:
             vector = np.frombuffer(face["embedding_f32"], dtype=np.float32)

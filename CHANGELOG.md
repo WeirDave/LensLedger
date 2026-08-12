@@ -6,6 +6,22 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.31.0 — 2026-08-12
+
+- On People review, double-clicking a suggestion's photo now opens the same
+  full-size lightbox as the existing "Enlarge" button, for inspecting faces
+  that are small, blurry, or in the background before deciding.
+- Added two new outcomes for a face suggestion, on both the review card and
+  the lightbox: **"Not a person"** (the detector was wrong — this isn't a
+  face at all) and **"Unknown person"** (a real face, but not someone you
+  can name). Both permanently exclude that exact detected face from ever
+  being suggested again for anyone, not just the person currently under
+  review, and both are fully undoable like every other review decision.
+  "Not a person" reuses the same mechanism the Name-faces page already had
+  (`ignored_at` on the face record); "Unknown person" is a new, parallel
+  flag (`unknown_at`) since it means something different — a real face,
+  deliberately left unidentified rather than a bad detection.
+
 ## 0.30.2 — 2026-08-12
 
 - Fixed the update panel misreporting a source checkout run from a git
