@@ -8,7 +8,14 @@ let rejected = new Set();
 let skipped = new Set();
 let corrections = new Map();
 let history = [];
+let knownPeople = [];
 const $ = id => document.getElementById(id);
+
+function registerKnownPerson(name) {
+  if (knownPeople.some(existing => existing.toLowerCase() === name.toLowerCase())) return;
+  knownPeople.push(name);
+  knownPeople.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
 
 async function api(path, data) {
   const response = await fetch(path, {
@@ -53,11 +60,7 @@ function render() {
   }
   batch = available.slice(0, batchSize);
   $('globalProgress').textContent = queue.remaining_total.toLocaleString() + ' photos · ' + queue.people_remaining.toLocaleString() + ' people remaining';
-  $('peopleOptions').replaceChildren(...queue.people_options.map(name => {
-    const option = document.createElement('option');
-    option.value = name;
-    return option;
-  }));
+  knownPeople = queue.people_options;
   const section = document.createElement('section');
   section.innerHTML = '<div class="review-head"><div><h1></h1><p>These photos may contain this person. Mark the incorrect ones, then save and publish the group.</p></div><div class="person-count"></div></div><div class="photo-grid"></div>';
   section.querySelector('h1').textContent = 'Does this photo contain ' + queue.person.name + '?';
@@ -110,7 +113,7 @@ function buildCard(item) {
   const card = document.createElement('article');
   card.className = 'review-card';
   card.dataset.id = item.id;
-  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, enter the correct name (optional)</label><input list="peopleOptions" placeholder="Correct name" autocomplete="off"></div></div>';
+  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, choose the correct name (optional)</label><div class="correction-picker"></div></div></div>';
   const img = card.querySelector('img');
   img.src = '/media?id=' + item.id;
   markFace(card.querySelector('.photo-box'), img, item);
@@ -119,9 +122,15 @@ function buildCard(item) {
   card.querySelector('.confidence').textContent = Math.round((item.confidence || 0) * 100) + '%';
   card.querySelector('.toggle-wrong').onclick = () => toggleCard(card, item);
   card.querySelector('.expand').onclick = () => openLarge(item);
-  const input = card.querySelector('input');
-  input.oninput = () => corrections.set(item.id, input.value.trim());
-  input.onclick = e => e.stopPropagation();
+  card.correctionPicker = createPersonPicker({
+    container: card.querySelector('.correction-picker'),
+    getNames: () => knownPeople,
+    placeholder: 'Correct name',
+    onChoose: name => {
+      registerKnownPerson(name);
+      corrections.set(item.id, name);
+    },
+  });
   return card;
 }
 
@@ -136,7 +145,7 @@ function toggleCard(card, item) {
   if (rejected.has(key)) {
     rejected.delete(key);
     corrections.delete(key);
-    card.querySelector('input').value = '';
+    card.correctionPicker.reset();
     card.classList.remove('wrong');
     card.querySelector('.state-badge').textContent = '✓ Contains person';
     card.querySelector('.toggle-wrong').textContent = 'This photo contains ' + queue.person.name;

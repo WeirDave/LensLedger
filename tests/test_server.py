@@ -131,6 +131,39 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("function openCalendar", script)
         self.assertIn("function chooseDate", script)
 
+    def test_person_picker_replaces_native_autofill_prone_inputs_everywhere(self):
+        # A plain <input list=datalist> with autocomplete="off" still let
+        # Firefox's own address-autofill pop suggestions over the field --
+        # autocomplete="off" is largely ignored by Firefox's Form Autofill.
+        # Every person-name field is now a <button> (never an autofill
+        # target) that opens a custom dropdown built from person-picker.js.
+        with self.get("/") as response:
+            viewer_page = response.read().decode("utf-8")
+        self.assertIn('id="personPickerContainer"', viewer_page)
+        self.assertIn("js/person-picker.js", viewer_page)
+        self.assertIn("css/person-picker.css", viewer_page)
+        self.assertNotIn('id="newPerson"', viewer_page)
+        self.assertNotIn('id="addPerson"', viewer_page)
+        self.assertNotIn('id="peopleOptions"', viewer_page)
+
+        with self.get("/faces-review") as response:
+            faces_page = response.read().decode("utf-8")
+        self.assertIn("js/person-picker.js", faces_page)
+        self.assertIn("css/person-picker.css", faces_page)
+        self.assertNotIn('id="peopleOptions"', faces_page)
+        self.assertNotIn('<input list="peopleOptions"', faces_page)
+
+        with self.get("/people-review") as response:
+            people_review_page = response.read().decode("utf-8")
+        self.assertIn("js/person-picker.js", people_review_page)
+        self.assertIn("css/person-picker.css", people_review_page)
+        self.assertNotIn('id="peopleOptions"', people_review_page)
+
+        with self.get("/web/js/person-picker.js") as response:
+            script = response.read().decode("utf-8")
+        self.assertIn("function createPersonPicker", script)
+        self.assertIn("+ New person", script)
+
     def test_onboarding_page_discloses_where_data_lives_and_offers_ocr(self):
         from app_paths import data_root
         from photo_index import connect

@@ -8,6 +8,16 @@ let remaining = 0;
 // out of the grid). loadMore() must skip these or the next top-up fetch
 // re-adds the very card a match group just removed.
 const pending = new Set();
+let knownPeople = [];
+
+// Optimistic local add so a name just typed in one card's "+ New person" is
+// immediately selectable from every other open/future picker on this page,
+// without waiting for the next loadMore() poll to refresh the list.
+function registerKnownPerson(name) {
+  if (knownPeople.some(existing => existing.toLowerCase() === name.toLowerCase())) return;
+  knownPeople.push(name);
+  knownPeople.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
 
 async function api(path, data) {
   const response = await fetch(path, {
@@ -109,7 +119,7 @@ function buildCard(face) {
   card.dataset.faceId = face.face_id;
   card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"></div>'
     + '<div class="face-info"><small></small>'
-    + '<div class="face-form"><input list="peopleOptions" placeholder="Who is this?" autocomplete="off"><button type="button" class="save">Save</button></div>'
+    + '<div class="face-form"><div class="face-picker"></div></div>'
     + '<button type="button" class="not-person">Not a person</button>'
     + '<div class="face-status"></div></div>';
   card.querySelector('img').src = '/media-face?face_id=' + face.face_id;
@@ -123,47 +133,35 @@ function buildCard(face) {
   const small = card.querySelector('small');
   small.textContent = shortPath;
   small.title = (face.capture_date || 'Date unknown') + ' · ' + (face.folder ? face.folder + '/' : '') + face.filename;
-  const input = card.querySelector('input');
-  const saveButton = card.querySelector('.save');
   const notPersonButton = card.querySelector('.not-person');
   const status = card.querySelector('.face-status');
-
-  const save = async () => {
-    const name = input.value.trim();
-    if (!name) { input.focus(); return; }
-    input.disabled = true; saveButton.disabled = true; notPersonButton.disabled = true;
-    status.textContent = 'Saving…';
-    try {
-      const result = await api('/api/faces/name', { face_id: face.face_id, name });
-      removeCard(card);
-      if (result.matches && result.matches.length) addMatchGroup(name, result.matches);
-    } catch (error) {
-      status.textContent = error.message;
-      input.disabled = false; saveButton.disabled = false; notPersonButton.disabled = false;
-    }
-  };
-  input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); save(); } };
-  // Clicking a datalist suggestion fires 'input' immediately (that's the
-  // event the HTML spec defines for it) -- 'change' only fires later, on
-  // blur, which is why picking a name felt like it needed an extra click
-  // away before. Auto-save the instant the value exactly matches a known
-  // person. A brand-new typed name won't exactly match anything until
-  // fully typed, so it still waits for Enter or Save -- creating a new
-  // person is a more deliberate action than picking an existing one.
-  input.oninput = () => {
-    const options = [...document.getElementById('peopleOptions').options].map(o => o.value);
-    if (options.includes(input.value.trim())) save();
-  };
-  saveButton.onclick = save;
+  const picker = createPersonPicker({
+    container: card.querySelector('.face-picker'),
+    getNames: () => knownPeople,
+    placeholder: 'Who is this?',
+    onChoose: async name => {
+      notPersonButton.disabled = true;
+      status.textContent = 'Saving…';
+      try {
+        registerKnownPerson(name);
+        const result = await api('/api/faces/name', { face_id: face.face_id, name });
+        removeCard(card);
+        if (result.matches && result.matches.length) addMatchGroup(name, result.matches);
+      } catch (error) {
+        status.textContent = error.message;
+        notPersonButton.disabled = false;
+      }
+    },
+  });
   notPersonButton.onclick = async () => {
-    input.disabled = true; saveButton.disabled = true; notPersonButton.disabled = true;
+    picker.close(); notPersonButton.disabled = true;
     status.textContent = 'Marking…';
     try {
       await api('/api/faces/ignore', { face_id: face.face_id });
       removeCard(card);
     } catch (error) {
       status.textContent = error.message;
-      input.disabled = false; saveButton.disabled = false; notPersonButton.disabled = false;
+      notPersonButton.disabled = false;
     }
   };
   return card;
@@ -176,11 +174,7 @@ async function loadMore() {
     const data = await fetch('/api/faces/unidentified?limit=' + PAGE_SIZE).then(r => r.json());
     remaining = data.total;
     updateProgress();
-    $('peopleOptions').replaceChildren(...data.people_options.map(name => {
-      const option = document.createElement('option');
-      option.value = name;
-      return option;
-    }));
+    knownPeople = data.people_options;
     const existing = new Set([...$('faceGrid').children].map(el => el.dataset.faceId));
     data.faces
       .filter(face => !existing.has(String(face.face_id)) && !pending.has(face.face_id))

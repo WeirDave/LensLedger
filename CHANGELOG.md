@@ -6,6 +6,26 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.30.0 — 2026-08-12
+
+- Every "who is this?" field in LensLedger — Name faces, People review's
+  correction field, and the main viewer's "Person's name" — was still a
+  plain text `<input>`, and `autocomplete="off"` turned out not to reliably
+  stop the browser's own address-autofill from popping up over it (Firefox's
+  Form Autofill largely ignores `autocomplete="off"`). These are now a
+  custom dropdown (`web/js/person-picker.js`, shared by all three pages):
+  a `<button>` trigger — never an autofill target — that opens a
+  searchable list of known people with type-to-filter, plus a pinned
+  "+ New person" entry that reveals a plain text field for typing a brand
+  -new name. Choosing an existing name or confirming a new one applies
+  immediately; no separate Save button needed.
+- Fixed the update panel's "Checking for updates…" getting stuck
+  indefinitely for a source checkout or extracted-ZIP copy — clicking
+  "Check again" would show "Checking…" and then just sit there instead of
+  ever resolving to "current" or "available", because that code path never
+  re-polled while the background check was still running (the managed
+  -install path already did; this one didn't).
+
 ## 0.29.1 — 2026-08-11
 
 - Fixed a restart (whether the update panel's "Restart to apply"/"Download,

@@ -1,0 +1,12 @@
+.person-picker{position:relative}
+.person-trigger{display:block;width:100%;text-align:left;background:#232a3a;border:1px solid #46506a;color:var(--text);font-weight:400;border-radius:7px;padding:8px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person-popover{display:none;position:absolute;z-index:10;top:calc(100% + 6px);left:0;width:min(260px,80vw);padding:10px;background:var(--panel2);border:1px solid #46506a;border-radius:10px;box-shadow:0 16px 45px #000}
+.person-popover.open{display:block}
+.person-search,.person-new-input{width:100%;border:1px solid #46506a;border-radius:7px;background:#232a3a;color:var(--text);padding:8px 9px}
+.person-list{max-height:220px;overflow:auto;display:grid;gap:2px;margin-top:8px}
+.person-item{background:transparent;color:var(--text);text-align:left;padding:8px 9px;border-radius:6px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person-item:hover{background:#30384b}
+.person-item-new{color:var(--orange);font-weight:700;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;margin-bottom:4px;padding-bottom:9px}
+.person-new-row{display:flex;gap:6px;margin-top:8px}
+.person-new-row input{flex:1;min-width:0}
+.person-new-add{padding:8px 10px}
