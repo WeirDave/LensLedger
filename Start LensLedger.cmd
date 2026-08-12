@@ -30,6 +30,18 @@ REM Remove the empty pre-v0.15 working-folder shell after older processes let go
 REM of it. RD without /S is intentionally harmless if the directory is not empty.
 if exist "%~dp0..\_PhotoIndex" rd "%~dp0..\_PhotoIndex" >nul 2>&1
 
+REM A folder with neither the managed-install marker nor a .git checkout is a
+REM raw extracted release ZIP that was started directly instead of through
+REM Install LensLedger.cmd -- it will run fine, but "Check for updates" can
+REM never do anything for it, since there is no managed copy to replace.
+if not exist "%~dp0.lensledger-managed.json" if not exist "%~dp0.git" (
+    echo.
+    echo Note: this looks like a direct extracted copy of LensLedger, not an
+    echo installed one. It will run fine, but it can't update itself. Run
+    echo "Install LensLedger.cmd" once instead to enable automatic updates.
+    echo.
+)
+
 REM Stop any previous LensLedger server on its dedicated local port so every
 REM launch uses the current code. The replacement server opens/refocuses the
 REM browser at the same address after it is ready.

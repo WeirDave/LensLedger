@@ -6,6 +6,19 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.26.4 — 2026-08-11
+
+- Clarified the "Check for updates" dead end for anyone who runs LensLedger
+  directly from an extracted release ZIP instead of through `Install
+  LensLedger.cmd` — previously indistinguishable from a deliberate `git`
+  source checkout, and told to `git pull`, which doesn't apply to them.
+  The update panel now tells the two cases apart and, for an extracted
+  copy, says plainly: run `Install LensLedger.cmd` once from this same
+  folder to get automatic updates; your library and catalog are
+  unaffected. `Start LensLedger.cmd` also now prints the same heads-up at
+  launch, before the browser opens, so it's not something you'd only find
+  by opening the update menu.
+
 ## 0.26.3 — 2026-08-11
 
 - Fixed 0.26.2's dropdown-autosave fix not actually firing on a real

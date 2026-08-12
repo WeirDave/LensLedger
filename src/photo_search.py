@@ -2512,6 +2512,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         job.update({
             "current_version": APP_VERSION,
             "managed_install": is_managed_install(install_root),
+            "is_source_checkout": (install_root / ".git").is_dir(),
             "current_install_root": str(install_root),
             "managed_install_root": str(managed_install_root()),
         })
