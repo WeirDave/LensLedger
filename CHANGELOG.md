@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.26.2 — 2026-08-11
+
+- Fixed "Name faces" requiring an extra Enter press after picking a name
+  from the dropdown suggestions. Selecting an existing name from the
+  datalist now saves immediately, since the browser fires a `change`
+  event the moment a suggestion is picked; typing a brand-new name still
+  requires an explicit Enter or Save click, since creating a new person is
+  a more deliberate action worth confirming.
+
 ## 0.26.1 — 2026-08-11
 
 - Fixed same-day feedback on 0.26.0's new "Name faces" page: a single

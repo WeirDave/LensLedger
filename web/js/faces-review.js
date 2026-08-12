@@ -61,6 +61,14 @@ function buildCard(face) {
     }
   };
   input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); save(); } };
+  // Picking a suggestion from the datalist dropdown fires 'change' immediately,
+  // unlike free typing -- so an existing name saves the moment it's picked,
+  // with no extra Enter/click needed. A brand-new typed name still requires
+  // an explicit Enter or Save, since that's a "create a new person" action.
+  input.onchange = () => {
+    const options = [...document.getElementById('peopleOptions').options].map(o => o.value);
+    if (options.includes(input.value.trim())) save();
+  };
   saveButton.onclick = save;
   notPersonButton.onclick = async () => {
     input.disabled = true; saveButton.disabled = true; notPersonButton.disabled = true;
