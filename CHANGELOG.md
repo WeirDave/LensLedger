@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.26.3 — 2026-08-11
+
+- Fixed 0.26.2's dropdown-autosave fix not actually firing on a real
+  datalist pick: it listened for `change`, which only fires on blur —
+  clicking a suggestion fires `input` immediately, per the HTML spec.
+  Confirmed live: picking a name now saves in well under a second with
+  no need to click elsewhere first, while typing a brand-new name
+  character by character still correctly waits for Enter or Save (it
+  never exactly matches an existing name mid-keystroke).
+
 ## 0.26.2 — 2026-08-11
 
 - Fixed "Name faces" requiring an extra Enter press after picking a name

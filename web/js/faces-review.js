@@ -61,11 +61,14 @@ function buildCard(face) {
     }
   };
   input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); save(); } };
-  // Picking a suggestion from the datalist dropdown fires 'change' immediately,
-  // unlike free typing -- so an existing name saves the moment it's picked,
-  // with no extra Enter/click needed. A brand-new typed name still requires
-  // an explicit Enter or Save, since that's a "create a new person" action.
-  input.onchange = () => {
+  // Clicking a datalist suggestion fires 'input' immediately (that's the
+  // event the HTML spec defines for it) -- 'change' only fires later, on
+  // blur, which is why picking a name felt like it needed an extra click
+  // away before. Auto-save the instant the value exactly matches a known
+  // person. A brand-new typed name won't exactly match anything until
+  // fully typed, so it still waits for Enter or Save -- creating a new
+  // person is a more deliberate action than picking an existing one.
+  input.oninput = () => {
     const options = [...document.getElementById('peopleOptions').options].map(o => o.value);
     if (options.includes(input.value.trim())) save();
   };
