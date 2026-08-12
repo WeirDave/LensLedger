@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.30.1 — 2026-08-12
+
+- Fixed the new person picker (v0.30.0) being invisible in practice: its
+  dropdown was `position:absolute` nested inside a narrow card that uses
+  `overflow:hidden` for its rounded photo corners, so the moment the
+  dropdown extended past the card's edge it was silently clipped away —
+  the button opened, but nothing showed. The dropdown now renders as its
+  own element appended straight to `<body>` and positioned with JS against
+  the trigger's actual screen coordinates, so no ancestor's `overflow`
+  can clip it, on any of the three pages that use it.
+
 ## 0.30.0 — 2026-08-12
 
 - Every "who is this?" field in LensLedger — Name faces, People review's
