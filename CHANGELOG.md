@@ -6,6 +6,24 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.32.0 — 2026-08-13
+
+- Name faces: double-click (or the portrait itself) now opens the full
+  photo in a lightbox with the detected face boxed, so a turned, blurry,
+  or dark face can be identified from its surroundings instead of only
+  the small crop.
+- Name faces: added an "Unknown person" button alongside "Not a person" —
+  for a real face you just can't identify (a stranger in a crowd shot,
+  say), distinct from "the detector was wrong, this isn't a face."
+- Name faces: "Confirm all" on a match group now shows real per-item
+  progress and an honest summary ("2 confirmed, 1 failed") instead of a
+  static "Confirming…" that could flip to a stale error message while
+  other items were still quietly succeeding in the background.
+- Any action that hits "the catalog is busy" (most often while a scan is
+  running in the background) now explains why, retries automatically
+  once, and no longer shows a merge-specific message for unrelated
+  actions like naming a face.
+
 ## 0.31.3 — 2026-08-13
 
 - Face detection is dramatically faster on photos with several people in

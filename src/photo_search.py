@@ -652,6 +652,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.name_face(body)
             if route == "/api/faces/ignore":
                 return self.ignore_face(body)
+            if route == "/api/faces/unknown":
+                return self.mark_face_unknown(body)
             if route == "/api/person/state":
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
@@ -722,7 +724,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
                 return self.send_json({
-                    "error": "The catalog is busy with another LensLedger change. No names were merged; wait a moment and try again.",
+                    "error": "This change did not go through -- a scan or another change is using the "
+                             "catalog right now. It's not stuck, just slower than usual because of that; "
+                             "try again in a few seconds.",
+                    "busy": True,
                 }, 409)
             return self.send_json({"error": str(exc)}, 500)
         except Exception as exc:
@@ -1195,7 +1200,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <title>Name faces — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
 </head><body {bootstrap_attr({"csrf": self.csrf_token})}>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="findMatches">Find more matches</button></div></header>
-<main><p class="intro">Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately, or mark a face as not a person (pets, statues, reflections). Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups"></div><div class="face-grid" id="faceGrid"></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><p class="intro">Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately. Double-click a portrait to see the full photo for context -- helpful for a profile, blurry, or dark face that's hard to place cropped down this small. If it's not a real face, use "Not a person"; if it's a real face you just can't identify (a stranger in a crowd shot, for example), use "Unknown person" so it stops resurfacing. Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups"></div><div class="face-grid" id="faceGrid"></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/faces-review.js')}" defer></script>
 </body></html>"""
@@ -1943,7 +1949,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             limit = max(1, min(100, int(params.get("limit", ["30"])[0])))
         except ValueError:
             limit = 30
-        where = """f.ignored_at IS NULL AND a.in_review_bin=0
+        where = """f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
                     AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                     AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                     AND NOT EXISTS (
@@ -1956,11 +1962,13 @@ class SearchHandler(BaseHTTPRequestHandler):
             rows = con.execute(
                 f"""WITH ranked AS (
                         SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date,
+                               f.box_left, f.box_top, f.box_right, f.box_bottom,
                                ROW_NUMBER() OVER (PARTITION BY f.asset_id ORDER BY f.id) AS rn
                         FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                         WHERE {where}
                     )
-                    SELECT face_id, asset_id, filename, folder, capture_date
+                    SELECT face_id, asset_id, filename, folder, capture_date,
+                           box_left, box_top, box_right, box_bottom
                     FROM ranked WHERE rn=1 ORDER BY face_id DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -1975,6 +1983,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
                     "filename": row["filename"], "folder": row["folder"],
                     "capture_date": row["capture_date"],
+                    "box_left": row["box_left"], "box_top": row["box_top"],
+                    "box_right": row["box_right"], "box_bottom": row["box_bottom"],
                 }
                 for row in rows
             ],
@@ -2078,7 +2088,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         rows = con.execute(
             """SELECT f.id AS face_id, f.embedding_f32, a.filename, a.folder, a.capture_date
                FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-               WHERE f.id!=? AND f.ignored_at IS NULL AND a.in_review_bin=0
+               WHERE f.id!=? AND f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
                      AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                      AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                      AND NOT EXISTS (
@@ -2106,7 +2116,25 @@ class SearchHandler(BaseHTTPRequestHandler):
         face_id = int(body["face_id"])
         with self.db() as con:
             updated = con.execute(
-                "UPDATE face_embeddings SET ignored_at=? WHERE id=? AND ignored_at IS NULL",
+                "UPDATE face_embeddings SET ignored_at=? WHERE id=? AND ignored_at IS NULL AND unknown_at IS NULL",
+                (utc_now(), face_id),
+            ).rowcount
+        if not updated:
+            raise ValueError("this face was already handled")
+        self.send_json({"ok": True})
+
+    def mark_face_unknown(self, body):
+        """A real face, just not one the reviewer can name -- distinct from
+        ignore_face's "the detector was wrong, this isn't a face at all".
+        Mirrors the same unknown_at flag People review's "Unknown person"
+        disposition already sets on face_embeddings (see
+        FACE_DISPOSITION_COLUMNS), so both routes into that state stay
+        equivalent: excluded from face_learning.learn()'s suggestion source
+        and from ever being proposed again, for anyone."""
+        face_id = int(body["face_id"])
+        with self.db() as con:
+            updated = con.execute(
+                "UPDATE face_embeddings SET unknown_at=? WHERE id=? AND ignored_at IS NULL AND unknown_at IS NULL",
                 (utc_now(), face_id),
             ).rowcount
         if not updated:

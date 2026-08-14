@@ -507,6 +507,51 @@ class ServerWorkflowTests(unittest.TestCase):
         remaining_ids = {face["face_id"] for face in unidentified["faces"]}
         self.assertNotIn(named_face_id, remaining_ids)
         self.assertIn(similar_face_id, remaining_ids)
+        by_id = {face["face_id"]: face for face in unidentified["faces"]}
+        self.assertEqual(
+            (by_id[similar_face_id]["box_left"], by_id[similar_face_id]["box_top"],
+             by_id[similar_face_id]["box_right"], by_id[similar_face_id]["box_bottom"]),
+            (0.1, 0.2, 0.4, 0.6),
+        )
+
+    def test_faces_unknown_marks_the_face_and_removes_it_from_the_queue(self):
+        con = sqlite3.connect(self.database)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,
+                   box_left,box_top,box_right,box_bottom
+               ) VALUES ('test',1,?,?,2,?,0.1,0.2,0.4,0.6)""",
+            (self.asset_id, self.photo.name, b"12345678"),
+        ).lastrowid)
+        con.commit()
+        con.close()
+
+        before = self.json_response(self.get("/api/faces/unidentified"))
+        self.assertIn(face_id, {face["face_id"] for face in before["faces"]})
+
+        result = self.json_response(self.post("/api/faces/unknown", {"face_id": face_id}))
+        self.assertTrue(result["ok"])
+
+        con = sqlite3.connect(self.database)
+        unknown_at, ignored_at = con.execute(
+            "SELECT unknown_at, ignored_at FROM face_embeddings WHERE id=?", (face_id,)
+        ).fetchone()
+        self.assertIsNotNone(unknown_at)
+        self.assertIsNone(ignored_at)
+        con.close()
+
+        after = self.json_response(self.get("/api/faces/unidentified"))
+        self.assertNotIn(face_id, {face["face_id"] for face in after["faces"]})
+
+        with self.assertRaises(urllib.error.HTTPError) as repeat:
+            self.post("/api/faces/unknown", {"face_id": face_id})
+        self.assertEqual(repeat.exception.code, 400)
+        repeat.exception.close()
+
+        with self.assertRaises(urllib.error.HTTPError) as also_ignore:
+            self.post("/api/faces/ignore", {"face_id": face_id})
+        self.assertEqual(also_ignore.exception.code, 400)
+        also_ignore.exception.close()
 
     def test_person_view_exposes_pending_matches_and_the_focused_face(self):
         from photo_index import scan_library, utc_now
@@ -633,8 +678,45 @@ class ServerWorkflowTests(unittest.TestCase):
             error = blocked.exception
             try:
                 self.assertEqual(error.code, 409)
-                message = json.loads(error.read().decode("utf-8"))["error"]
-                self.assertIn("No names were merged", message)
+                body = json.loads(error.read().decode("utf-8"))
+                self.assertTrue(body["busy"])
+                self.assertIn("catalog", body["error"])
+            finally:
+                error.close()
+        finally:
+            lock.rollback()
+            lock.close()
+
+    def test_catalog_busy_message_is_not_specific_to_merge_on_other_routes(self):
+        # The 409 handler in do_POST is a global catch-all for every route,
+        # not just /api/person/merge -- naming a face while a scan holds the
+        # write lock used to surface a message about "names being merged"
+        # even though no merge was involved. Confirms the fix reads the same
+        # regardless of which route hit it.
+        import photo_index
+
+        con = sqlite3.connect(self.database)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,dimensions,embedding_f32
+               ) VALUES ('test',1,?,?,2,?)""",
+            (self.asset_id, self.photo.name, b"12345678"),
+        ).lastrowid)
+        con.commit()
+        con.close()
+
+        lock = sqlite3.connect(self.database, timeout=1)
+        lock.execute("BEGIN EXCLUSIVE")
+        try:
+            with patch.object(photo_index, "SQLITE_BUSY_TIMEOUT_MS", 50):
+                with self.assertRaises(urllib.error.HTTPError) as blocked:
+                    self.post("/api/faces/name", {"face_id": face_id, "name": "Someone"})
+            error = blocked.exception
+            try:
+                self.assertEqual(error.code, 409)
+                body = json.loads(error.read().decode("utf-8"))
+                self.assertTrue(body["busy"])
+                self.assertNotIn("merged", body["error"])
             finally:
                 error.close()
         finally:

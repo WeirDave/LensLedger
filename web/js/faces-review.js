@@ -25,8 +25,29 @@ async function api(path, data) {
     body: JSON.stringify({ ...data, csrf }),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error || 'Request failed');
+  if (!response.ok) {
+    const error = new Error(value.error || 'Request failed');
+    error.busy = value.busy === true;
+    throw error;
+  }
   return value;
+}
+
+// The server already blocks a write for up to 30s (SQLITE_BUSY_TIMEOUT_MS)
+// before reporting the catalog busy, so a busy failure usually means a
+// background scan is mid-write right this moment, not that it's stuck. One
+// automatic retry after a short pause gives it a chance to land in the next
+// gap between the scan's own commits, instead of making the user notice the
+// error and click the same button again themselves.
+async function apiRetry(path, data, onWaiting) {
+  try {
+    return await api(path, data);
+  } catch (error) {
+    if (!error.busy) throw error;
+    if (onWaiting) onWaiting('A scan is using the catalog right now -- retrying in a few seconds…');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    return await api(path, data);
+  }
 }
 
 function updateProgress() {
@@ -87,42 +108,129 @@ function addMatchGroup(name, matches) {
   group.querySelector('.dismiss').onclick = () => { group.remove(); releasePending(ids); };
   group.querySelector('.confirm-all').onclick = async () => {
     const allThumbs = [...thumbs.querySelectorAll('.match-thumb')];
-    const checked = allThumbs.filter(t => t.querySelector('input').checked);
+    const checked = allThumbs.filter(t => t.querySelector('input').checked && !t.classList.contains('failed'));
     const skipped = allThumbs.filter(t => !t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
-    if (!checked.length) { group.remove(); releasePending(ids); return; }
+    if (!checked.length) { group.remove(); releasePending(skipped); return; }
     group.querySelectorAll('button').forEach(b => b.disabled = true);
-    status.textContent = 'Confirming…';
-    let failed = 0;
-    for (const thumb of checked) {
+    let done = 0, failed = 0;
+    for (let i = 0; i < checked.length; i++) {
+      const thumb = checked[i];
+      thumb.classList.remove('failed');
+      status.textContent = `Confirming ${i + 1} of ${checked.length}…`;
       try {
-        await api('/api/faces/name', { face_id: Number(thumb.dataset.faceId), name });
+        await apiRetry('/api/faces/name', { face_id: Number(thumb.dataset.faceId), name },
+          message => status.textContent = message);
         remaining = Math.max(0, remaining - 1);
         pending.delete(Number(thumb.dataset.faceId));
         thumb.remove();
+        done += 1;
       } catch (error) {
         failed += 1;
-        status.textContent = error.message;
+        thumb.classList.add('failed');
+        thumb.title = error.message;
       }
     }
     updateProgress();
-    if (!failed) { group.remove(); releasePending(skipped); }
-    else group.querySelectorAll('button').forEach(b => b.disabled = false);
+    if (!failed) {
+      status.textContent = `All ${done} confirmed.`;
+      group.remove();
+      releasePending(skipped);
+    } else {
+      status.textContent = `${done} confirmed, ${failed} failed -- the failed ones are outlined below; click "Confirm all" again to retry just those.`;
+      group.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
   };
   $('matchGroups').prepend(group);
   if ($('faceGrid').children.length < 12 && remaining > pending.size) loadMore();
   checkEmpty();
 }
 
+let openFace = null;
+let openCard = null;
+
+// Ports people-review.js's markFace geometry (letterboxed object-fit:contain
+// math) to draw a box on the full photo in the lightbox, given the face's
+// own fractional box coordinates -- now included in /api/faces/unidentified
+// specifically so this page can do the same "see it in context" the crop
+// alone can't for a turned, blurry, or dark face.
+function markFace(container, img, face) {
+  container.querySelectorAll('.face-box,.location-note').forEach(node => node.remove());
+  const hasBox = [face.box_left, face.box_top, face.box_right, face.box_bottom].every(Number.isFinite);
+  if (!hasBox) {
+    const note = document.createElement('span');
+    note.className = 'location-note';
+    note.textContent = 'Exact face location not recovered yet';
+    container.append(note);
+    return;
+  }
+  const marker = document.createElement('div');
+  marker.className = 'face-box';
+  marker.innerHTML = '<span>This face</span>';
+  container.append(marker);
+  const position = () => {
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const scale = Math.min(img.clientWidth / img.naturalWidth, img.clientHeight / img.naturalHeight);
+    const shownWidth = img.naturalWidth * scale, shownHeight = img.naturalHeight * scale;
+    const offsetX = (img.clientWidth - shownWidth) / 2, offsetY = (img.clientHeight - shownHeight) / 2;
+    const left = offsetX + face.box_left * shownWidth, top = offsetY + face.box_top * shownHeight;
+    marker.style.left = left + 'px';
+    marker.style.top = top + 'px';
+    marker.style.width = ((face.box_right - face.box_left) * shownWidth) + 'px';
+    marker.style.height = ((face.box_bottom - face.box_top) * shownHeight) + 'px';
+    marker.classList.toggle('label-right', left + 90 > container.clientWidth);
+    marker.classList.toggle('label-below', top < 34);
+  };
+  img.addEventListener('load', position, { once: true });
+  if (img.complete) position();
+  new ResizeObserver(position).observe(container);
+}
+
+function openLarge(face, card) {
+  openFace = face;
+  openCard = card;
+  $('largePhoto').src = '/media?id=' + face.asset_id;
+  markFace($('largePhotoBox'), $('largePhoto'), face);
+  $('lightbox').classList.add('open');
+}
+
+function closeLarge() {
+  openFace = null;
+  openCard = null;
+  $('lightbox').classList.remove('open');
+  $('largePhoto').removeAttribute('src');
+  $('largePhotoBox').querySelectorAll('.face-box,.location-note').forEach(node => node.remove());
+}
+
+async function actOnOpenFace(endpoint) {
+  if (!openFace) return;
+  const face = openFace, card = openCard;
+  closeLarge();
+  if (card) { card.querySelector('.not-person').disabled = true; card.querySelector('.unknown-person').disabled = true; }
+  try {
+    await apiRetry(endpoint, { face_id: face.face_id });
+    if (card) removeCard(card);
+  } catch (error) {
+    if (card) {
+      card.querySelector('.face-status').textContent = error.message;
+      card.querySelector('.not-person').disabled = false;
+      card.querySelector('.unknown-person').disabled = false;
+    }
+  }
+}
+
 function buildCard(face) {
   const card = document.createElement('article');
   card.className = 'face-card';
   card.dataset.faceId = face.face_id;
-  card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"></div>'
+  card.innerHTML = '<div class="face-photo" title="Double-click to see the full photo"><img loading="lazy" alt="Detected face"></div>'
     + '<div class="face-info"><small></small>'
     + '<div class="face-form"><div class="face-picker"></div></div>'
-    + '<button type="button" class="not-person">Not a person</button>'
+    + '<div class="face-actions"><button type="button" class="not-person">Not a person</button>'
+    + '<button type="button" class="unknown-person">Unknown person</button></div>'
     + '<div class="face-status"></div></div>';
-  card.querySelector('img').src = '/media-face?face_id=' + face.face_id;
+  const img = card.querySelector('img');
+  img.src = '/media-face?face_id=' + face.face_id;
+  img.ondblclick = () => openLarge(face, card);
   // The filename identifies which exact photo this is (folder + date alone
   // often don't, e.g. several faces from the same burst); show it first so
   // ellipsis truncation eats the folder path instead of the useful part.
@@ -134,34 +242,47 @@ function buildCard(face) {
   small.textContent = shortPath;
   small.title = (face.capture_date || 'Date unknown') + ' · ' + (face.folder ? face.folder + '/' : '') + face.filename;
   const notPersonButton = card.querySelector('.not-person');
+  const unknownButton = card.querySelector('.unknown-person');
   const status = card.querySelector('.face-status');
   const picker = createPersonPicker({
     container: card.querySelector('.face-picker'),
     getNames: () => knownPeople,
     placeholder: 'Who is this?',
     onChoose: async name => {
-      notPersonButton.disabled = true;
+      notPersonButton.disabled = true; unknownButton.disabled = true;
       status.textContent = 'Saving…';
       try {
         registerKnownPerson(name);
-        const result = await api('/api/faces/name', { face_id: face.face_id, name });
+        const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name },
+          message => status.textContent = message);
         removeCard(card);
         if (result.matches && result.matches.length) addMatchGroup(name, result.matches);
       } catch (error) {
         status.textContent = error.message;
-        notPersonButton.disabled = false;
+        notPersonButton.disabled = false; unknownButton.disabled = false;
       }
     },
   });
   notPersonButton.onclick = async () => {
-    picker.close(); notPersonButton.disabled = true;
+    picker.close(); notPersonButton.disabled = true; unknownButton.disabled = true;
     status.textContent = 'Marking…';
     try {
-      await api('/api/faces/ignore', { face_id: face.face_id });
+      await apiRetry('/api/faces/ignore', { face_id: face.face_id }, message => status.textContent = message);
       removeCard(card);
     } catch (error) {
       status.textContent = error.message;
-      notPersonButton.disabled = false;
+      notPersonButton.disabled = false; unknownButton.disabled = false;
+    }
+  };
+  unknownButton.onclick = async () => {
+    picker.close(); notPersonButton.disabled = true; unknownButton.disabled = true;
+    status.textContent = 'Marking…';
+    try {
+      await apiRetry('/api/faces/unknown', { face_id: face.face_id }, message => status.textContent = message);
+      removeCard(card);
+    } catch (error) {
+      status.textContent = error.message;
+      notPersonButton.disabled = false; unknownButton.disabled = false;
     }
   };
   return card;
@@ -205,5 +326,11 @@ $('findMatches').onclick = async () => {
     setTimeout(updateProgress, 4000);
   }
 };
+
+$('closeLightbox').onclick = closeLarge;
+$('lightboxNotAPerson').onclick = () => actOnOpenFace('/api/faces/ignore');
+$('lightboxUnknownPerson').onclick = () => actOnOpenFace('/api/faces/unknown');
+$('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeLarge(); });
 
 loadMore();
