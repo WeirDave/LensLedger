@@ -49,7 +49,17 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
             "Face location recovery is optional. Install requirements-face.txt "
             "with this Python interpreter first."
         ) from exc
-    options = {"name": model_name, "providers": ["CPUExecutionProvider"]}
+    options = {
+        "name": model_name, "providers": ["CPUExecutionProvider"],
+        # buffalo_l's full pack also includes gender/age and 3D/2D landmark
+        # models. Neither face_scan.py nor this module reads anything but
+        # .bbox and .normed_embedding (detection + recognition) -- on a
+        # photo with many faces, running the unused models for every face
+        # found dominates runtime for no reason (verified: an 19-face photo
+        # dropped from ~13s to ~1.5s with them excluded, same bbox/embedding
+        # output since neither of those two models changes).
+        "allowed_modules": ["detection", "recognition"],
+    }
     if model_root:
         options["root"] = str(model_root)
     analyzer = FaceAnalysis(**options)

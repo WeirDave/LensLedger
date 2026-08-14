@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.31.3 — 2026-08-13
+
+- Face detection is dramatically faster on photos with several people in
+  them. It was loading and running InsightFace's full model pack —
+  including gender/age and 3D/2D landmark models that LensLedger never
+  reads — for every face found. Restricting it to just the detection and
+  recognition models it actually uses cut a 19-face group photo from ~13s
+  to ~1.5s, with identical detections and embeddings.
+
 ## 0.31.2 — 2026-08-13
 
 - Replaced the Photo map's placeholder world map with a real one adapted
