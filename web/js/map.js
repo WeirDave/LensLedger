@@ -40,6 +40,7 @@ function show(point) {
   document.getElementById('placeCoords').textContent = point.latitude.toFixed(5) + ', ' + point.longitude.toFixed(5);
   document.getElementById('openPhoto').href = '/?date=' + (point.first_date || '') + '&selected=' + point.asset_id;
   document.getElementById('viewAllHere').href = '/?near=' + point.latitude.toFixed(1) + ',' + point.longitude.toFixed(1) + '&scope=all&sort=newest';
+  document.getElementById('openStreetMap').href = 'https://www.openstreetmap.org/?mlat=' + point.latitude.toFixed(6) + '&mlon=' + point.longitude.toFixed(6) + '#map=16/' + point.latitude.toFixed(6) + '/' + point.longitude.toFixed(6);
   details.classList.add('open');
 }
 

@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.31.2 — 2026-08-13
+
+- Replaced the Photo map's placeholder world map with a real one adapted
+  from a Wikimedia Commons equirectangular world map (coastlines by TUBS,
+  CC BY-SA 3.0 / GFDL), with attribution in the map legend and
+  `THIRD_PARTY_NOTICES.md`.
+- Added an "Open in OpenStreetMap" link next to marker details on the
+  Photo map, and next to any GPS coordinate shown in a photo's embedded
+  metadata in the viewer.
+
 ## 0.31.1 — 2026-08-13
 
 - The "Run all scans" summary on the Scan photos page now shows the same

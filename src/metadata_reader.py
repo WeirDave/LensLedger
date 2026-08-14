@@ -67,6 +67,7 @@ def read_embedded_metadata(path: Path) -> dict[str, object]:
     descriptive: dict[str, str] = {}
     capture: dict[str, str] = {}
     gps_link = ""
+    osm_link = ""
     if path.suffix.lower() not in {".jpg", ".jpeg", ".tif", ".tiff", ".png", ".webp"}:
         return {"descriptive": [], "capture": [], "description": ""}
     try:
@@ -109,6 +110,7 @@ def read_embedded_metadata(path: Path) -> dict[str, object]:
                 if latitude is not None and longitude is not None:
                     capture["GPS"] = f"{latitude:.6f}, {longitude:.6f}"
                     gps_link = f"/map?lat={latitude:.6f}&lon={longitude:.6f}"
+                    osm_link = f"https://www.openstreetmap.org/?mlat={latitude:.6f}&mlon={longitude:.6f}#map=16/{latitude:.6f}/{longitude:.6f}"
             except (KeyError, TypeError, ValueError):
                 pass
 
@@ -133,7 +135,10 @@ def read_embedded_metadata(path: Path) -> dict[str, object]:
     return {
         "descriptive": [{"label": label, "value": value} for label, value in descriptive.items()],
         "capture": [
-            {"label": label, "value": value, **({"href": gps_link} if label == "GPS" and gps_link else {})}
+            {
+                "label": label, "value": value,
+                **({"href": gps_link, "osmHref": osm_link} if label == "GPS" and gps_link else {}),
+            }
             for label, value in capture.items()
         ],
         "description": descriptive.get("Description", ""),
