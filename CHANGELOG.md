@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.32.1 — 2026-08-13
+
+- Tightened the Scan photos page's visual density -- smaller card padding
+  and corner radii, a consistent spacing/radius scale, and trimmed
+  typography -- it was reported as feeling "chunky and clunky" next to
+  the rest of the app.
+
 ## 0.32.0 — 2026-08-13
 
 - Name faces: double-click (or the portrait itself) now opens the full
