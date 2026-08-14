@@ -27,6 +27,8 @@ function elapsedText(startedAt) {
   if (!startedAt) return '';
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
   const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s elapsed`;
   return minutes > 0 ? `${minutes}m ${seconds % 60}s elapsed` : `${seconds}s elapsed`;
 }
 
@@ -87,11 +89,13 @@ async function refresh() {
     $('pauseScanAll').disabled = !scanAllRunning;
     setSpinner('scanAllSpinner', scanAllRunning);
     let scanAllStepFraction = 0;
-    if (scanAll.step === 'ocr' && ocr.total) scanAllStepFraction = ocr.attempted / ocr.total;
-    else if (scanAll.step === 'semantic' && semantic.total) scanAllStepFraction = semantic.indexed_this_pass / semantic.total;
-    else if (scanAll.step === 'face' && faceScan.total) scanAllStepFraction = faceScan.processed / faceScan.total;
+    let stepDone = 0, stepTotal = 0, stepStartedAt = null;
+    if (scanAll.step === 'ocr') { stepDone = ocr.attempted; stepTotal = ocr.total; stepStartedAt = ocr.started_at; }
+    else if (scanAll.step === 'semantic') { stepDone = semantic.indexed_this_pass; stepTotal = semantic.total; stepStartedAt = semantic.started_at; }
+    else if (scanAll.step === 'face') { stepDone = faceScan.processed; stepTotal = faceScan.total; stepStartedAt = faceScan.started_at; }
+    if (stepTotal) scanAllStepFraction = stepDone / stepTotal;
     $('scanAllElapsed').textContent = scanAllRunning
-      ? elapsedText(scanAll.started_at) + ` · step ${scanAllStepIndex} of ${scanAllSteps.length}`
+      ? elapsedText(scanAll.started_at) + ` · step ${scanAllStepIndex} of ${scanAllSteps.length}` + progressSuffix(stepDone, stepTotal, stepStartedAt)
       : '';
     setBar('scanAllBar', scanAllRunning ? (scanAllStepIndex - 1 + scanAllStepFraction) : 0, scanAllRunning ? scanAllSteps.length : 0);
     const c = diagnostics.counts || {};

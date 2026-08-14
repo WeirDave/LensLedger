@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.31.1 — 2026-08-13
+
+- The "Run all scans" summary on the Scan photos page now shows the same
+  percentage and time-remaining estimate as the individual job cards below
+  it (e.g. "step 4 of 4 · 9% · ~45h remaining"), instead of just a step
+  count with no sense of progress within that step.
+
 ## 0.31.0 — 2026-08-12
 
 - On People review, double-clicking a suggestion's photo now opens the same
