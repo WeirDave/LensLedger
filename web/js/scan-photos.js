@@ -41,9 +41,6 @@ function formatDuration(ms) {
   return `${totalSeconds}s`;
 }
 
-// Appends "· 42% · ~3m remaining" to an elapsed-time string, using the
-// done/total counts every job already reports each poll. ETA is withheld
-// for the first few seconds, since a rate from one tiny sample is noise.
 function progressSuffix(done, total, startedAt) {
   if (!total) return '';
   const pct = Math.min(100, Math.round((done / total) * 100));
