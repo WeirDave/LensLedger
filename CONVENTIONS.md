@@ -43,35 +43,38 @@ For UI/CSS changes: visually verify in a browser, not just DOM-state checks.
 
 ## Release ceremony
 
-After every fix or feature lands on `main` with tests green, perform the
-full release ceremony. Every fix ships. Do not ask for permission to push.
+After every fix or feature, perform the full release ceremony as part of
+the same task. Every fix ships. Do not stop after editing the code.
 
-1. **Bump the version** — edit `src/product.py`: increment `APP_VERSION`,
+Auto-commits are disabled in this repo. You are responsible for editing
+ALL of the release files below before telling the user to commit.
+
+1. **Make the code change** the user asked for
+2. **Bump the version** — edit `src/product.py`: increment `APP_VERSION`,
    set `APP_RELEASE_DATE` to today (`YYYY-MM-DD`)
-2. **Update CHANGELOG.md** — add a new `## X.Y.Z — YYYY-MM-DD` entry at the
+3. **Update CHANGELOG.md** — add a new `## X.Y.Z — YYYY-MM-DD` entry at the
    top (under the header). Concise past-tense bullets describing user-visible
    changes. See existing entries for tone.
-3. **Write release notes** — create `docs/releases/vX.Y.Z.md`:
+4. **Write release notes** — create `docs/releases/vX.Y.Z.md`:
    - Motivation/context (what was wrong before)
    - What changed and how it works now
    - `## Fixed during testing` section if you found and fixed a bug
    - `## Verified` section listing test suite results and any manual checks
    - See `docs/releases/v0.33.0.md` for a good example
-4. **Commit** — stage all changed files, commit as
-   `LensLedger vX.Y.Z — short summary`
-5. **Print the finish commands** — after committing, print the following
-   block so the user can copy-paste it into their terminal to finalize
-   the release:
+5. **Print the finish commands** — after editing all files, print this
+   exact block so the user can copy-paste it into PowerShell:
 
    ```
-   To finalize the release, run these commands:
+   To finalize the release, run these commands in order:
 
+   git add -A
+   git commit -m "LensLedger vX.Y.Z — short summary"
    git tag vX.Y.Z
    git push origin main
    git push origin vX.Y.Z
    ```
 
-   Replace `X.Y.Z` with the actual version number you just committed.
+   Replace `X.Y.Z` with the actual version and write a real summary.
 
    If you can run shell commands directly (e.g. Claude Code), execute
    these yourself instead of printing them. Otherwise always print them.
