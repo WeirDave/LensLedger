@@ -263,9 +263,11 @@ async function refresh() {
 
 $('startScanAll').onclick = async () => {
   $('startScanAll').disabled = true;
+  $('startScanAll').textContent = 'Starting scan...';
   try { await api('/api/scan-all/start', {}); refresh(); }
-  catch (error) { $('scanAllMessage').textContent = error.message; $('startScanAll').disabled = false; }
+  catch (error) { $('scanAllMessage').textContent = error.message; $('startScanAll').disabled = false; $('startScanAll').textContent = 'Start Scan All'; }
 };
+
 $('pauseScanAll').onclick = async () => {
   try { await api('/api/scan-all/cancel', {}); $('scanAllMessage').textContent = 'Stopping after the current step…'; }
   catch (error) { $('scanAllMessage').textContent = error.message; }
