@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.33.2 — 2026-08-14
+
+- Removed a redundant comment above `progressSuffix()` in scan-photos.js
+  that described what the function does (the function name and signature
+  already make that clear).
+- Added AI assistant convention files (CLAUDE.md, CONVENTIONS.md) so
+  Claude Code and Aider follow the same release ceremony and commit
+  format rules.
+
 ## 0.33.1 — 2026-08-14
 
 - "Start Scan All" button now shows "Starting scan..." while the request
