@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.33.1 — 2026-08-14
+
+- "Start Scan All" button now shows "Starting scan..." while the request
+  is in flight, so there's visible feedback that the click registered.
+
 ## 0.33.0 — 2026-08-14
 
 - Scan photos page: OCR and face-detection errors are now recorded
