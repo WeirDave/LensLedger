@@ -59,12 +59,22 @@ full release ceremony. Every fix ships. Do not ask for permission to push.
    - See `docs/releases/v0.33.0.md` for a good example
 4. **Commit** — stage all changed files, commit as
    `LensLedger vX.Y.Z — short summary`
-5. **Tag** — `git tag vX.Y.Z`
-6. **Push** — `git push origin main && git push origin vX.Y.Z`
-7. **Watch CI** — wait for the Tests workflow (Python 3.11 + 3.14) and the
-   Release workflow (verifies version match, builds install ZIP, creates
-   GitHub Release with release notes). Confirm both are green.
-8. **Report** — brief summary: what shipped, GitHub Release link, CI status
+5. **Print the finish commands** — after committing, print the following
+   block so the user can copy-paste it into their terminal to finalize
+   the release:
+
+   ```
+   To finalize the release, run these commands:
+
+   git tag vX.Y.Z
+   git push origin main
+   git push origin vX.Y.Z
+   ```
+
+   Replace `X.Y.Z` with the actual version number you just committed.
+
+   If you can run shell commands directly (e.g. Claude Code), execute
+   these yourself instead of printing them. Otherwise always print them.
 
 ## Project structure
 
