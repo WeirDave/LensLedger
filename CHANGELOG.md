@@ -6,6 +6,20 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.33.0 — 2026-08-14
+
+- Scan photos page: OCR and face-detection errors are now recorded
+  per-photo, and clicking an "Errors" count opens a modal listing which
+  files failed and why, instead of only showing an opaque total.
+- Scan photos page: job descriptions moved from always-on paragraphs to
+  compact "i" info popovers, and the database/folder path details are
+  now tucked behind a collapsible disclosure — trims the page down to
+  what you need at a glance.
+- Fixed the face-detection "Errors" tile showing 0 and being unclickable
+  whenever the recorded errors came from a previous session (it only
+  counted errors from the in-memory job just run, unlike the equivalent
+  OCR tile, which already merged in the persisted count).
+
 ## 0.32.1 — 2026-08-13
 
 - Tightened the Scan photos page's visual density -- smaller card padding

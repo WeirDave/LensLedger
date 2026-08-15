@@ -29,7 +29,7 @@ from app_paths import (
 )
 from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as learn_faces
 from face_locations import is_available as face_is_available
-from face_scan import scan_for_faces, status as face_scan_status
+from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
     choose_library_folder, library_db_path, load_library_config, load_library_state,
     save_library_state, suggested_library_roots,
@@ -603,10 +603,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.diagnostics()
         if url.path == "/api/ocr/status":
             return self.ocr_status()
+        if url.path == "/api/ocr/errors":
+            return self.ocr_errors()
         if url.path == "/api/semantic/status":
             return self.semantic_job_status()
         if url.path == "/api/faces/status":
             return self.face_scan_job_status()
+        if url.path == "/api/faces/errors":
+            return self.face_scan_errors()
         if url.path == "/api/scan-all/status":
             return self.scan_all_status()
         if url.path == "/api/update/status":
@@ -794,14 +798,15 @@ class SearchHandler(BaseHTTPRequestHandler):
 <title>Scan your photos — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/scan-photos.css')}">
 </head><body {bootstrap_attr({"csrf": self.csrf_token, "currentLibrary": str(self.library_root)})}><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Scan your photos</h1><p>Everything that makes your library searchable, and your backups</p></div><span class="spacer"></span><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/faces-review">🙂 Name faces</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span></header>
 <main>
-<section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></section>
-<section class="card job-card"><h2>Run all scans</h2><p class="job-intro">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</p><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
-<section class="card job-card"><h2>Photo locations (GPS)</h2><p class="job-intro">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</p><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
-<section class="card job-card"><h2>Local text recognition (OCR)</h2><p class="job-intro">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</p><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
-<section class="card job-card"><h2>Meaning search (optional)</h2><p class="job-intro">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</p><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><button type="button" id="installSemantic">Set up meaning search</button></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
-<section class="card job-card"><h2>Face detection (optional)</h2><p class="job-intro">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</p><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><button type="button" id="installFaceScan">Set up face detection</button></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
+<section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><details class="scan-details"><summary>Database &amp; folder details</summary><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></details></section>
+<section class="card job-card"><div class="section-title"><h2>Run all scans</h2><button type="button" class="info-button" data-help="scanAllHelp" aria-label="About Run all scans">i</button></div><div class="help-popover" id="scanAllHelp">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</div><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><button type="button" id="installSemantic">Set up meaning search</button></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><button type="button" id="installFaceScan">Set up face detection</button></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div></section>
 </main>
+<div class="modal-backdrop" id="scanModalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="scanModalTitle"><div class="modal-head"><h2 id="scanModalTitle"></h2><button type="button" class="modal-close" id="scanModalClose">Close</button></div><div id="scanModalBody"></div></section></div>
 <script src="{asset_url('js/scan-photos.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
@@ -2528,6 +2533,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "ocr_pending": int(con.execute("""SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
                     WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0 AND x.ocr_scanned=0""").fetchone()[0]),
                 "ocr_errors": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_error<>''").fetchone()[0]),
+                "face_scan_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE face_scan_error<>''").fetchone()[0]),
                 "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
                 "unidentified_faces": int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
@@ -2727,6 +2733,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             job = dict(type(self).ocr_job)
         self.send_json(job)
 
+    def ocr_errors(self):
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT a.relative_path,x.ocr_error FROM text_data x JOIN assets a ON a.id=x.asset_id
+                   WHERE x.ocr_error<>'' ORDER BY a.id DESC LIMIT 200"""
+            ).fetchall()
+        self.send_json({"errors": [{"path": row["relative_path"], "error": row["ocr_error"]} for row in rows]})
+
     def start_ocr(self, body):
         workers = max(1, min(8, int(body.get("workers", 4))))
         since = str(body.get("since", "")).strip() or None
@@ -2852,6 +2866,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).face_install_lock:
             install = dict(type(self).face_install_job)
         self.send_json({**coverage, **job, "install": install})
+
+    def face_scan_errors(self):
+        self.send_json({"errors": face_scan_list_errors(type(self).db_path)})
 
     def start_face_scan(self, _body):
         with type(self).face_scan_lock:
@@ -3204,6 +3221,22 @@ class SearchHandler(BaseHTTPRequestHandler):
         pass
 
 
+class LensLedgerHTTPServer(ThreadingHTTPServer):
+    """Silences the stock traceback dump for client disconnects mid-response.
+
+    A browser tab navigating away or refreshing while a long-poll status
+    request is in flight aborts the socket -- that is normal client
+    behavior, not a server bug, so it should not spam the console."""
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", action="version", version=f"%(prog)s {APP_NAME} {APP_VERSION}")
@@ -3215,7 +3248,7 @@ def main():
     root = (args.root or load_library_state()).resolve()
     database = (args.db or library_db_path(root)).resolve()
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), SearchHandler); url = f"http://127.0.0.1:{args.port}/"
+    server = LensLedgerHTTPServer(("127.0.0.1", args.port), SearchHandler); url = f"http://127.0.0.1:{args.port}/"
     print("\n" + "=" * 62, flush=True); print(f"  {APP_NAME} v{APP_VERSION}\n  {APP_TAGLINE}\n", flush=True); print(f"  Local library: {url}\n  Press Ctrl+C in this window to stop LensLedger.", flush=True); print("=" * 62 + "\n", flush=True)
     if not args.no_open:
         browser_timer = threading.Timer(1.0, webbrowser.open, args=(url,))

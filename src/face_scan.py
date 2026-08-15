@@ -11,6 +11,7 @@ and auto-confirm pipeline -- nothing else needs to change to pick them up.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -38,6 +39,17 @@ def status(db_path: Path) -> dict[str, object]:
         "faces_found": faces_found,
         "installed": is_available(),
     }
+
+
+def list_errors(db_path: Path, limit: int = 200) -> list[dict[str, str]]:
+    """Return the photos face detection could not process, most recent first."""
+    with connect(db_path) as con:
+        rows = con.execute(
+            """SELECT relative_path, face_scan_error FROM assets
+               WHERE face_scan_error<>'' ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [{"path": row["relative_path"], "error": row["face_scan_error"]} for row in rows]
 
 
 def scan_for_faces(
@@ -104,9 +116,16 @@ def scan_for_faces(
                     )
                     next_face_id += 1
                     result["faces_found"] += 1
-                con.execute("UPDATE assets SET face_scanned=1 WHERE id=?", (int(asset["id"]),))
-            except Exception:
+                con.execute(
+                    "UPDATE assets SET face_scanned=1,face_scan_error='' WHERE id=?", (int(asset["id"]),)
+                )
+            except Exception as exc:
                 result["errors"] += 1
+                con.execute(
+                    "UPDATE assets SET face_scan_error=? WHERE id=?",
+                    (str(exc)[:1000], int(asset["id"])),
+                )
+                print(f"FACE_SCAN_ERROR\t{asset['relative_path']}\t{exc}", file=sys.stderr)
             result["processed"] += 1
             if result["processed"] % 25 == 0:
                 con.commit()

@@ -5,29 +5,49 @@ header{display:flex;align-items:center;gap:12px;padding:11px min(5vw,32px);borde
 header img{width:30px;height:30px;object-fit:contain}header h1{margin:0;font-size:15.5px;font-weight:750}header p{margin:1px 0 0;color:var(--muted);font-size:11px}header .spacer{flex:1}.version{color:#ffcf9e;background:#3a2414;border:1px solid #7a4a24;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800}
 .quick-nav{display:flex;gap:12px}.quick-nav a{color:var(--muted);text-decoration:none;font-weight:650;font-size:12px;white-space:nowrap}.quick-nav a:hover{color:var(--text)}
 @media(max-width:900px){.quick-nav{display:none}}
-main{width:min(1180px,calc(100% - 32px));margin:18px auto 48px;display:grid;gap:12px}
-.card{background:#171b26ed;border:1px solid var(--line);border-radius:var(--radius-lg);padding:15px 17px}
-.card h2{margin:0 0 10px;font-size:13.5px;font-weight:750;letter-spacing:.1px;color:#dbe1ee}
+main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:7px}
+.card{background:#171b26ed;border:1px solid var(--line);border-radius:var(--radius-lg);padding:11px 14px}
+.card h2{margin:0 0 8px;font-size:13.5px;font-weight:750;letter-spacing:.1px;color:#dbe1ee}
+.section-title{display:flex;align-items:center;gap:7px;position:relative;margin:0 0 8px}
+.section-title h2{margin:0}
+.info-button{width:17px;height:17px;padding:0;border-radius:50%;background:#2a3244;color:#b9c7da;font-size:10.5px;font-style:italic;font-weight:700;line-height:17px;flex:0 0 auto}
+.help-popover{display:none;position:absolute;z-index:10;left:0;top:24px;width:min(380px,90vw);padding:9px 11px;background:#252c3d;border:1px solid #46506a;border-radius:var(--radius-md);color:#dce4f0;font-size:11.5px;line-height:1.45;box-shadow:0 12px 30px #000}
+.help-popover.open{display:block}
 .health-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:8px}
 .health-summary.ocr-summary{grid-template-columns:repeat(auto-fit,minmax(108px,1fr))}
 .health-summary div,.health-summary button{background:#1d2434;border-radius:var(--radius-md);padding:9px 10px}
 .health-summary strong{display:block;font-size:18px;color:var(--orange);font-weight:750}.health-summary span{color:var(--muted);font-size:10.5px}
 .health-summary button{display:block;width:100%;border:1px solid transparent;text-align:left;cursor:pointer}.health-summary button:hover{border-color:var(--orange);background:#232c40}.health-summary button:hover strong{text-decoration:underline}
-.health-paths{display:grid;gap:4px;color:var(--muted);font-size:11px;word-break:break-all;margin-top:12px}
-.data-location{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5}.data-location code{background:#1c2231;border:1px solid #2c3548;border-radius:5px;padding:1px 6px;color:#c5d1e6;word-break:break-all}
+.health-paths{display:grid;gap:4px;color:var(--muted);font-size:11px;word-break:break-all;margin-top:9px}
+.data-location{margin:9px 0 0;font-size:12px;color:var(--muted);line-height:1.5}.data-location code{background:#1c2231;border:1px solid #2c3548;border-radius:5px;padding:1px 6px;color:#c5d1e6;word-break:break-all}
+.scan-details{margin-top:9px}
+.scan-details summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:650;list-style:none}
+.scan-details summary::-webkit-details-marker{display:none}
+.scan-details summary::before{content:'▸ ';display:inline-block}
+.scan-details[open] summary::before{content:'▾ '}
+.scan-details[open] summary{margin-bottom:2px}
 .cloud-scope{margin:12px 0 0;padding:9px 12px;background:#2a2013;border:1px solid #5a4321;border-radius:var(--radius-md);font-size:12px;color:#e8c896;line-height:1.5}.cloud-scope:empty{display:none}
-.job-card h2{display:flex;align-items:center;gap:9px}
-.job-card p.job-intro{color:var(--muted);margin:0 0 11px;line-height:1.5;font-size:12.5px}
-.job-status{display:flex;align-items:center;gap:9px;margin:0 0 10px;color:var(--text);font-size:13px}
+.job-status{display:flex;align-items:center;gap:9px;margin:0 0 8px;color:var(--text);font-size:13px}.job-status p{margin:0}
 .spinner{display:none;width:14px;height:14px;border-radius:50%;border:2px solid #333d54;border-top-color:var(--orange);animation:spin .8s linear infinite;flex:0 0 auto}
 .spinner.active{display:inline-block}
 .job-status .elapsed{color:var(--muted);font-size:11.5px}
 @keyframes spin{to{transform:rotate(360deg)}}
-.progress-bar{height:6px;border-radius:99px;background:#1c2334;overflow:hidden;margin:0 0 10px}
+.progress-bar{height:6px;border-radius:99px;background:#1c2334;overflow:hidden;margin:0 0 8px}
 .progress-bar span{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#c9701f,var(--orange));transition:width .4s ease}
 .progress-bar[hidden]{display:none}
 .progress-bar.indeterminate span{width:35%;animation:indeterminate 1.25s infinite alternate}
 @keyframes indeterminate{from{margin-left:0}to{margin-left:65%}}
 .job-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:2px}.job-actions input{width:136px;border:1px solid #333d54;border-radius:var(--radius-sm);background:#1c2334;color:white;padding:7px 9px;font-size:12.5px}.job-actions .spacer{flex:1}
 .backup-row{display:flex;align-items:center;gap:11px}.backup-row span{color:var(--muted);font-size:12.5px}
-@media(max-width:700px){.health-summary{grid-template-columns:1fr 1fr}main{width:calc(100% - 22px)}.card{padding:13px 14px}}
+.modal-backdrop{display:none;position:fixed;z-index:30;inset:0;background:#05070bc9;place-items:center;padding:24px}
+.modal-backdrop.open{display:grid}
+.modal{width:min(640px,100%);max-height:78vh;overflow:auto;background:#1b2030;border:1px solid #46506a;border-radius:var(--radius-lg);padding:16px 18px;box-shadow:0 20px 60px #000}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}
+.modal-head h2{margin:0;font-size:15px}
+.modal-close{background:#2a3244}
+.error-list{display:grid;gap:6px}
+.error-row{background:#1c2334;border-radius:var(--radius-sm);padding:8px 10px}
+.error-row .path{display:block;color:var(--text);font-size:12px;word-break:break-all;font-weight:650}
+.error-row .msg{display:block;color:var(--muted);font-size:11px;margin-top:2px;word-break:break-word}
+.error-empty{color:var(--muted);padding:8px 0}
+@media(max-width:700px){.health-summary{grid-template-columns:1fr 1fr}main{width:calc(100% - 22px)}.card{padding:11px 12px}}

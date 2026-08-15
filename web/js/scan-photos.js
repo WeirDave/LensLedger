@@ -68,6 +68,51 @@ function setSpinner(id, active) {
   $(id).classList.toggle('active', !!active);
 }
 
+function closeHelp() {
+  document.querySelectorAll('.help-popover.open').forEach(el => el.classList.remove('open'));
+}
+
+function openScanModal(title, node) {
+  $('scanModalTitle').textContent = title;
+  $('scanModalBody').replaceChildren(node);
+  $('scanModalBackdrop').classList.add('open');
+}
+
+function errorListNode(errors) {
+  const box = document.createElement('div');
+  box.className = 'error-list';
+  if (!errors.length) {
+    const empty = document.createElement('p');
+    empty.className = 'error-empty';
+    empty.textContent = 'No errors on record.';
+    box.append(empty);
+    return box;
+  }
+  errors.forEach(({ path, error }) => {
+    const row = document.createElement('div');
+    row.className = 'error-row';
+    const pathEl = document.createElement('span');
+    pathEl.className = 'path';
+    pathEl.textContent = path;
+    const msgEl = document.createElement('span');
+    msgEl.className = 'msg';
+    msgEl.textContent = error;
+    row.append(pathEl, msgEl);
+    box.append(row);
+  });
+  return box;
+}
+
+async function showScanErrors(endpoint, title) {
+  openScanModal(title, Object.assign(document.createElement('p'), { className: 'error-empty', textContent: 'Loading…' }));
+  try {
+    const data = await fetch(endpoint).then(r => r.json());
+    openScanModal(title, errorListNode(data.errors || []));
+  } catch (error) {
+    openScanModal(title, Object.assign(document.createElement('p'), { className: 'error-empty', textContent: error.message }));
+  }
+}
+
 async function refresh() {
   try {
     const [diagnostics, locationStatus, ocr, semantic, faceScan, scanAll] = await Promise.all([
@@ -131,9 +176,11 @@ async function refresh() {
 
     // OCR
     $('ocrMessage').textContent = ocr.message || 'OCR has not run in this session.';
+    const ocrErrorCount = Math.max(c.ocr_errors || 0, ocr.errors || 0);
     $('ocrMetrics').replaceChildren(
       metric('Remaining', c.ocr_pending), metric('This pass', ocr.attempted),
-      metric('Text found', ocr.with_text), metric('Errors', Math.max(c.ocr_errors || 0, ocr.errors || 0)),
+      metric('Text found', ocr.with_text),
+      metric('Errors', ocrErrorCount, ocrErrorCount ? () => showScanErrors('/api/ocr/errors', 'OCR errors') : null),
     );
     const ocrRunning = ocr.state === 'running';
     $('startOcr').disabled = ocrRunning || scanAllRunning;
@@ -188,9 +235,12 @@ async function refresh() {
       $('faceScanBarWrap').classList.toggle('indeterminate', faceInstalling);
     } else {
       $('faceScanMessage').textContent = faceScan.message || 'Ready. Scan for faces below to find people in photos LensLedger has not looked at yet.';
+      const faceErrorCount = Math.max(c.face_scan_errors || 0, faceScan.errors || 0);
       $('faceScanMetrics').replaceChildren(
-        metric('Faces found', faceScan.faces_found), metric('Remaining photos', faceScan.remaining),
-        metric('This pass', faceScan.processed), metric('Errors', faceScan.errors),
+        metric('Faces found', faceScan.faces_found, faceScan.faces_found ? () => { window.location.href = '/faces-review'; } : null),
+        metric('Remaining photos', faceScan.remaining),
+        metric('This pass', faceScan.processed),
+        metric('Errors', faceErrorCount, faceErrorCount ? () => showScanErrors('/api/faces/errors', 'Face detection errors') : null),
       );
     }
     const faceScanRunning = faceScan.state === 'running';
@@ -280,5 +330,21 @@ $('backupDatabase').onclick = async () => {
   catch (error) { $('backupStatus').textContent = error.message; }
   finally { $('backupDatabase').disabled = false; }
 };
+
+document.querySelectorAll('[data-help]').forEach(button => button.onclick = e => {
+  e.stopPropagation();
+  const target = $(button.dataset.help);
+  const opening = !target.classList.contains('open');
+  closeHelp();
+  if (opening) target.classList.add('open');
+});
+$('scanModalClose').onclick = () => $('scanModalBackdrop').classList.remove('open');
+$('scanModalBackdrop').onclick = e => { if (e.target === $('scanModalBackdrop')) $('scanModalBackdrop').classList.remove('open'); };
+document.addEventListener('click', e => {
+  if (!e.target.closest('.help-popover') && !e.target.closest('.info-button')) closeHelp();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { $('scanModalBackdrop').classList.remove('open'); closeHelp(); }
+});
 
 refresh();

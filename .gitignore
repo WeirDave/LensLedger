@@ -32,3 +32,4 @@ folder-tags.csv
 
 # Release output
 release-artifacts/
+.aider*
