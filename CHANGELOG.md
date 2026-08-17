@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.36.0 — 2026-08-16
+
+- Responsive mobile layout: on viewports under 768px, the sidebar becomes a slide-in drawer from the right edge.
+- Added an ⓘ toggle button on the photo stage to open/close the sidebar on mobile.
+- Tapping the backdrop overlay or pressing Escape closes the mobile sidebar.
+- Toolbar controls wrap on narrow screens for better usability.
+- Header, filmstrip, and thumbnails use compact spacing on mobile.
+
 ## 0.35.0 — 2026-08-16
 
 - Added multi-select in the filmstrip: Ctrl+click to toggle individual photos, Shift+click to select a range.
