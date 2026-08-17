@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.13 — 2026-08-17
+
+- Cleaned up restart experience: no more "Starting LensLedger..." preamble; console shows the normal banner on fresh start and "new version loaded" on restart.
+- Restart no longer opens a duplicate browser tab — the existing tab auto-reloads to the new version.
+
 ## 0.43.12 — 2026-08-17
 
 - Standardized headers on the Name faces and People review pages to match the main photo library layout.

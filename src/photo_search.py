@@ -3384,11 +3384,14 @@ def main():
     database = (args.db or library_db_path(root)).resolve()
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
     server = LensLedgerHTTPServer(("localhost", args.port), SearchHandler); url = f"http://localhost:{args.port}/"
-    print("\n" + "=" * 62, flush=True); print(f"  {APP_NAME} v{APP_VERSION}\n  {APP_TAGLINE}\n", flush=True); print(f"  Local library: {url}\n  Press Ctrl+C in this window to stop LensLedger.", flush=True)
+    print("\n" + "=" * 62, flush=True)
     if args.restarted:
-        print("\n  Tip: you can close the previous browser tab.", flush=True)
+        print(f"  {APP_NAME} v{APP_VERSION} — new version loaded.\n  {APP_TAGLINE}\n", flush=True)
+    else:
+        print(f"  {APP_NAME} v{APP_VERSION}\n  {APP_TAGLINE}\n", flush=True)
+    print(f"  Local library: {url}\n  Press Ctrl+C in this window to stop LensLedger.", flush=True)
     print("=" * 62 + "\n", flush=True)
-    if not args.no_open:
+    if not args.restarted and not args.no_open:
         browser_timer = threading.Timer(1.0, webbrowser.open, args=(url,))
         browser_timer.daemon = True
         browser_timer.start()

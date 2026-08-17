@@ -1,9 +1,6 @@
 @echo off
 title LensLedger
 cd /d "%~dp0"
-echo.
-echo   Starting LensLedger...
-echo.
 
 where python >nul 2>&1
 if errorlevel 1 (
