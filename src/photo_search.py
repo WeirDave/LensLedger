@@ -68,7 +68,7 @@ from semantic_index import (
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
 PAGE_SIZE = 250
-PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg"}
+PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
 WEB_ROOT = Path(__file__).parent.parent / "web"
 WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)")
 WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
@@ -1334,7 +1334,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         path = (self.library_root / Path(asset["relative_path"])).resolve()
         path.relative_to(self.library_root)
         if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS or not path.is_file():
-            raise ValueError("Publishing is currently available for JPEG photos")
+            raise ValueError(f"Publishing is not supported for this file type: {asset['filename']}")
         annotation = con.execute(
             "SELECT subject FROM asset_annotations WHERE relative_path=?", (asset["relative_path"],)
         ).fetchone()
@@ -1391,7 +1391,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         path = (self.library_root / Path(asset["relative_path"])).resolve()
         path.relative_to(self.library_root)
         if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS or not path.is_file():
-            raise ValueError(f"People metadata publishing requires a JPEG: {asset['filename']}")
+            raise ValueError(f"Publishing is not supported for this file type: {asset['filename']}")
 
         before = _exiftool_values(path)
         before.pop("SourceFile", None)

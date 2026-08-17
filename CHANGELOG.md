@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.10 — 2026-08-17
+
+- Metadata publishing (people tags and descriptions) now works for HEIC and HEIF images, not just JPEGs.
+
 ## 0.43.9 — 2026-08-17
 
 - The "close the previous browser tab" reminder now only appears on restart, not on every normal startup.
