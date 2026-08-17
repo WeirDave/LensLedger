@@ -41,6 +41,9 @@ from photo_index import (
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
+
+_STARTUP_VERSION = APP_VERSION
+_STARTED_AT = dt.datetime.now(dt.timezone.utc).isoformat()
 from semantic_index import (
     build_index as build_semantic_index,
     is_available as semantic_is_available,
@@ -615,6 +618,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.face_scan_errors()
         if url.path == "/api/scan-all/status":
             return self.scan_all_status()
+        if url.path == "/api/version":
+            return self.version_info()
         if url.path == "/api/update/status":
             return self.update_status()
         if url.path == "/api/people/review/queue":
@@ -2528,6 +2533,17 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise
         self.send_json({"ok": True, "published": 1})
 
+    def version_info(self):
+        install_root = Path(__file__).parent.parent.resolve()
+        on_disk = _on_disk_app_version(install_root)
+        self.send_json({
+            "version": _STARTUP_VERSION,
+            "startedAt": _STARTED_AT,
+            "onDiskVersion": on_disk,
+            "restartReady": bool(on_disk and on_disk != _STARTUP_VERSION),
+            "pid": os.getpid(),
+        })
+
     def diagnostics(self):
         semantic = semantic_status(type(self).db_path)
         with self.db() as con:
@@ -3356,7 +3372,7 @@ def main():
     root = (args.root or load_library_state()).resolve()
     database = (args.db or library_db_path(root)).resolve()
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
-    server = LensLedgerHTTPServer(("127.0.0.1", args.port), SearchHandler); url = f"http://127.0.0.1:{args.port}/"
+    server = LensLedgerHTTPServer(("localhost", args.port), SearchHandler); url = f"http://localhost:{args.port}/"
     print("\n" + "=" * 62, flush=True); print(f"  {APP_NAME} v{APP_VERSION}\n  {APP_TAGLINE}\n", flush=True); print(f"  Local library: {url}\n  Press Ctrl+C in this window to stop LensLedger.", flush=True); print("=" * 62 + "\n", flush=True)
     if not args.no_open:
         browser_timer = threading.Timer(1.0, webbrowser.open, args=(url,))

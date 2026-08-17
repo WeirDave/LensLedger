@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lensledger",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["src/photo_search.py", "--no-open"],
+      "port": 5309
+    }
+  ]
+}
