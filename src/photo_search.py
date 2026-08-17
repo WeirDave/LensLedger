@@ -581,6 +581,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.serve_web_asset(url.path.removeprefix("/web/"))
         if url.path == "/logo.png":
             return self.serve_logo()
+        if url.path == "/favicon.png":
+            return self.serve_favicon()
         if url.path == "/world-map.svg":
             return self.serve_world_map()
         if url.path == "/media":
@@ -751,7 +753,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def onboarding_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Set up {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/onboarding.css')}">
+<title>Set up {APP_NAME}</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/onboarding.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token})}><main class="shell"><header class="brand"><img src="/logo.png" alt=""><div><h1>{APP_NAME}</h1><p>{APP_TAGLINE}</p></div><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></header><section class="card">
 <div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></div>
 <div class="steps"><div class="step"><strong>1 · Discover</strong><span>Record file locations, types, dates, and locally available metadata.</span></div><div class="step"><strong>2 · Review</strong><span>See exactly what was found, including cloud files that are not downloaded.</span></div><div class="step"><strong>3 · Enrich</strong><span>Add subjects, people, OCR, and approved metadata at your pace.</span></div></div>
@@ -790,7 +792,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def map_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Photo map — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/map.css')}">
+<title>Photo map — {APP_NAME}</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/map.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Photo map</h1><p>Embedded locations from the current library · read-only and kept local</p></div><span class="spacer"></span><nav class="quick-nav"><a href="/scan-photos">🔎 Scan photos</a><a href="/people-review">👥 Review people</a></nav><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="count" id="count">Loading locations…</span></header>
 <main class="map-shell" id="viewport"><div id="world"></div><div class="controls"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="reset" aria-label="Reset map">⌂</button></div><div class="legend"><strong>Photo locations</strong>Scroll to zoom and drag to pan. Nearby coordinates are grouped; select a marker to browse every photo from that place.<small class="map-credit">Coastlines © <a href="https://commons.wikimedia.org/wiki/User:Tubs" target="_blank" rel="noopener">TUBS</a>, Wikimedia Commons (CC BY-SA 3.0)</small></div><aside class="details" id="details"><img id="preview" alt="Representative photo from this location"><div class="details-body"><h2 id="placeTitle"></h2><p id="placeDates"></p><p id="placeCoords"></p><div class="details-actions"><a class="button" id="openPhoto">Open photo</a><a class="button secondary" id="viewAllHere">View all photos here</a><a class="button secondary" id="openStreetMap" target="_blank" rel="noopener">Open in OpenStreetMap ↗</a><button type="button" id="closeDetails">Close</button></div></div></aside><section class="empty" id="empty"><div><h2>No mapped photos yet</h2><p id="emptyText">Run an incremental library scan to collect embedded GPS coordinates. LensLedger reads them locally and never writes location data back to your files.</p><a class="button" href="/">Return to library</a></div></section></main>
 <script src="{asset_url('js/map.js')}" defer></script>
@@ -799,7 +801,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def scan_photos_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Scan your photos — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/scan-photos.css')}">
+<title>Scan your photos — {APP_NAME}</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/scan-photos.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "currentLibrary": str(self.library_root)})}><header><a class="back" href="/">← Photo library</a><img src="/logo.png" alt=""><div><h1>Scan your photos</h1><p>Everything that makes your library searchable, and your backups</p></div><span class="spacer"></span><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/faces-review">🙂 Name faces</a><a href="/map">🌍 Photo map</a></nav><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
 <main>
 <section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><details class="scan-details"><summary>Database &amp; folder details</summary><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></details></section>
@@ -1160,7 +1162,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         )
         viewer_hidden_class = " viewer-hidden" if gallery_mode else ""
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}">
+<title>{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body class="{body_class}" {bootstrap_attr({
             "items": items, "personDirectory": people_directory, "csrf": self.csrf_token,
             "currentLibrary": str(self.library_root), "viewedPersonId": person_id,
@@ -1194,7 +1196,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         requested = params.get("person", [""])[0]
         initial_person_id = int(requested) if requested.isdigit() else None
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Review people — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
+<title>Review people — {APP_NAME}</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "initialPersonId": initial_person_id})}>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><nav class="quick-nav"><a href="/faces-review">🙂 Name faces</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="secondary" id="learnMore">Find more matches</button></div></header>
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
@@ -1207,7 +1209,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def faces_review_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Name faces — {APP_NAME}</title><link rel="icon" href="/logo.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
+<title>Name faces — {APP_NAME}</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token})}>
 <header><div class="topbar"><a class="button secondary" href="/">← Photo library</a><img src="/logo.png" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><nav class="quick-nav"><a href="/people-review">👥 Review people</a><a href="/scan-photos">🔎 Scan photos</a><a href="/map">🌍 Photo map</a></nav><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="findMatches">Find more matches</button></div></header>
 <main><p class="intro">Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately. Double-click a portrait to see the full photo for context -- helpful for a profile, blurry, or dark face that's hard to place cropped down this small. If it's not a real face, use "Not a person"; if it's a real face you just can't identify (a stranger in a crowd shot, for example), use "Unknown person" so it stops resurfacing. Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups"></div><div class="face-grid" id="faceGrid"></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
@@ -3259,6 +3261,11 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def serve_logo(self):
         path = Path(__file__).parent.parent / "assets" / "lensledger-logo.png"
+        if not path.is_file(): return self.send_error(404)
+        self.send_bytes(path.read_bytes(), "image/png", cache="private, max-age=86400")
+
+    def serve_favicon(self):
+        path = Path(__file__).parent.parent / "assets" / "lensledger-favicon.png"
         if not path.is_file(): return self.send_error(404)
         self.send_bytes(path.read_bytes(), "image/png", cache="private, max-age=86400")
 

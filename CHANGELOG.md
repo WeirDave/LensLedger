@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.40.2 — 2026-08-17
+
+- Updated logo to new version with "LensLedger" text.
+- Added dedicated favicon (shutter with "LL" initials), separate from the header logo.
+- All pages now use the new favicon in the browser tab.
+
 ## 0.40.1 — 2026-08-17
 
 - Doubled the logo size in the header across all pages.
