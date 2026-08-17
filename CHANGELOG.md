@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.41.0 — 2026-08-17
+
+- Compacted sidebar layout: smaller chips, tighter section spacing, and smaller action buttons to reduce scrolling.
+- Standardized the theme toggle button across all pages: consistent 32px round style and placement.
+- Moved the theme toggle to the right side of the viewer header for consistency with other pages.
+- Relocated the "Move to Trash" button from the header into the toolbar, after the "View" button.
+- Added permanent delete to Trash & Restore: each trashed item now has a "Delete" button for irreversible removal.
+- Enriched the About panel with links to the developer's other projects.
+- Added cache-busting version parameters to logo and favicon URLs to prevent stale images after updates.
+- Fixed tooltip text that referenced "Preview & publish" to match the actual "Publish to this photo" section heading.
+
 ## 0.40.2 — 2026-08-17
 
 - Updated logo to new version with "LensLedger" text.

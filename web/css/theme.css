@@ -130,3 +130,4 @@
 --map-details-bg:#f0e8daeF;--map-details-border:#bab0a0;
 --map-empty-bg:#ddd6c8d9
 }}
+.theme-toggle{width:32px;height:32px;padding:0;background:var(--btn-secondary);color:var(--btn-secondary-text);font-size:17px;border-radius:50%;flex:0 0 auto}
