@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.21 — 2026-08-17
+
+- Fixed "This photo contains ..." button text being cut off on people review cards — long person names now wrap to a second line instead of being truncated.
+
 ## 0.43.20 — 2026-08-17
 
 - Fixed "invalid request token" error after server restart — pages now auto-reload to get a fresh session token instead of showing a cryptic error message.
