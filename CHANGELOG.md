@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.19 — 2026-08-17
+
+- Redesigned main menu as a full-height slide-out panel with branded header, section labels, dividers, and badge counts — consistent with the navigation pattern used in WaxFrame Professional.
+- Menu now includes a dimmed backdrop overlay, close button, and smooth slide animation.
+- Applied the new menu layout to all three pages that use it: photo library, people review, and name faces.
+
+## 0.43.18 — 2026-08-17
+
+- Fixed people review "Save & publish" failing when the batch contained non-publishable file types (PNG, etc.) — review decisions are now recorded for all photos, and metadata publishing is skipped gracefully for unsupported formats.
+- Fixed "This photo contains ..." button label being cut off on narrow review cards — long names now truncate with an ellipsis.
+
 ## 0.43.17 — 2026-08-17
 
 - Removed the "Report on GitHub" link from the scan error modal — known errors are explained in-place and don't need a bug report.

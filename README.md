@@ -314,6 +314,15 @@ Semantic image embeddings run as an optional independent worker so models can
 evolve without rewriting photos or rebuilding the basic inventory. Richer
 duplicate detection remains planned.
 
+## Help & Support
+
+If something isn't working:
+
+- **In the app:** Open the hamburger menu and look under **Help & Support**. Click **Copy diagnostics** to capture your environment info to the clipboard — include it in your bug report.
+- **Report a bug:** [Open a new issue](https://github.com/WeirDave/LensLedger/issues/new?template=bug_report.yml)
+- **View existing issues:** [GitHub Issues](https://github.com/WeirDave/LensLedger/issues)
+- **Security vulnerabilities:** Use [private vulnerability reporting](https://github.com/WeirDave/LensLedger/security/advisories/new) — don't open a public issue.
+
 ## License
 
 LensLedger is available under the [MIT License](LICENSE). Bundled ExifTool files

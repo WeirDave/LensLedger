@@ -338,8 +338,10 @@ $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => actOnOpenFace('/api/faces/ignore');
 $('lightboxUnknownPerson').onclick = () => actOnOpenFace('/api/faces/unknown');
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
-$('menuToggle').onclick = e => { e.stopPropagation(); $('menuPanel').classList.toggle('open'); };
-document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) $('menuPanel').classList.remove('open'); });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLarge(); $('menuPanel').classList.remove('open'); } });
+function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}
+$('menuToggle').onclick = e => { e.stopPropagation(); if($('menuPanel').classList.contains('open'))closeMenu();else openMenu(); };
+$('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
+document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLarge(); closeMenu(); } });
 
 loadMore();
