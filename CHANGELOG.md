@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.39.1 — 2026-08-17
+
+- Fixed blank space between photo and filmstrip on desktop caused by sidebar backdrop taking a grid row.
+- Fixed filmstrip thumbnails being compressed into an auto-sized implicit grid row.
+- Redesigned light theme with warm tones and a dark photo stage for better contrast and depth.
+
 ## 0.39.0 — 2026-08-17
 
 - Added light mode and theme switching across all pages.
