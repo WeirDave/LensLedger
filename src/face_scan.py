@@ -91,7 +91,15 @@ def scan_for_faces(
                 image_bytes = np.fromfile(str(path), dtype=np.uint8)
                 image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
                 if image is None:
-                    raise ValueError("image could not be decoded")
+                    from PIL import Image
+                    try:
+                        from pillow_heif import register_heif_opener
+                        register_heif_opener()
+                    except ImportError:
+                        pass
+                    with Image.open(path) as pil_img:
+                        rgb = pil_img.convert("RGB")
+                        image = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
                 height, width = image.shape[:2]
                 faces = analyzer.get(image)
                 for face in faces:

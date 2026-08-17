@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.1 — 2026-08-17
+
+- Fixed HEIC support for face detection and face location recovery: OpenCV cannot decode HEIC natively, so the face scanner now falls back to Pillow when `cv2.imdecode` returns `None`.
+
 ## 0.43.0 — 2026-08-17
 
 - Added HEIC/HEIF image support: iPhone photos in HEIC format are now decoded for scanning, meaning search, face detection, and thumbnails. Added `pillow-heif` to base requirements.
