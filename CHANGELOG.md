@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.39.0 — 2026-08-17
+
+- Added light mode and theme switching across all pages.
+- Theme toggle button in every page header (sun/moon icon).
+- Preference saved in localStorage and restored on page load.
+- Follows the OS color scheme by default via `prefers-color-scheme`.
+- All hardcoded colors replaced with CSS custom properties in a shared theme file.
+
 ## 0.38.1 — 2026-08-17
 
 - Fixed desktop layout regression where the sidebar appeared below the photo instead of beside it.
