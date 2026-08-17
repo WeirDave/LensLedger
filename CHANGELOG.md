@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.23 — 2026-08-17
+
+- Fixed About button on people review and name faces pages showing "undefined" version and tagline by adding missing bootstrap data.
+- Converted menu sections to collapsible `<details>` groups matching the WaxFrame Professional pattern — Navigation opens by default, other sections are collapsed.
+- Widened menu panel from 300px to 320px to match WaxFrame.
+
 ## 0.43.22 — 2026-08-17
 
 - Fixed review card text layout: filenames, folder descriptions, and confidence percentages now all display fully instead of being truncated or squeezed out on narrow cards.

@@ -224,7 +224,7 @@ function setDispositionFromLightbox(value) {
 async function submitBatch() {
   const button = $('confirmBatch');
   button.disabled = true;
-  $('status').textContent = 'Saving decisions and publishing metadata…';
+  $('savingOverlay').classList.add('active');
   try {
     const decisions = batch.map(item => {
       const disposition = dispositions.get(item.id);
@@ -244,6 +244,8 @@ async function submitBatch() {
   } catch (error) {
     showError(error);
     button.disabled = false;
+  } finally {
+    $('savingOverlay').classList.remove('active');
   }
 }
 
@@ -315,6 +317,7 @@ $('lightboxNotAPerson').onclick = () => setDispositionFromLightbox('not_a_person
 $('lightboxUnknownPerson').onclick = () => setDispositionFromLightbox('unknown_person');
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
 function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}
+document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{closeMenu();if(b.dataset.panel==='about')alert('LensLedger v'+LL.appVersion+'\n'+LL.appTagline+'\n\nLocal-first photo and video indexing, search, people review, and safe metadata publishing for Windows.')});
 $('menuToggle').onclick = e => { e.stopPropagation(); if($('menuPanel').classList.contains('open'))closeMenu();else openMenu(); };
 $('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
 document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
