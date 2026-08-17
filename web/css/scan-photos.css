@@ -8,7 +8,7 @@ main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .card h2{margin:0 0 8px;font-size:13.5px;font-weight:750;letter-spacing:.1px;color:var(--text-heading)}
 .section-title{display:flex;align-items:center;gap:7px;position:relative;margin:0 0 8px}
 .section-title h2{margin:0}
-.info-button{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;border-radius:50%;border:1.5px solid var(--accent);background:transparent;color:var(--accent);font-size:13px;font-weight:700;font-style:italic;font-family:Georgia,Times,serif;line-height:1;cursor:pointer;flex:0 0 auto;opacity:.85}.info-button:hover{opacity:1;background:var(--accent);color:var(--bg)}
+.info-button{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;border-radius:50%;border:1px solid currentColor;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;font-style:normal;font-family:inherit;line-height:1;cursor:help;flex:0 0 auto}.info-button:hover{color:var(--text)}
 .help-popover{display:none;position:absolute;z-index:10;left:0;top:24px;width:min(380px,90vw);padding:9px 11px;background:var(--popover-bg);border:1px solid var(--popover-border);border-radius:8px;color:var(--popover-text);font-size:11.5px;line-height:1.45;box-shadow:var(--shadow-md)}
 .help-popover.open{display:block}
 .health-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:8px}

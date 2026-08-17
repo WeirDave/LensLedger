@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.41.4 — 2026-08-17
+
+- Refined info button styling: uses `currentColor` border to inherit the surrounding text color, standard 16px size, `cursor:help`, and system font — looks like a native part of the page in both themes.
+
 ## 0.41.3 — 2026-08-17
 
 - Restyled all info buttons across the app: replaced the hard-to-read ⓘ Unicode character with a clean serif italic "i", added a visible accent-colored border, transparent background, and hover state that fills with the accent color.
