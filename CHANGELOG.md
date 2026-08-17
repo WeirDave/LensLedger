@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.3 — 2026-08-17
+
+- Moved the "Starting LensLedger..." message to the very top of the launcher script so it appears instantly when the console window opens, before the stale-server cleanup and Python loading.
+
 ## 0.43.2 — 2026-08-17
 
 - Fixed "Empty trash" and single-item trash deletion hanging: both referenced a nonexistent `faces` table instead of the correct `face_embeddings` table, causing a silent server error with no user feedback.
