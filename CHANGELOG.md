@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.12 — 2026-08-17
+
+- Standardized headers on the Name faces and People review pages to match the main photo library layout.
+- Added hamburger menu button for navigation instead of inline quick-nav links.
+- Moved version badge next to the logo/title, theme toggle to the far right, and unidentified count next to it.
+
 ## 0.43.11 — 2026-08-17
 
 - Removed the duplicate "Loading LensLedger..." message — the .cmd "Starting LensLedger..." is sufficient.

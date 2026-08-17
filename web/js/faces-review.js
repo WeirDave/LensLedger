@@ -331,6 +331,8 @@ $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => actOnOpenFace('/api/faces/ignore');
 $('lightboxUnknownPerson').onclick = () => actOnOpenFace('/api/faces/unknown');
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
-document.addEventListener('keydown', event => { if (event.key === 'Escape') closeLarge(); });
+$('menuToggle').onclick = e => { e.stopPropagation(); $('menuPanel').classList.toggle('open'); };
+document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) $('menuPanel').classList.remove('open'); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLarge(); $('menuPanel').classList.remove('open'); } });
 
 loadMore();

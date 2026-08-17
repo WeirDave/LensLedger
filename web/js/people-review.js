@@ -313,7 +313,9 @@ $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => setDispositionFromLightbox('not_a_person');
 $('lightboxUnknownPerson').onclick = () => setDispositionFromLightbox('unknown_person');
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
-document.addEventListener('keydown', event => { if (event.key === 'Escape') closeLarge(); });
+$('menuToggle').onclick = e => { e.stopPropagation(); $('menuPanel').classList.toggle('open'); };
+document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) $('menuPanel').classList.remove('open'); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLarge(); $('menuPanel').classList.remove('open'); } });
 loadQueue(initialPersonId).catch(error => {
   $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review could not open</h2><p></p></div></div>';
   $('reviewArea').querySelector('p').textContent = error.message;
