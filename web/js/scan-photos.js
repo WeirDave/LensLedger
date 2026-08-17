@@ -140,14 +140,7 @@ function errorListNode(errors) {
       setTimeout(() => { copyBtn.textContent = 'Copy all to clipboard'; }, 2000);
     });
   };
-  const reportLink = document.createElement('a');
-  reportLink.className = 'error-report-link';
-  reportLink.href = 'https://github.com/WeirDave/LensLedger/issues/new?'
-    + new URLSearchParams({ title: 'Scan error report', body: `**LensLedger version:** ${LL.version || 'unknown'}\n\n**Errors (${errors.length}):**\n\n` + errors.slice(0, 20).map(e => `- \`${e.path}\`\n  \`${e.error}\``).join('\n') + (errors.length > 20 ? `\n\n…and ${errors.length - 20} more (use "Copy all to clipboard" and paste the full list)` : '') });
-  reportLink.target = '_blank';
-  reportLink.rel = 'noopener';
-  reportLink.textContent = 'Report on GitHub';
-  footer.append(copyBtn, reportLink);
+  footer.append(copyBtn);
   wrapper.append(footer);
   return wrapper;
 }

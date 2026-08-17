@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.17 — 2026-08-17
+
+- Removed the "Report on GitHub" link from the scan error modal — known errors are explained in-place and don't need a bug report.
+- Added a "Help & support" link to the main menu on all pages (photo library, people review, name faces) that opens the GitHub issues page for general support and bug reporting.
+
 ## 0.43.16 — 2026-08-17
 
 - Enhanced the scan error modal with human-readable explanations for common errors, a "Copy all to clipboard" button, and a "Report on GitHub" link that pre-fills an issue with version and error details.
