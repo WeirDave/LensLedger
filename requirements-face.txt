@@ -2,4 +2,4 @@
 # InsightFace's published pretrained model packs have separate, non-commercial
 # research terms; LensLedger does not bundle or redistribute a model.
 insightface>=1.0.1,<2
-onnxruntime>=1.24,<2
+onnxruntime>=1.28,<2

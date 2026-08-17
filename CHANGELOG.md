@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.5 — 2026-08-17
+
+- Updated all third-party dependency version floors to the latest releases: Pillow 12.3, pillow-heif 1.5, onnxruntime 1.28, open_clip_torch 3.3, torch 2.13.
+
 ## 0.43.4 — 2026-08-17
 
 - Patched insightface's deprecated `SimilarityTransform.estimate()` call with the newer `from_estimate()` class constructor, preventing a FutureWarning on scikit-image >= 0.26 and a hard error on >= 2.2. Falls back to the old API on older scikit-image versions.
