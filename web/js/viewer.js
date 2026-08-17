@@ -9,29 +9,102 @@ function renderSubject(detail){const holder=$('subjectChip');if(!detail.subject)
 function renderChips(detail){renderSubject(detail);$('imageTags').replaceChildren(...detail.image_tags.map(t=>chip(t,'image')));$('contextTags').replaceChildren(...detail.context_tags.map(t=>chip(t,'context')));const hidden=detail.hidden_tags.map(name=>{const e=document.createElement('button');e.className='chip hidden';e.textContent='Restore '+name;e.onclick=()=>restoreTag(name);return e});$('hiddenTags').replaceChildren(...hidden);$('hiddenSection').style.display=hidden.length?'block':'none'}
 function renderPeople(detail){const confirmed=detail.confirmed_people.map(person=>{const el=document.createElement('span');el.className='chip person';el.append(document.createTextNode(person.name));const remove=document.createElement('button');remove.textContent='×';remove.title='Remove this person from the photo';remove.onclick=()=>changePerson(person.name,'rejected');el.append(remove);return el});$('confirmedPeople').replaceChildren(...confirmed);const suggested=detail.suggested_people.map(person=>{const el=document.createElement('span');el.className='chip suggestion';el.append(document.createTextNode(person.name+' '+Math.round(person.confidence*100)+'%'));const accept=document.createElement('button');accept.className='accept-person';accept.textContent='✓';accept.title='Confirm this person';accept.onclick=()=>changePerson(person.name,'confirmed');const reject=document.createElement('button');reject.textContent='×';reject.title='Reject this suggestion';reject.onclick=()=>changePerson(person.name,'rejected');el.append(accept,reject);return el});$('suggestedPeople').replaceChildren(...suggested);$('suggestionLabel').style.display=suggested.length?'block':'none';sidebarKnownPeople=detail.people_options}
 function renderEmbeddedMetadata(meta){const holder=$('metadataReadout');holder.replaceChildren();let count=0;for(const [key,title] of [['descriptive','Description and ownership'],['capture','Capture details']]){const items=meta?.[key]||[];if(!items.length)continue;count+=items.length;const group=document.createElement('section');group.className='metadata-group';const heading=document.createElement('h3');heading.textContent=title;const list=document.createElement('dl');for(const item of items){const row=document.createElement('div');row.className='metadata-item';const term=document.createElement('dt');term.textContent=item.label;const value=document.createElement('dd');if(item.href){const link=document.createElement('a');link.href=item.href;link.target='_blank';link.rel='noopener';link.title='Open this location on the local photo map';link.textContent=item.value+'  ↗';value.append(link);if(item.osmHref){value.append(' · ');const osmLink=document.createElement('a');osmLink.href=item.osmHref;osmLink.target='_blank';osmLink.rel='noopener';osmLink.title='Open this location on OpenStreetMap';osmLink.textContent='OpenStreetMap ↗';value.append(osmLink)}}else value.textContent=item.value;row.append(term,value);list.append(row)}group.append(heading,list);holder.append(group)}if(!count){const empty=document.createElement('div');empty.className='metadata-empty';empty.textContent='No readable embedded details were found in this file.';holder.append(empty)}}
+let zoomScale=1,panX=0,panY=0,zoomMedia=null,zoomResizeObserver=null;
+function applyZoomTransform(){
+  if(!zoomMedia)return;
+  zoomMedia.style.transform=zoomScale===1?'':'scale('+zoomScale+') translate('+panX+'px,'+panY+'px)';
+  zoomMedia.classList.toggle('zoomed',zoomScale>1);
+  const controls=$('zoomControls');
+  controls.classList.toggle('visible',zoomScale>1);
+  $('zoomLevel').textContent=Math.round(zoomScale*100)+'%';
+}
+function clampPan(){
+  if(!zoomMedia||zoomScale<=1){panX=0;panY=0;return}
+  const stageW=stage.clientWidth,stageH=stage.clientHeight;
+  const fitScale=Math.min(zoomMedia.clientWidth/zoomMedia.naturalWidth,zoomMedia.clientHeight/zoomMedia.naturalHeight);
+  const imgW=zoomMedia.naturalWidth*fitScale*zoomScale,imgH=zoomMedia.naturalHeight*fitScale*zoomScale;
+  const maxPanX=Math.max(0,(imgW-stageW)/(2*zoomScale));
+  const maxPanY=Math.max(0,(imgH-stageH)/(2*zoomScale));
+  panX=Math.max(-maxPanX,Math.min(maxPanX,panX));
+  panY=Math.max(-maxPanY,Math.min(maxPanY,panY));
+}
+function resetZoom(){zoomScale=1;panX=0;panY=0;applyZoomTransform()}
+function initZoom(media){
+  zoomMedia=media;zoomScale=1;panX=0;panY=0;
+  media.style.transformOrigin='center center';
+  applyZoomTransform();
+}
+stage.addEventListener('wheel',e=>{
+  if(!zoomMedia||zoomMedia.tagName==='VIDEO')return;
+  e.preventDefault();
+  const prev=zoomScale;
+  const factor=e.deltaY<0?1.15:1/1.15;
+  zoomScale=Math.max(1,Math.min(20,zoomScale*factor));
+  if(zoomScale===1){panX=0;panY=0}
+  else{
+    const rect=zoomMedia.getBoundingClientRect();
+    const cx=(e.clientX-rect.left)/rect.width-0.5;
+    const cy=(e.clientY-rect.top)/rect.height-0.5;
+    panX-=cx*(zoomScale-prev)/zoomScale*zoomMedia.clientWidth/zoomScale;
+    panY-=cy*(zoomScale-prev)/zoomScale*zoomMedia.clientHeight/zoomScale;
+  }
+  clampPan();applyZoomTransform();repositionFaceBox()
+},{passive:false});
+let panActive=false,panStartX=0,panStartY=0,panStartPanX=0,panStartPanY=0,panPointerId=null;
+stage.addEventListener('pointerdown',e=>{
+  if(!zoomMedia||zoomScale<=1||e.button!==0||e.target.closest('.stage-nav,.zoom-controls'))return;
+  panActive=true;panPointerId=e.pointerId;panStartX=e.clientX;panStartY=e.clientY;panStartPanX=panX;panStartPanY=panY;
+  zoomMedia.classList.add('panning');stage.setPointerCapture(e.pointerId);e.preventDefault()
+});
+stage.addEventListener('pointermove',e=>{
+  if(!panActive||e.pointerId!==panPointerId)return;
+  panX=panStartPanX+(e.clientX-panStartX)/zoomScale;
+  panY=panStartPanY+(e.clientY-panStartY)/zoomScale;
+  clampPan();applyZoomTransform();repositionFaceBox()
+});
+stage.addEventListener('pointerup',e=>{
+  if(!panActive||e.pointerId!==panPointerId)return;
+  panActive=false;zoomMedia?.classList.remove('panning');
+  if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId)
+});
+stage.addEventListener('pointercancel',()=>{panActive=false;zoomMedia?.classList.remove('panning')});
+stage.addEventListener('dblclick',e=>{
+  if(!zoomMedia||zoomMedia.tagName==='VIDEO'||e.target.closest('.stage-nav,.zoom-controls'))return;
+  if(zoomScale>1){resetZoom();repositionFaceBox();return}
+  zoomScale=3;clampPan();applyZoomTransform();repositionFaceBox()
+});
+$('zoomReset').onclick=()=>{resetZoom();repositionFaceBox()};
+
+let faceBoxMarker=null,faceBoxFace=null,faceBoxMedia=null;
+function repositionFaceBox(){
+  if(!faceBoxMarker||!faceBoxMedia||!faceBoxFace)return;
+  const media=faceBoxMedia,face=faceBoxFace,marker=faceBoxMarker;
+  if(!media.naturalWidth||!media.naturalHeight)return;
+  const fitScale=Math.min(media.clientWidth/media.naturalWidth,media.clientHeight/media.naturalHeight);
+  const shownWidth=media.naturalWidth*fitScale,shownHeight=media.naturalHeight*fitScale;
+  const mediaRect=media.getBoundingClientRect(),stageRect=stage.getBoundingClientRect();
+  const offsetX=mediaRect.left-stageRect.left+(media.clientWidth-shownWidth)/2;
+  const offsetY=mediaRect.top-stageRect.top+(media.clientHeight-shownHeight)/2;
+  marker.style.left=(offsetX+face.box_left*shownWidth)+'px';
+  marker.style.top=(offsetY+face.box_top*shownHeight)+'px';
+  marker.style.width=((face.box_right-face.box_left)*shownWidth)+'px';
+  marker.style.height=((face.box_bottom-face.box_top)*shownHeight)+'px';
+}
 function renderFocusedFace(media,face){
+  faceBoxMarker=null;faceBoxFace=null;faceBoxMedia=null;
   if(!media||media.tagName!=='IMG'||!face||![face.box_left,face.box_top,face.box_right,face.box_bottom].every(Number.isFinite))return;
   const marker=document.createElement('div');
   marker.className='focused-face-box';
   marker.textContent='Face for '+face.name;
   Object.assign(marker.style,{position:'absolute',zIndex:'1',pointerEvents:'none',border:'3px solid #e2903f',boxShadow:'0 0 0 2px #00131b,0 0 18px #e2903faa',borderRadius:'4px',color:'#fff3e0',fontWeight:'800',fontSize:'12px'});
-  const position=()=>{
-    if(!media.naturalWidth||!media.naturalHeight)return;
-    const scale=Math.min(media.clientWidth/media.naturalWidth,media.clientHeight/media.naturalHeight);
-    const shownWidth=media.naturalWidth*scale,shownHeight=media.naturalHeight*scale;
-    const mediaRect=media.getBoundingClientRect(),stageRect=stage.getBoundingClientRect();
-    const offsetX=mediaRect.left-stageRect.left+(media.clientWidth-shownWidth)/2;
-    const offsetY=mediaRect.top-stageRect.top+(media.clientHeight-shownHeight)/2;
-    marker.style.left=(offsetX+face.box_left*shownWidth)+'px';
-    marker.style.top=(offsetY+face.box_top*shownHeight)+'px';
-    marker.style.width=((face.box_right-face.box_left)*shownWidth)+'px';
-    marker.style.height=((face.box_bottom-face.box_top)*shownHeight)+'px';
-  };
+  faceBoxMarker=marker;faceBoxFace=face;faceBoxMedia=media;
   stage.append(marker);
   stage.querySelectorAll('.stage-nav').forEach(button=>button.style.zIndex='2');
-  media.addEventListener('load',position,{once:true});
-  if(media.complete)position();
-  new ResizeObserver(position).observe(stage);
+  media.addEventListener('load',repositionFaceBox,{once:true});
+  if(media.complete)repositionFaceBox();
+  if(zoomResizeObserver)zoomResizeObserver.disconnect();
+  zoomResizeObserver=new ResizeObserver(repositionFaceBox);
+  zoomResizeObserver.observe(stage);
 }
 async function selectAsset(id){
   selectedId=Number(id);
@@ -42,10 +115,11 @@ async function selectAsset(id){
     const r=await fetch(detailUrl);if(!r.ok)throw new Error('Could not load photo');
     const d=await r.json();currentDetail=d;
     stage.querySelectorAll('img,video,.empty,.raw-preview,.focused-face-box').forEach(x=>x.remove());
+    resetZoom();zoomMedia=null;
     if(d.media_type==='raw'){
       const raw=document.createElement('div');raw.className='raw-preview';raw.innerHTML='<strong>RAW photo</strong>LensLedger indexed this original file.<br>A browser preview is not available yet.';stage.prepend(raw);
     }else{
-      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media);renderFocusedFace(media,d.focused_person_face);
+      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media);initZoom(media);renderFocusedFace(media,d.focused_person_face);
     }
     $('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';personPicker?.reset();$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'Only this selected photo will be changed, and only after you approve the preview.':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderEmbeddedMetadata(d.embedded_metadata);setStatus('');
   }catch(e){setStatus(e.message,true)}

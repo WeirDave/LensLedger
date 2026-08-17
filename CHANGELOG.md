@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.34.0 — 2026-08-16
+
+- Added photo zoom and pan to the main viewer stage.
+- Scroll wheel zooms in and out on the photo (up to 20x).
+- Click-and-drag pans around the photo when zoomed in.
+- Double-click zooms to 300%; double-click again resets to fit.
+- Zoom level indicator and "Reset zoom" button appear in the bottom-left corner when zoomed.
+- Zoom resets automatically when navigating to a different photo.
+- Face bounding box overlay repositions correctly when zooming and panning.
+
 ## 0.33.2 — 2026-08-14
 
 - Removed a redundant comment above `progressSuffix()` in scan-photos.js
