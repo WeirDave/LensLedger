@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.2 — 2026-08-17
+
+- Fixed "Empty trash" and single-item trash deletion hanging: both referenced a nonexistent `faces` table instead of the correct `face_embeddings` table, causing a silent server error with no user feedback.
+- Added `search_fts` cleanup when permanently deleting trashed items, preventing orphan search-index rows.
+- Added error handling to the trash panel's "Empty trash" and "Delete" buttons so failures now show a status message instead of silently disabling the button.
+
 ## 0.43.1 — 2026-08-17
 
 - Fixed HEIC support for face detection and face location recovery: OpenCV cannot decode HEIC natively, so the face scanner now falls back to Pillow when `cv2.imdecode` returns `None`.
