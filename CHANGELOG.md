@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.6 — 2026-08-17
+
+- Moved the Trash button from the top toolbar into the sidebar card and renamed it to "Trash this photo" for clarity.
+
 ## 0.43.5 — 2026-08-17
 
 - Updated all third-party dependency version floors to the latest releases: Pillow 12.3, pillow-heif 1.5, onnxruntime 1.28, open_clip_torch 3.3, torch 2.13.
