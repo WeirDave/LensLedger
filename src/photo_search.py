@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 if __name__ == "__main__":
-    print("\n  Loading LensLedger...\n"
-          "  (If you still have a previous browser tab open, you can close it.)\n",
-          flush=True)
+    import sys as _sys
+    _msg = "\n  Loading LensLedger..."
+    if "--restarted" in _sys.argv:
+        _msg += "\n  (If you still have a previous browser tab open, you can close it.)"
+    print(_msg + "\n", flush=True)
+    del _msg
 
 import argparse
 import datetime as dt
@@ -3381,6 +3384,7 @@ def main():
     parser.add_argument("--root", type=Path)
     parser.add_argument("--port", type=int, default=5309)
     parser.add_argument("--no-open", action="store_true")
+    parser.add_argument("--restarted", action="store_true")
     args = parser.parse_args()
     root = (args.root or load_library_state()).resolve()
     database = (args.db or library_db_path(root)).resolve()

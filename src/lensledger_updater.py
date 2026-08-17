@@ -695,8 +695,11 @@ def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> 
     (see close_old_launcher_window) -- so a failure to launch never leaves
     the user with no LensLedger window at all, just a stale extra one."""
     if os.name == "nt":
+        cmd = str(install_root / "Start LensLedger.cmd")
+        if old_window_pid:
+            cmd += " --restarted"
         subprocess.Popen(
-            ["cmd.exe", "/c", str(install_root / "Start LensLedger.cmd")], cwd=install_root,
+            ["cmd.exe", "/c", cmd], cwd=install_root,
             close_fds=True,
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )

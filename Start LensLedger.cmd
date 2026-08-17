@@ -53,7 +53,7 @@ REM window, which is why the check below matches on the parent process
 REM being cmd.exe with this exact script on its command line.
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5309 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $ownerId = $_.OwningProcess; $owner = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownerId) -ErrorAction SilentlyContinue; if ($owner) { $parent = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $owner.ParentProcessId) -ErrorAction SilentlyContinue; if ($parent -and $parent.Name -eq 'cmd.exe' -and $parent.CommandLine -like '*Start LensLedger.cmd*') { Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue } }; Stop-Process -Id $ownerId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
-python src\photo_search.py
+python src\photo_search.py %*
 
 if errorlevel 1 (
     echo.
