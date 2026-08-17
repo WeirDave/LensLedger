@@ -56,6 +56,11 @@ class OpenClipEncoder:
             raise RuntimeError(
                 "Local meaning search is optional. Install requirements-semantic.txt first."
             ) from exc
+        import logging
+        import warnings
+        logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
+        warnings.filterwarnings("ignore", message="QuickGELU mismatch", module="open_clip")
+        Image.MAX_IMAGE_PIXELS = None
         self.torch = torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(

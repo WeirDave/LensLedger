@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.42.1 — 2026-08-17
+
+- Suppressed noisy third-party warnings from Hugging Face Hub, OpenCLIP, and Pillow that appeared during semantic search — no data is sent externally; the CLIP model runs entirely locally once downloaded.
+
 ## 0.42.0 — 2026-08-17
 
 - Added stale-server detection: the app now checks every 30 seconds whether the running server version matches the on-disk version, and shows a warning banner with a one-click restart button when they differ.
