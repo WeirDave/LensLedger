@@ -697,7 +697,7 @@ def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> 
     if os.name == "nt":
         subprocess.Popen(
             ["cmd.exe", "/c", str(install_root / "Start LensLedger.cmd")], cwd=install_root,
-            stdin=subprocess.DEVNULL, close_fds=True,
+            close_fds=True,
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
     else:

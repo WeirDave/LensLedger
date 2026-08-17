@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.8 — 2026-08-17
+
+- Fixed blank console window on restart: the server's stdout was being sent to the updater's log file instead of the console because `stdin=subprocess.DEVNULL` forced Python to wire all three standard handles through `STARTUPINFO`, bypassing the new console. Removed the explicit stdin override so `CREATE_NEW_CONSOLE` works as intended.
+
 ## 0.43.7 — 2026-08-17
 
 - Added an early "Loading LensLedger..." message that prints before heavy Python imports begin, so the console window is never blank during startup or restart.
