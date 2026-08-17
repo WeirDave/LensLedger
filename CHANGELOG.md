@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.40.1 — 2026-08-17
+
+- Doubled the logo size in the header across all pages.
+
 ## 0.40.0 — 2026-08-17
 
 - Switched to vintage monochrome logo (camera shutter in muted grays).
