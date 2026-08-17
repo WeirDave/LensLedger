@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.38.0 — 2026-08-16
+
+- Photo map now uses dynamic clustering: markers re-group automatically as you zoom in and out.
+- Clicking a multi-photo cluster zooms into it, splitting it into smaller clusters or individual pins.
+- Server returns finer-grained location data (100m grid instead of 11km), enabling much better detail when zoomed in.
+- Maximum zoom increased from 8x to 32x for close-range exploration.
+- Only markers visible in the current viewport are rendered, improving performance with large libraries.
+- Panning and zooming trigger re-clustering with a debounced update for smooth interaction.
+
 ## 0.37.0 — 2026-08-16
 
 - Photo locations (GPS) scan now shows a progress bar with percentage and ETA on rescans.

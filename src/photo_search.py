@@ -778,9 +778,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                    FROM assets
                    WHERE in_review_bin=0 AND gps_latitude IS NOT NULL
                          AND gps_longitude IS NOT NULL
-                   GROUP BY ROUND(gps_latitude, 1), ROUND(gps_longitude, 1)
+                   GROUP BY ROUND(gps_latitude, 3), ROUND(gps_longitude, 3)
                    ORDER BY photo_count DESC, first_date DESC
-                   LIMIT 5000"""
+                   LIMIT 50000"""
             ).fetchall()
         self.send_json({
             "located": located,
