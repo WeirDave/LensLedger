@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.38.1 — 2026-08-17
+
+- Fixed desktop layout regression where the sidebar appeared below the photo instead of beside it.
+
 ## 0.38.0 — 2026-08-16
 
 - Photo map now uses dynamic clustering: markers re-group automatically as you zoom in and out.
