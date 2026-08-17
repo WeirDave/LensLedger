@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.20 — 2026-08-17
+
+- Fixed "invalid request token" error after server restart — pages now auto-reload to get a fresh session token instead of showing a cryptic error message.
+
 ## 0.43.19 — 2026-08-17
 
 - Redesigned main menu as a full-height slide-out panel with branded header, section labels, dividers, and badge counts — consistent with the navigation pattern used in WaxFrame Professional.
