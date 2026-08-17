@@ -39,6 +39,37 @@ def is_available() -> bool:
     return True
 
 
+def _patch_face_align():
+    """Replace deprecated SimilarityTransform.estimate() call in insightface
+    with the newer from_estimate() class constructor so scikit-image >= 0.26
+    doesn't warn and >= 2.2 doesn't break."""
+    from insightface.utils import face_align
+    from skimage import transform as trans
+    import numpy as np
+
+    _original = face_align.estimate_norm
+
+    def _patched_estimate_norm(lmk, image_size=112, mode='arcface'):
+        assert lmk.shape == (5, 2)
+        assert image_size % 112 == 0 or image_size % 128 == 0
+        if image_size % 112 == 0:
+            ratio = float(image_size) / 112.0
+            diff_x = 0
+        else:
+            ratio = float(image_size) / 128.0
+            diff_x = 8.0 * ratio
+        dst = face_align.arcface_dst * ratio
+        dst[:, 0] += diff_x
+        if hasattr(trans.SimilarityTransform, 'from_estimate'):
+            tform = trans.SimilarityTransform.from_estimate(lmk, dst)
+        else:
+            tform = trans.SimilarityTransform()
+            tform.estimate(lmk, dst)
+        return tform.params[0:2, :]
+
+    face_align.estimate_norm = _patched_estimate_norm
+
+
 def load_insightface_runtime(model_name: str, model_root: Path | None):
     try:
         import cv2
@@ -49,6 +80,7 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
             "Face location recovery is optional. Install requirements-face.txt "
             "with this Python interpreter first."
         ) from exc
+    _patch_face_align()
     options = {
         "name": model_name, "providers": ["CPUExecutionProvider"],
         # buffalo_l's full pack also includes gender/age and 3D/2D landmark

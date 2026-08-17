@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.4 — 2026-08-17
+
+- Patched insightface's deprecated `SimilarityTransform.estimate()` call with the newer `from_estimate()` class constructor, preventing a FutureWarning on scikit-image >= 0.26 and a hard error on >= 2.2. Falls back to the old API on older scikit-image versions.
+
 ## 0.43.3 — 2026-08-17
 
 - Moved the "Starting LensLedger..." message to the very top of the launcher script so it appears instantly when the console window opens, before the stale-server cleanup and Python loading.
