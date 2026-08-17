@@ -678,8 +678,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.learn_people(body)
             if route == "/api/people/review/defer":
                 return self.defer_people_review(body)
+            if route == "/api/tag/add-batch":
+                return self.add_tag_batch(body)
             if route == "/api/review-bin":
                 return self.move_to_review_bin(body)
+            if route == "/api/review-bin/batch":
+                return self.move_to_review_bin_batch(body)
             if route == "/api/review-bin/restore":
                 return self.restore_from_review_bin(body)
             if route == "/api/publish/preview":
@@ -1179,7 +1183,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="publish-section" id="publishSection"><div class="section-title"><h2>Publish to this photo</h2><button type="button" class="info-button" data-help="publishHelp" aria-label="About publishing">ⓘ</button></div><div class="help-popover" id="publishHelp">Writes the primary subject as Title/Headline, confirmed people as People Shown, all visible Photo, People, and Event tags as Keywords, and the description below into this JPEG. A safety backup is made first and the picture pixels are verified afterward.</div><label>Photo description<textarea id="publishDescription" placeholder="Describe what is actually in this photo"></textarea></label><div class="publish-actions"><button type="button" id="previewPublish">Preview &amp; publish</button><button type="button" class="secondary" id="restorePublish">Restore last publish</button></div><p class="publish-note" id="publishNote">Only this selected photo will be changed, and only after you approve the preview.</p></section>
 <details class="metadata-details" id="embeddedMetadata"><summary>Information already in this photo</summary><p class="metadata-note">Read directly from the photo. Nothing here changes the file.</p><div class="metadata-readout" id="metadataReadout"></div></details>
 <div class="section" id="hiddenSection"><div class="section-title"><h2>Hidden tags</h2><button type="button" class="info-button" data-help="hiddenTagHelp" aria-label="About hidden tags">ⓘ</button></div><div class="help-popover" id="hiddenTagHelp">These tags are ignored only for this photo. Click one to restore it.</div><div class="chips" id="hiddenTags"></div></div><div class="status" id="status"></div>
-</aside></section><section class="filmstrip" id="filmstrip"></section></main><div class="toast" id="toast"></div>
+</aside></section><section class="filmstrip" id="filmstrip"></section></main><div class="batch-bar" id="batchBar"><span class="batch-count" id="batchCount">0 selected</span><input id="batchTagInput" placeholder="Add tags to selected"><button type="button" id="batchAddTags">Add tags</button><button type="button" class="danger" id="batchTrash">Trash selected</button><button type="button" class="secondary" id="batchClear">Clear</button></div><div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="modalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h2 id="modalTitle"></h2><button type="button" class="modal-close" id="modalClose">Close</button></div><div id="modalBody"></div></section></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/viewer.js')}" defer></script></body></html>"""
@@ -3095,6 +3099,39 @@ class SearchHandler(BaseHTTPRequestHandler):
             set_source_tags(con, asset_id, "asset_rule", names); rebuild_search_row(con, asset_id)
         self.send_json({"ok": True, "added": len(incoming)})
 
+    def add_tag_batch(self, body):
+        ids = body.get("ids", [])
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("select at least one photo")
+        if len(ids) > 500:
+            raise ValueError("too many photos selected (max 500)")
+        incoming = [
+            clean_tag(part) for part in re.split(r"[,;\n]+", str(body.get("tag", "")))
+            if clean_tag(part)
+        ]
+        if not incoming:
+            raise ValueError("enter at least one tag")
+        total = 0
+        with self.db() as con:
+            for asset_id in ids:
+                asset_id = int(asset_id)
+                asset = self.get_active_asset(con, asset_id)
+                row = con.execute("SELECT subject,tags FROM asset_annotations WHERE relative_path=?", (asset["relative_path"],)).fetchone()
+                names = split_tags(row["tags"] if row else "")
+                known = {name.casefold() for name in names}
+                added = 0
+                for tag in incoming:
+                    if tag.casefold() not in known:
+                        names.append(tag); known.add(tag.casefold()); added += 1
+                if added:
+                    con.execute("""INSERT INTO asset_annotations(relative_path,subject,tags) VALUES (?,?,?)
+                        ON CONFLICT(relative_path) DO UPDATE SET tags=excluded.tags""", (asset["relative_path"], row["subject"] if row else "", ";".join(names)))
+                    for tag in incoming:
+                        con.execute("DELETE FROM asset_tag_exclusions WHERE relative_path=? AND tag=? COLLATE NOCASE", (asset["relative_path"], tag))
+                    set_source_tags(con, asset_id, "asset_rule", names); rebuild_search_row(con, asset_id)
+                    total += 1
+        self.send_json({"ok": True, "photos_tagged": total, "tags_applied": len(incoming)})
+
     def add_folder_tag(self, body):
         asset_id = int(body["id"])
         incoming = [
@@ -3165,6 +3202,33 @@ class SearchHandler(BaseHTTPRequestHandler):
                 VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
             con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
         self.send_json({"ok": True, "review_id": review_id})
+
+    def move_to_review_bin_batch(self, body):
+        ids = body.get("ids", [])
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("select at least one photo")
+        if len(ids) > 500:
+            raise ValueError("too many photos selected (max 500)")
+        review_ids = []
+        with self.db() as con:
+            for asset_id in ids:
+                asset_id = int(asset_id)
+                asset = self.get_active_asset(con, asset_id)
+                source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
+                if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
+                    continue
+                review_root = review_bin_root().resolve()
+                destination = review_root / Path(asset["relative_path"])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.exists():
+                    destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
+                destination.resolve().relative_to(review_root)
+                shutil.move(str(source), str(destination))
+                review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
+                    VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
+                con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
+                review_ids.append(review_id)
+        self.send_json({"ok": True, "moved": len(review_ids), "review_ids": review_ids})
 
     def restore_from_review_bin(self, body):
         review_id = int(body["review_id"])

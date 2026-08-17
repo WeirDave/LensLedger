@@ -172,7 +172,70 @@ async function previewPublish(){if(!currentDetail?.publishable)return;try{const 
 async function restorePublished(){if(!currentDetail?.can_restore_publish||!confirm('Restore “'+currentDetail.filename+'” from the safety backup made before its last publish?'))return;try{const result=await api('/api/publish/restore',{id:selectedId});await selectAsset(selectedId);setStatus(result.message)}catch(e){setStatus(e.message,true)}}
 async function openTrashPanel(){const body=document.createElement('div');body.className='trash-list';openModal('Trash & restore',body);try{const r=await fetch('/api/trash');const data=await r.json();if(!data.items.length){const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty);return}data.items.forEach(item=>{const row=document.createElement('div');row.className='trash-item';const meta=document.createElement('div');meta.className='trash-meta';const strong=document.createElement('strong');strong.textContent=item.name;const small=document.createElement('small');small.textContent=item.path;meta.append(strong,small);const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=async()=>{await api('/api/review-bin/restore',{review_id:item.id});location.reload()};row.append(meta,restore);body.append(row)})}catch(e){body.textContent=e.message}}
 async function openMenuPanel(name){$('menuPanel').classList.remove('open');if(name==='library')return openLibraryPanelV2();if(name==='update')return openUpdatePanel();if(name==='guide')return openModal('Quick guide',textPanel(['Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.','Face matches are suggestions until you confirm them. Open Information already in this photo to see readable EXIF, IPTC, and XMP details already stored in the file.']));if(name==='about')return openModal('About LensLedger',textPanel(['LensLedger v'+LL.appVersion+' — '+LL.appTagline,'Current photo library: '+currentLibrary,'Each library has a separate index. Approved People-review decisions publish immediately; other edits use Preview & Publish. Every write creates a safety backup and verifies the picture pixels.']));if(name==='trash')return openTrashPanel()}
-function buildThumb(item){const b=document.createElement('button');b.className='thumb';b.dataset.id=item.id;b.title=item.filename;b.onclick=()=>selectAsset(item.id);if(item.media_type==='image'){const img=document.createElement('img');img.loading='lazy';img.src='/media?id='+item.id;b.append(img)}else{const v=document.createElement('div');v.className='video-label';v.textContent=item.media_type==='raw'?'RAW':'▶ VIDEO';b.append(v)}const s=document.createElement('span');s.textContent=(item.capture_date||'')+'  '+item.filename;b.append(s);return b}
+const batchSelected=new Set();let lastClickedThumbIndex=null;
+function updateBatchBar(){
+  const count=batchSelected.size;
+  $('batchBar').classList.toggle('visible',count>0);
+  $('batchCount').textContent=count+' selected';
+}
+function toggleBatchSelect(id,thumb){
+  if(batchSelected.has(id)){batchSelected.delete(id);thumb.classList.remove('selected')}
+  else{batchSelected.add(id);thumb.classList.add('selected')}
+  updateBatchBar();
+}
+function clearBatchSelection(){
+  batchSelected.clear();
+  document.querySelectorAll('.thumb.selected').forEach(t=>t.classList.remove('selected'));
+  updateBatchBar();
+}
+async function batchAddTags(){
+  const tag=$('batchTagInput').value.trim();
+  if(!tag){setStatus('Enter tags first',true);return}
+  if(!batchSelected.size)return;
+  $('batchAddTags').disabled=true;
+  try{
+    const result=await api('/api/tag/add-batch',{ids:[...batchSelected],tag});
+    $('batchTagInput').value='';
+    setStatus(result.tags_applied+' tag(s) added to '+result.photos_tagged+' photo(s)');
+    if(batchSelected.has(selectedId))await selectAsset(selectedId);
+  }catch(e){setStatus(e.message,true)}finally{$('batchAddTags').disabled=false}
+}
+async function batchTrash(){
+  if(!batchSelected.size)return;
+  if(!confirm('Move '+batchSelected.size+' selected photo(s) to Trash?\n\nThey will leave the photo library and disappear from search. You can restore them from ☰ → Trash & restore.'))return;
+  $('batchTrash').disabled=true;
+  try{
+    const ids=[...batchSelected];
+    const result=await api('/api/review-bin/batch',{ids});
+    for(const id of ids){
+      const idx=items.findIndex(x=>Number(x.id)===Number(id));
+      if(idx>=0)items.splice(idx,1);
+      document.querySelector('.thumb[data-id="'+id+'"]')?.remove();
+    }
+    clearBatchSelection();
+    setStatus(result.moved+' photo(s) moved to Trash');
+    if(ids.includes(selectedId)){
+      if(items.length)selectAsset(items[0].id);else location.reload();
+    }
+  }catch(e){setStatus(e.message,true)}finally{$('batchTrash').disabled=false}
+}
+function buildThumb(item){const b=document.createElement('button');b.className='thumb';b.dataset.id=item.id;b.title=item.filename;b.onclick=e=>{
+  if(e.ctrlKey||e.metaKey){
+    e.preventDefault();toggleBatchSelect(Number(item.id),b);lastClickedThumbIndex=items.findIndex(x=>Number(x.id)===Number(item.id));return;
+  }
+  if(e.shiftKey&&lastClickedThumbIndex!=null){
+    e.preventDefault();
+    const currentIdx=items.findIndex(x=>Number(x.id)===Number(item.id));
+    const from=Math.min(lastClickedThumbIndex,currentIdx),to=Math.max(lastClickedThumbIndex,currentIdx);
+    for(let i=from;i<=to;i++){
+      const thumbId=Number(items[i].id);
+      batchSelected.add(thumbId);
+      document.querySelector('.thumb[data-id="'+thumbId+'"]')?.classList.add('selected');
+    }
+    updateBatchBar();return;
+  }
+  clearBatchSelection();lastClickedThumbIndex=items.findIndex(x=>Number(x.id)===Number(item.id));selectAsset(item.id);
+};if(item.media_type==='image'){const img=document.createElement('img');img.loading='lazy';img.src='/media?id='+item.id;b.append(img)}else{const v=document.createElement('div');v.className='video-label';v.textContent=item.media_type==='raw'?'RAW':'▶ VIDEO';b.append(v)}const s=document.createElement('span');s.textContent=(item.capture_date||'')+'  '+item.filename;b.append(s);return b}
 let filmstripPage=LL.page||1;let filmstripHasMore=!!LL.hasMore;let filmstripLoading=false;let filmstripObserved=null;
 let filmstripObserver=null;
 function pageParams(page){const q=LL.query||{};const params=new URLSearchParams();if(q.q)params.set('q',q.q);if(q.date)params.set('date',q.date);if(q.scope)params.set('scope',q.scope);if(q.sort)params.set('sort',q.sort);if(q.person)params.set('person',q.person);if(q.near)params.set('near',q.near);params.set('page',page);return params}
@@ -202,4 +265,4 @@ function openCalendar(){const now=new Date();const current=parseDateValue($('dat
 function chooseDate(y,m,d){$('datePicker').value=y+'-'+pad2(m)+'-'+pad2(d);syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()}
 function shiftCalendarMonth(delta){calViewMonth+=delta;if(calViewMonth<0){calViewMonth=11;calViewYear-=1}else if(calViewMonth>11){calViewMonth=0;calViewYear+=1}renderCalendar()}
 $('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/people-review');
-$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,placeholder:'Person’s name',onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');$('datePopover').classList.remove('open');closeHelp()}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}
+$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,placeholder:'Person’s name',onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('batchAddTags').onclick=batchAddTags;$('batchTagInput').onkeydown=e=>submitOnEnter(e,batchAddTags);$('batchTrash').onclick=batchTrash;$('batchClear').onclick=clearBatchSelection;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();$('menuPanel').classList.toggle('open')};document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))$('menuPanel').classList.remove('open');if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('menuPanel').classList.remove('open');$('modalBackdrop').classList.remove('open');$('datePopover').classList.remove('open');closeHelp();if(batchSelected.size)clearBatchSelection()}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);$('moveToTrash').disabled=true;updateNav()}

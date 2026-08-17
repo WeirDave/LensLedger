@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.35.0 — 2026-08-16
+
+- Added multi-select in the filmstrip: Ctrl+click to toggle individual photos, Shift+click to select a range.
+- Selected photos show a blue border and checkmark badge.
+- A floating batch action bar appears when photos are selected, with a count, tag input, "Add tags", "Trash selected", and "Clear" buttons.
+- Batch tagging applies tags to all selected photos at once (up to 500).
+- Batch trash moves all selected photos to the review bin in one operation.
+- Escape key clears the selection. Clicking a photo without Ctrl/Shift also clears the selection and navigates normally.
+
 ## 0.34.0 — 2026-08-16
 
 - Added photo zoom and pan to the main viewer stage.
