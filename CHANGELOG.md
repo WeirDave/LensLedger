@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.22 — 2026-08-17
+
+- Fixed review card text layout: filenames, folder descriptions, and confidence percentages now all display fully instead of being truncated or squeezed out on narrow cards.
+
 ## 0.43.21 — 2026-08-17
 
 - Fixed "This photo contains ..." button text being cut off on people review cards — long person names now wrap to a second line instead of being truncated.
