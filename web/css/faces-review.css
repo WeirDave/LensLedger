@@ -16,7 +16,7 @@ main{width:min(1600px,100%);margin:auto;padding:18px 20px 60px}
 .match-thumb input{position:absolute;top:5px;left:5px;width:16px;height:16px}
 .match-thumb.failed{outline:2px solid var(--danger);outline-offset:-2px}
 .match-status{min-height:15px;color:var(--accent);font-size:12px;margin-top:6px}
-.face-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.face-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}.face-grid[hidden],.match-groups[hidden],.empty[hidden]{display:none}
 .face-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 .face-photo{aspect-ratio:1;background:var(--bg-deep);overflow:hidden;cursor:zoom-in}.face-photo img{display:block;width:100%;height:100%;object-fit:cover}
 .face-info{padding:9px;display:grid;grid-template-columns:minmax(0,1fr);gap:7px}
@@ -26,6 +26,8 @@ main{width:min(1600px,100%);margin:auto;padding:18px 20px 60px}
 .face-actions button{flex:1;background:var(--btn-secondary);color:var(--btn-secondary-text);font-size:12px;padding:7px 8px}
 .face-status{min-height:15px;color:var(--accent);font-size:12px}
 .face-status .retry{margin-left:6px;background:var(--btn-secondary);color:var(--btn-secondary-text);font-size:11px;padding:3px 8px}
+.loading-overlay{min-height:50vh;display:grid;place-items:center;text-align:center}.loading-content h2{font-size:28px;color:var(--text-secondary);margin:16px 0 0;font-weight:600}.loading-overlay.done{display:none}
+.loading-spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;margin:0 auto;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .empty{min-height:45vh;display:grid;place-items:center;text-align:center}.empty h2{font-size:26px;margin:0 0 8px}.empty p{color:var(--text-secondary);max-width:480px;line-height:1.5}
 @media(max-width:700px){.face-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}
 .lightbox{display:none;position:fixed;z-index:20;inset:0;background:var(--lightbox-bg);padding:24px;grid-template-rows:auto minmax(0,1fr)}.lightbox.open{display:grid}.lightbox-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.lightbox-actions{display:flex;gap:8px}.lightbox-photo{position:relative;min-height:0}.lightbox-photo>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;min-height:0}

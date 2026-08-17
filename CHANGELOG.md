@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.15 — 2026-08-17
+
+- Added a centered loading indicator with spinner on the Name faces page so users see "Loading faces..." while the initial batch loads, instead of a seemingly empty page.
+
 ## 0.43.14 — 2026-08-17
 
 - Fixed HEIC/HEIF photos not displaying in the lightbox preview on Name faces, Review people, Photo map, and asset detail pages. The server now converts HEIC/HEIF images to JPEG before serving them to the browser.

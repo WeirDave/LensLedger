@@ -54,8 +54,9 @@ function updateProgress() {
   $('globalProgress').textContent = remaining.toLocaleString() + ' unidentified face' + (remaining === 1 ? '' : 's');
 }
 
+let initialLoadDone = false;
 function checkEmpty() {
-  $('emptyState').hidden = $('faceGrid').children.length > 0 || $('matchGroups').children.length > 0;
+  $('emptyState').hidden = !initialLoadDone || $('faceGrid').children.length > 0 || $('matchGroups').children.length > 0;
 }
 
 function removeCard(card) {
@@ -305,6 +306,12 @@ async function loadMore() {
     $('globalProgress').textContent = error.message;
   } finally {
     loading = false;
+    initialLoadDone = true;
+    $('loadingOverlay').classList.add('done');
+    document.querySelector('.intro').hidden = false;
+    $('matchGroups').hidden = false;
+    $('faceGrid').hidden = false;
+    checkEmpty();
   }
 }
 
