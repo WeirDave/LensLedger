@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.14 — 2026-08-17
+
+- Fixed HEIC/HEIF photos not displaying in the lightbox preview on Name faces, Review people, Photo map, and asset detail pages. The server now converts HEIC/HEIF images to JPEG before serving them to the browser.
+
 ## 0.43.13 — 2026-08-17
 
 - Cleaned up restart experience: no more "Starting LensLedger..." preamble; console shows the normal banner on fresh start and "new version loaded" on restart.

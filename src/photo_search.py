@@ -3346,6 +3346,18 @@ class SearchHandler(BaseHTTPRequestHandler):
         try: path.relative_to(self.library_root)
         except ValueError: return self.send_error(403)
         if not path.is_file(): return self.send_error(404)
+        if path.suffix.lower() in (".heic", ".heif"):
+            try:
+                with Image.open(path) as image:
+                    image = ImageOps.exif_transpose(image).convert("RGB")
+                    buffer = io.BytesIO()
+                    image.save(buffer, format="JPEG", quality=90)
+            except Exception:
+                return self.send_error(500)
+            data = buffer.getvalue()
+            self.send_response(200); self.send_header("Content-Type", "image/jpeg"); self.send_header("Content-Length", str(len(data))); self.send_header("Cache-Control", "private, max-age=3600"); self.end_headers()
+            self.wfile.write(data)
+            return
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(200); self.send_header("Content-Type", content_type); self.send_header("Content-Length", str(path.stat().st_size)); self.send_header("Cache-Control", "private, max-age=3600"); self.end_headers()
         with path.open("rb") as stream:
