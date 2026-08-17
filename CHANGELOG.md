@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.40.0 — 2026-08-17
+
+- Switched to vintage monochrome logo (camera shutter in muted grays).
+- Redesigned dark theme with warm espresso/leather tones and antique brass accents.
+- Redesigned light theme with aged parchment surfaces and antique gold accents.
+- Both themes now have a cohesive retro/vintage aesthetic matching the new logo.
+
 ## 0.39.1 — 2026-08-17
 
 - Fixed blank space between photo and filmstrip on desktop caused by sidebar backdrop taking a grid row.
