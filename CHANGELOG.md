@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.11 — 2026-08-17
+
+- Removed the duplicate "Loading LensLedger..." message — the .cmd "Starting LensLedger..." is sufficient.
+- Fixed the `--restarted` flag being concatenated into the file path instead of passed as a separate argument, which broke restart on paths with spaces.
+- The browser-tab close reminder now appears inside the startup banner only on restart, not as a separate line.
+
 ## 0.43.10 — 2026-08-17
 
 - Metadata publishing (people tags and descriptions) now works for HEIC and HEIF images, not just JPEGs.
