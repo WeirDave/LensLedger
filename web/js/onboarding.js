@@ -45,11 +45,40 @@ function number(value) {
   return Number(value || 0).toLocaleString();
 }
 
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${totalSeconds % 60}s`;
+  return `${totalSeconds}s`;
+}
+
 function showProgress(job) {
   $('progressPanel').classList.add('open');
   for (const key of ['scanned', 'changed', 'unchanged', 'placeholders', 'errors'])
     $(key).textContent = number(job[key]);
-  $('progressMessage').textContent = job.message || job.state;
+  const bar = document.querySelector('.bar span');
+  const total = job.total_estimate || 0;
+  const done = job.scanned || 0;
+  if (total > 0 && job.state === 'scanning') {
+    bar.parentElement.classList.remove('indeterminate');
+    const pct = Math.min(100, Math.round((done / total) * 100));
+    bar.style.width = pct + '%';
+    const elapsedMs = job.started_at ? Date.now() - new Date(job.started_at).getTime() : 0;
+    let eta = '';
+    if (done > 0 && done < total && elapsedMs > 3000) {
+      eta = ` — ~${formatDuration((elapsedMs / done) * (total - done))} remaining`;
+    }
+    $('progressMessage').textContent = `${pct}% · ${number(done)} of ~${number(total)} files${eta}`;
+  } else if (job.state === 'scanning') {
+    bar.style.width = '';
+    bar.parentElement.classList.add('indeterminate');
+    $('progressMessage').textContent = job.message || job.state;
+  } else {
+    bar.parentElement.classList.remove('indeterminate');
+    $('progressMessage').textContent = job.message || job.state;
+  }
   if (job.state === 'error') {
     $('progressMessage').className = 'error';
     $('cancel').hidden = true;

@@ -565,6 +565,7 @@ def scan_library(
     counts: dict[str, int | bool] = {
         "scanned": 0, "changed": 0, "unchanged": 0, "removed": 0,
         "errors": 0, "placeholders": 0, "cancelled": False,
+        "total_estimate": len(known),
     }
 
     def report() -> None:

@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.37.0 — 2026-08-16
+
+- Photo locations (GPS) scan now shows a progress bar with percentage and ETA on rescans.
+- On first-time scans (empty database), the progress bar shows an indeterminate animation.
+- Onboarding library scan now shows a determinate progress bar with percentage and ETA when rescanning, replacing the always-animated indeterminate bar.
+
 ## 0.36.0 — 2026-08-16
 
 - Responsive mobile layout: on viewports under 768px, the sidebar becomes a slide-in drawer from the right edge.

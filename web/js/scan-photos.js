@@ -169,7 +169,12 @@ async function refresh() {
     $('startLocation').disabled = locationScanning || scanAllRunning;
     $('pauseLocation').disabled = !locationScanning || scanAllRunning;
     setSpinner('locationSpinner', locationScanning);
-    $('locationElapsed').textContent = locationScanning ? elapsedText(locationStatus.started_at) : '';
+    const locationTotal = locationStatus.total_estimate || 0;
+    $('locationElapsed').textContent = locationScanning
+      ? elapsedText(locationStatus.started_at) + progressSuffix(locationStatus.scanned, locationTotal, locationStatus.started_at)
+      : '';
+    if (locationTotal) setBar('locationBar', locationStatus.scanned, locationScanning ? locationTotal : 0);
+    else { $('locationBarWrap').classList.toggle('indeterminate', locationScanning); $('locationBarWrap').hidden = !locationScanning; }
 
     // OCR
     $('ocrMessage').textContent = ocr.message || 'OCR has not run in this session.';
