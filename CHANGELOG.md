@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.41.3 — 2026-08-17
+
+- Restyled all info buttons across the app: replaced the hard-to-read ⓘ Unicode character with a clean serif italic "i", added a visible accent-colored border, transparent background, and hover state that fills with the accent color.
+- Info buttons are now consistent across the viewer and scan-photos pages.
+
 ## 0.41.2 — 2026-08-17
 
 - Added security policy (SECURITY.md) with private vulnerability reporting instructions.
