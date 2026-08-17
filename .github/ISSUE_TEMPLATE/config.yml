@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: "\U0001F512 Report a security vulnerability"
+    url: https://github.com/WeirDave/LensLedger/security/advisories/new
+    about: Don't open a public issue for security problems. Use private vulnerability reporting so the fix lands before disclosure.

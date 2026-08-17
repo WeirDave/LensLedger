@@ -1,0 +1,54 @@
+name: Bug report
+description: Something broke or behaved unexpectedly in LensLedger.
+title: "[Bug] "
+labels: ["bug", "auto-reported"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please describe what happened, how to reproduce it, and include your environment details.
+
+        > Found a **security** problem? Don't open a public issue — use [private vulnerability reporting](https://github.com/WeirDave/LensLedger/security/advisories/new) instead.
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: Describe the problem in your own words.
+      placeholder: "When I scanned a folder of photos, ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps that get the problem to happen again.
+      placeholder: |
+        1. Open LensLedger and start a scan
+        2. Navigate to the photo viewer
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+      placeholder: "All photos should appear with their metadata correctly displayed."
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: LensLedger version, OS, Python version, and browser.
+      render: shell
+      placeholder: |
+        LensLedger version : v0.41.1
+        OS                 : Windows 11
+        Python             : 3.11.x
+        Browser            : Firefox 128
+    validations:
+      required: true

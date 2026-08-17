@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.41.2 — 2026-08-17
+
+- Added security policy (SECURITY.md) with private vulnerability reporting instructions.
+- Added GitHub issue templates for bug reports with structured fields.
+
 ## 0.41.1 — 2026-08-17
 
 - Added "Empty trash" button to permanently delete all trashed items at once.
