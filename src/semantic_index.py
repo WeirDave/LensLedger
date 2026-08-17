@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from PIL import Image
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 
 from app_paths import libraries_root
 from photo_index import connect, utc_now

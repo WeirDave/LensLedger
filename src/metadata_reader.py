@@ -7,6 +7,11 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PIL import ExifTags, Image, IptcImagePlugin
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 
 
 def _text_value(value: object) -> str:

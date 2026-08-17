@@ -21,6 +21,11 @@ from pathlib import Path
 from typing import Callable
 
 from PIL import ExifTags, Image
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 
 from app_paths import libraries_root
 from generate_historical_folder_tags import infer_tags
@@ -28,7 +33,7 @@ from product import APP_NAME, APP_VERSION
 
 
 MEDIA_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".heic",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".heic", ".heif",
     ".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv",
     ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf",
 }

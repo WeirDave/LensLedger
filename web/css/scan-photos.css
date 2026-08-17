@@ -4,7 +4,7 @@ header{display:flex;align-items:center;gap:12px;padding:11px min(5vw,32px);borde
 header img{width:60px;height:60px;object-fit:contain}header h1{margin:0;font-size:15.5px;font-weight:750}header p{margin:1px 0 0;color:var(--text-secondary);font-size:11px}header .spacer{flex:1}.version{color:var(--badge-text);background:var(--badge-bg);border:1px solid var(--badge-border);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800}.quick-nav{display:flex;gap:12px}.quick-nav a{color:var(--text-secondary);text-decoration:none;font-weight:650;font-size:12px;white-space:nowrap}.quick-nav a:hover{color:var(--text)}
 @media(max-width:900px){.quick-nav{display:none}}
 main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:7px}
-.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:10px;padding:11px 14px}
+.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:10px;padding:11px 14px;position:relative}
 .card h2{margin:0 0 8px;font-size:13.5px;font-weight:750;letter-spacing:.1px;color:var(--text-heading)}
 .section-title{display:flex;align-items:center;gap:7px;position:relative;margin:0 0 8px}
 .section-title h2{margin:0}

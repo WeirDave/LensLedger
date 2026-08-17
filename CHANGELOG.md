@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.0 — 2026-08-17
+
+- Added HEIC/HEIF image support: iPhone photos in HEIC format are now decoded for scanning, meaning search, face detection, and thumbnails. Added `pillow-heif` to base requirements.
+- Added `.heif` to recognized media extensions alongside the existing `.heic`.
+- Fixed scan-photos page info popovers appearing in the top-left corner instead of next to their info button.
+
 ## 0.42.2 — 2026-08-17
 
 - Added "Starting LensLedger..." message to the launcher script so the console window is no longer blank while Python loads — especially noticeable after a version restart.
