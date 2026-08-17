@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.41.1 — 2026-08-17
+
+- Added "Empty trash" button to permanently delete all trashed items at once.
+
 ## 0.41.0 — 2026-08-17
 
 - Compacted sidebar layout: smaller chips, tighter section spacing, and smaller action buttons to reduce scrolling.

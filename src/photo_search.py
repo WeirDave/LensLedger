@@ -690,6 +690,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.restore_from_review_bin(body)
             if route == "/api/review-bin/delete":
                 return self.delete_from_review_bin(body)
+            if route == "/api/review-bin/empty":
+                return self.empty_review_bin()
             if route == "/api/publish/preview":
                 return self.preview_publish(body)
             if route == "/api/publish":
@@ -1176,7 +1178,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "page": page_number, "hasMore": has_more,
         })}>
 <header><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
-<form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button><button type="button" class="danger" id="moveToTrash">🗑 Trash</button></form></header>
+<form class="toolbar">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">ⓘ</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button><button type="button" class="danger" id="moveToTrash">🗑 Trash</button></form></header>
 <nav class="menu-panel" id="menuPanel"><a href="/people-review">👥 Review people ({review_count:,})</a><a href="/faces-review">🙂 Name faces ({unidentified_faces_count:,})</a><button type="button" data-panel="library">📁 Open photo library</button><a href="/map">🌍 Photo map</a><a href="/scan-photos">🔎 Scan your photos</a><button type="button" id="updateMenu" data-panel="update">⬆ Check for updates</button><button type="button" data-panel="trash">Trash &amp; restore ({trash_count})</button><button type="button" data-panel="guide">Quick guide</button><button type="button" data-panel="about">About LensLedger</button></nav>
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto">‹</button><button class="stage-nav" id="nextPhoto">›</button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details">ⓘ</button></div><aside class="sidebar" id="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
@@ -3263,6 +3265,22 @@ class SearchHandler(BaseHTTPRequestHandler):
             con.execute("DELETE FROM assets WHERE id=?", (row["asset_id"],))
             con.execute("DELETE FROM review_bin WHERE id=?", (review_id,))
         self.send_json({"ok": True})
+
+    def empty_review_bin(self):
+        deleted = 0
+        with self.db() as con:
+            rows = con.execute("SELECT * FROM review_bin WHERE restored_at IS NULL").fetchall()
+            for row in rows:
+                source = Path(row["review_path"]).resolve()
+                if source.is_file():
+                    source.unlink()
+                con.execute("DELETE FROM asset_tags WHERE asset_id=?", (row["asset_id"],))
+                con.execute("DELETE FROM asset_people WHERE asset_id=?", (row["asset_id"],))
+                con.execute("DELETE FROM faces WHERE asset_id=?", (row["asset_id"],))
+                con.execute("DELETE FROM assets WHERE id=?", (row["asset_id"],))
+                con.execute("DELETE FROM review_bin WHERE id=?", (row["id"],))
+                deleted += 1
+        self.send_json({"ok": True, "deleted": deleted})
 
     def serve_web_asset(self, name: str):
         if not WEB_ASSET_NAME_RE.fullmatch(name):
