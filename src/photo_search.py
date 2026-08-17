@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+if __name__ == "__main__":
+    print("\n  Loading LensLedger...\n"
+          "  (If you still have a previous browser tab open, you can close it.)\n",
+          flush=True)
+
 import argparse
 import datetime as dt
 import html

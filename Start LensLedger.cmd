@@ -2,7 +2,7 @@
 title LensLedger
 cd /d "%~dp0"
 echo.
-echo Starting LensLedger...
+echo   Starting LensLedger...
 echo.
 
 where python >nul 2>&1
