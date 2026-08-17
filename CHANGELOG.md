@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.43.16 — 2026-08-17
+
+- Enhanced the scan error modal with human-readable explanations for common errors, a "Copy all to clipboard" button, and a "Report on GitHub" link that pre-fills an issue with version and error details.
+- Added the app version to the scan page bootstrap data so error reports include the version number.
+
 ## 0.43.15 — 2026-08-17
 
 - Added a centered loading indicator with spinner on the Name faces page so users see "Loading faces..." while the initial batch loads, instead of a seemingly empty page.

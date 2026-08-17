@@ -75,7 +75,27 @@ function openScanModal(title, node) {
   $('scanModalBackdrop').classList.add('open');
 }
 
+const ERROR_HINTS = [
+  { pattern: /AggregateException|Exception calling.*Wait/i, hint: 'Windows could not decode this image for text recognition. The photo itself is fine — it just uses an encoding the OCR engine cannot read. No action needed.' },
+  { pattern: /MaxImageDimension|image.*too.*large/i, hint: 'This image is larger than the OCR engine supports. LensLedger normally scales these down automatically — if you see this, the fallback also failed. The photo is fine; OCR just cannot process it.' },
+  { pattern: /timed?\s*out|timeout/i, hint: 'OCR took too long on this image and was skipped. This can happen with very large or complex files. The photo is not affected.' },
+  { pattern: /access.*denied|permission/i, hint: 'LensLedger could not open this file. It may be locked by another program, or the file permissions may need adjusting.' },
+  { pattern: /not.*found|no.*such.*file/i, hint: 'The file was moved or deleted since the last scan. Run a new scan to update the inventory.' },
+  { pattern: /corrupt|invalid.*data|bad.*image/i, hint: 'The image file appears to be damaged. The photo may need to be restored from a backup.' },
+  { pattern: /out.*of.*memory|insufficient.*memory/i, hint: 'Your computer ran out of memory processing this image. Closing other applications and retrying may help.' },
+  { pattern: /face.*detect|mediapipe|onnx/i, hint: 'The face-detection model could not process this image. The photo is fine — this particular file just could not be analyzed for faces.' },
+];
+
+function explainError(errorText) {
+  for (const { pattern, hint } of ERROR_HINTS) {
+    if (pattern.test(errorText)) return hint;
+  }
+  return null;
+}
+
 function errorListNode(errors) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'error-list-wrapper';
   const box = document.createElement('div');
   box.className = 'error-list';
   if (!errors.length) {
@@ -83,7 +103,8 @@ function errorListNode(errors) {
     empty.className = 'error-empty';
     empty.textContent = 'No errors on record.';
     box.append(empty);
-    return box;
+    wrapper.append(box);
+    return wrapper;
   }
   errors.forEach(({ path, error }) => {
     const row = document.createElement('div');
@@ -95,9 +116,40 @@ function errorListNode(errors) {
     msgEl.className = 'msg';
     msgEl.textContent = error;
     row.append(pathEl, msgEl);
+    const hint = explainError(error);
+    if (hint) {
+      const hintEl = document.createElement('span');
+      hintEl.className = 'error-hint';
+      hintEl.textContent = hint;
+      row.append(hintEl);
+    }
     box.append(row);
   });
-  return box;
+  wrapper.append(box);
+
+  const footer = document.createElement('div');
+  footer.className = 'error-modal-footer';
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'secondary';
+  copyBtn.textContent = 'Copy all to clipboard';
+  copyBtn.onclick = () => {
+    const text = errors.map(e => `${e.path}\n  ${e.error}`).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy all to clipboard'; }, 2000);
+    });
+  };
+  const reportLink = document.createElement('a');
+  reportLink.className = 'error-report-link';
+  reportLink.href = 'https://github.com/WeirDave/LensLedger/issues/new?'
+    + new URLSearchParams({ title: 'Scan error report', body: `**LensLedger version:** ${LL.version || 'unknown'}\n\n**Errors (${errors.length}):**\n\n` + errors.slice(0, 20).map(e => `- \`${e.path}\`\n  \`${e.error}\``).join('\n') + (errors.length > 20 ? `\n\n…and ${errors.length - 20} more (use "Copy all to clipboard" and paste the full list)` : '') });
+  reportLink.target = '_blank';
+  reportLink.rel = 'noopener';
+  reportLink.textContent = 'Report on GitHub';
+  footer.append(copyBtn, reportLink);
+  wrapper.append(footer);
+  return wrapper;
 }
 
 async function showScanErrors(endpoint, title) {
