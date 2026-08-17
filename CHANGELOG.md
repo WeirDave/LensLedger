@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.42.2 — 2026-08-17
+
+- Added "Starting LensLedger..." message to the launcher script so the console window is no longer blank while Python loads — especially noticeable after a version restart.
+
 ## 0.42.1 — 2026-08-17
 
 - Suppressed noisy third-party warnings from Hugging Face Hub, OpenCLIP, and Pillow that appeared during semantic search — no data is sent externally; the CLIP model runs entirely locally once downloaded.
