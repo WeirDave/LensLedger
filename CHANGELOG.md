@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.47.1 — 2026-08-17
+
+- Added comprehensive backlog document covering planned features: global settings page, folder rename resilience, multiple collections, database import/export, meaning search improvements, growing collection handling, and camera upload auto-ingest pipeline.
+
 ## 0.47.0 — 2026-08-17
 
 - Made scan error counts clickable across all scan types — clicking the Errors metric now opens a modal showing which files failed and why.
