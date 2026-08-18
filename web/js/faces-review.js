@@ -224,7 +224,7 @@ function buildCard(face) {
   const card = document.createElement('article');
   card.className = 'face-card';
   card.dataset.faceId = face.face_id;
-  card.innerHTML = '<div class="face-photo" title="Double-click to see the full photo"><img loading="lazy" alt="Detected face"></div>'
+  card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash">🗑</button></div>'
     + '<div class="face-info"><small></small>'
     + '<div class="face-form"><div class="face-picker"></div></div>'
     + '<div class="face-actions"><button type="button" class="not-person">Not a person</button>'
@@ -232,7 +232,9 @@ function buildCard(face) {
     + '<div class="face-status"></div></div>';
   const img = card.querySelector('img');
   img.src = '/media-face?face_id=' + face.face_id;
-  img.ondblclick = () => openLarge(face, card);
+  img.ondblclick = () => api('/api/reveal-file', { id: face.asset_id });
+  card.querySelector('.expand').onclick = () => openLarge(face, card);
+  card.querySelector('.trash').onclick = () => trashPhoto(card, face);
   // The filename identifies which exact photo this is (folder + date alone
   // often don't, e.g. several faces from the same burst); show it first so
   // ellipsis truncation eats the folder path instead of the useful part.
@@ -334,6 +336,26 @@ $('findMatches').onclick = async () => {
     setTimeout(updateProgress, 4000);
   }
 };
+
+async function trashPhoto(card, face) {
+  if (!confirm('Move "' + face.filename + '" to Trash?\n\nIt will leave the photo library and disappear from search.')) return;
+  try {
+    const result = await api('/api/review-bin', { id: face.asset_id });
+    card.remove();
+    showTrashUndo(result.review_id, face.filename);
+  } catch (error) { alert(error.message); }
+}
+
+function showTrashUndo(reviewId, name) {
+  const t = $('toast');
+  t.replaceChildren(document.createTextNode('Moved ' + name + ' to Trash. '));
+  const b = document.createElement('button');
+  b.textContent = 'Undo';
+  b.onclick = async () => { try { await api('/api/review-bin/restore', { review_id: reviewId }); location.reload(); } catch (e) { alert(e.message); } };
+  t.append(b);
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 12000);
+}
 
 $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => actOnOpenFace('/api/faces/ignore');

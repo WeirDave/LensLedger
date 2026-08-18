@@ -742,6 +742,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.install_update(body)
             if route == "/api/update/restart-source":
                 return self.restart_source(body)
+            if route == "/api/reveal-file":
+                return self.reveal_file(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -1219,6 +1221,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <div class="saving-overlay" id="savingOverlay"><div class="saving-content"><div class="saving-spinner"></div><h2>Saving tags…</h2><p>Publishing metadata to your photos.</p></div></div>
+<div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/people-review.js')}" defer></script>
 </body></html>"""
@@ -1232,6 +1235,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="menu-backdrop" id="menuBackdrop"></div><nav class="menu-panel" id="menuPanel"><div class="menu-panel-header"><div class="menu-panel-brand"><img src="/logo.png?v={APP_VERSION}" alt=""><div class="menu-panel-brand-text"><span class="menu-panel-title">{APP_NAME}</span><span class="menu-panel-tagline">{APP_TAGLINE}</span><span class="menu-panel-version">v{APP_VERSION}</span><button type="button" class="menu-panel-about-btn" data-panel="about">ℹ About</button></div></div><button type="button" class="menu-close-btn" id="menuClose">&times;</button></div><div class="menu-body"><details class="menu-section" open><summary class="menu-section-label">Navigation</summary><a class="menu-item" href="/">📷 Photo library</a><a class="menu-item" href="/people-review">👥 Review people</a><a class="menu-item" href="/scan-photos">🔎 Scan photos</a><a class="menu-item" href="/map">🌍 Photo map</a></details><div class="menu-divider"></div><details class="menu-section"><summary class="menu-section-label">Help &amp; Support</summary><a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a><button type="button" class="menu-item" onclick="copyDiagnostics()">📋 Copy diagnostics</button></details></div></nav>
 <main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><p class="intro" hidden>Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately. Double-click a portrait to see the full photo for context -- helpful for a profile, blurry, or dark face that's hard to place cropped down this small. If it's not a real face, use "Not a person"; if it's a real face you just can't identify (a stranger in a crowd shot, for example), use "Unknown person" so it stops resurfacing. Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
+<div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/faces-review.js')}" defer></script>
 </body></html>"""
@@ -2765,6 +2769,21 @@ class SearchHandler(BaseHTTPRequestHandler):
             "state": "restarting",
             "message": "Restarting to load the code already on disk. LensLedger will reopen automatically.",
         }, 202)
+
+    def reveal_file(self, body):
+        asset_id = int(body["id"])
+        with self.db() as con:
+            asset = self.get_active_asset(con, asset_id)
+        source_path = self.library_root / Path(asset["relative_path"])
+        if not source_path.exists():
+            raise ValueError("File not found on disk")
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", str(source_path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(source_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(source_path.parent)])
+        self.send_json({"ok": True})
 
     def ocr_status(self):
         with type(self).ocr_lock:

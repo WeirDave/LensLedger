@@ -117,7 +117,7 @@ function buildCard(item) {
   const card = document.createElement('article');
   card.className = 'review-card';
   card.dataset.id = item.id;
-  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, choose the correct name (optional)</label><div class="correction-picker"></div><div class="correction-alt"><button type="button" class="disposition-btn" data-disposition="not_a_person">Not a person</button><button type="button" class="disposition-btn" data-disposition="unknown_person">Unknown person</button></div></div></div>';
+  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash">🗑</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, choose the correct name (optional)</label><div class="correction-picker"></div><div class="correction-alt"><button type="button" class="disposition-btn" data-disposition="not_a_person">Not a person</button><button type="button" class="disposition-btn" data-disposition="unknown_person">Unknown person</button></div></div></div>';
   const img = card.querySelector('img');
   img.src = '/media?id=' + item.id;
   markFace(card.querySelector('.photo-box'), img, item);
@@ -126,7 +126,8 @@ function buildCard(item) {
   card.querySelector('.confidence').textContent = Math.round((item.confidence || 0) * 100) + '%';
   card.querySelector('.toggle-wrong').onclick = () => toggleCard(card, item);
   card.querySelector('.expand').onclick = () => openLarge(item);
-  img.ondblclick = () => openLarge(item);
+  card.querySelector('.trash').onclick = () => trashPhoto(card, item);
+  img.ondblclick = () => api('/api/reveal-file', { id: item.id });
   card.querySelectorAll('.disposition-btn').forEach(button => {
     button.onclick = () => setDisposition(card, item, button.dataset.disposition);
   });
@@ -304,6 +305,28 @@ async function deferPerson() {
   } catch (error) {
     showError(error);
   }
+}
+
+async function trashPhoto(card, item) {
+  if (!confirm('Move "' + item.filename + '" to Trash?\n\nIt will leave the photo library and disappear from search.')) return;
+  try {
+    const result = await api('/api/review-bin', { id: item.id });
+    card.remove();
+    const i = batch.indexOf(item);
+    if (i >= 0) batch.splice(i, 1);
+    showTrashUndo(result.review_id, item.filename);
+  } catch (error) { showError(error); }
+}
+
+function showTrashUndo(reviewId, name) {
+  const t = $('toast');
+  t.replaceChildren(document.createTextNode('Moved ' + name + ' to Trash. '));
+  const b = document.createElement('button');
+  b.textContent = 'Undo';
+  b.onclick = async () => { try { await api('/api/review-bin/restore', { review_id: reviewId }); location.reload(); } catch (e) { showError(e); } };
+  t.append(b);
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 12000);
 }
 
 $('confirmBatch').onclick = submitBatch;

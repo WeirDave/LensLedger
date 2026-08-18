@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.44.0 — 2026-08-17
+
+- Added consistent single-click enlarge button across all review pages — faces review now has the same ⛶ Enlarge button that people review already had.
+- Double-click on any photo now reveals the file in Explorer (Windows), Finder (macOS), or the file manager (Linux) instead of enlarging or zooming.
+- Triple-click on the main viewer photo toggles the 3× zoom that double-click previously controlled.
+- Added trash button (🗑) to both people review and faces review cards, with confirmation prompt and undo toast.
+
 ## 0.43.23 — 2026-08-17
 
 - Fixed About button on people review and name faces pages showing "undefined" version and tagline by adding missing bootstrap data.
