@@ -115,6 +115,37 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '</div>'
     ) if library_root else ""
 
+    lib_line = f'<p>Current photo library: <code>{html.escape(library_root)}</code></p>' if library_root else ""
+
+    about_modal = (
+        '<div class="about-overlay" id="aboutOverlay">'
+        '<div class="about-panel">'
+        '<div class="about-header">'
+        '<h2>About LensLedger</h2>'
+        '<button type="button" class="about-close" id="aboutClose">&times;</button>'
+        '</div>'
+        '<div class="about-body">'
+        f'<p><strong>LensLedger v{APP_VERSION}</strong> &mdash; {APP_TAGLINE}</p>'
+        + lib_line
+        + '<p>Local-first photo and video indexing, search, people review, and safe metadata publishing for Windows. '
+        'Your photos stay on your machine &mdash; nothing is uploaded, no cloud required.</p>'
+        '<p>Each library has a separate index. Approved People-review decisions publish immediately; '
+        'other edits use Preview &amp; Publish. Every write creates a safety backup and verifies the picture pixels afterward.</p>'
+        '<hr>'
+        '<p><strong>Other projects by the developer</strong></p>'
+        '<ul>'
+        '<li><a href="https://github.com/WeirDave/WaxFrame-Professional" target="_blank" rel="noopener">WaxFrame Professional</a> '
+        '&mdash; Multi-AI document refinement in your browser.</li>'
+        '<li><a href="https://github.com/WeirDave/WaxFrame-Free" target="_blank" rel="noopener">WaxFrame Free</a> '
+        '&mdash; Standalone browser-based free version. No install required.</li>'
+        '<li><a href="https://github.com/WeirDave/Subscription-Wizard" target="_blank" rel="noopener">Subscription Wizard</a> '
+        '&mdash; Firefox extension to compare and manage Amazon Subscribe &amp; Save subscriptions.</li>'
+        '<li><a href="https://github.com/WeirDave/WD-Wireless-Tools" target="_blank" rel="noopener">WD Wireless Tools</a> '
+        '&mdash; Ekahau workflow tools for wireless network professionals.</li>'
+        '</ul>'
+        '</div></div></div>'
+    )
+
     return (
         '<div class="menu-backdrop" id="menuBackdrop"></div>'
         '<nav class="menu-panel" id="menuPanel">'
@@ -150,6 +181,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '</details>'
         + lib_footer
         + '</div></nav>'
+        + about_modal
     )
 
 

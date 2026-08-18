@@ -128,6 +128,8 @@ document.addEventListener('click',e=>{
     panel.classList.remove('open');backdrop.classList.remove('open');
   }
 });
+document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{document.getElementById('menuPanel').classList.remove('open');document.getElementById('menuBackdrop').classList.remove('open');if(b.dataset.panel==='about'){const o=document.getElementById('aboutOverlay');if(o)o.classList.add('open')}else if(b.dataset.panel==='guide'||b.dataset.panel==='update')window.location='/?panel='+b.dataset.panel});
+document.getElementById('aboutClose').onclick=document.getElementById('aboutOverlay').onclick=function(e){if(e.target===this||e.target.id==='aboutClose')document.getElementById('aboutOverlay').classList.remove('open')};
 
 $('templateInput').addEventListener('input',updatePreview);
 

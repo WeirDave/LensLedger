@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.55.0 — 2026-08-18
+
+- Added a consistent About panel across all pages — version, tagline, current library path, and developer project links are now shown in a unified overlay accessible from the navigation menu on every page.
+- Added keyboard and mouse shortcuts table to the viewer's Quick Guide panel, covering arrow-key navigation, double-click to reveal, triple-click to zoom, click-drag to pan, Ctrl/Shift-click for batch and range selection, and Escape to close.
+
 ## 0.54.0 — 2026-08-17
 
 - Added active-page highlighting in the navigation menu — the current page is visually marked with an accent border and bold text.
