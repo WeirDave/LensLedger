@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.45.5 — 2026-08-17
+
+- Replaced small text chevrons (‹ ›) on photo navigation buttons with properly sized SVG arrows, centered inside larger 48px circular buttons.
+
+## 0.45.4 — 2026-08-17
+
+- Renamed "Open photo library" to "Open photo library on disk" for clarity.
+- Moved "Check for updates" from the Tools section to Help & Support.
+- Fixed small emoji icons for trash (🗑) and update (⬆) buttons by adding variation selectors for consistent sizing across platforms.
+
 ## 0.45.3 — 2026-08-17
 
 - Removed the "Find more matches" button from both Name Faces and People Review pages — learning now happens automatically when the review queue empties, so the manual button was redundant and confusing.
