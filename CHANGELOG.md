@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.55.1 — 2026-08-18
+
+- Added the "restart now" version banner to all pages — previously only the viewer detected when a newer version was on disk and offered a one-click restart; now every page (Settings, Scan, Map, Auto-ingest, Name faces, Review people) shows the same banner and restart button.
+
 ## 0.55.0 — 2026-08-18
 
 - Added a consistent About panel across all pages — version, tagline, current library path, and developer project links are now shown in a unified overlay accessible from the navigation menu on every page.

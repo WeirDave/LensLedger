@@ -219,3 +219,37 @@ $('menuToggle').onclick = e => { e.stopPropagation(); if($('menuPanel').classLis
 $('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
 document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+
+(function(){
+var mapCsrf=JSON.parse(document.body.dataset.ll).csrf;
+function checkServerVersion(){
+  fetch('/api/version',{cache:'no-store'}).then(function(r){return r.json()}).then(function(info){
+    var existing=document.getElementById('staleBanner');
+    if(!info.restartReady){if(existing)existing.remove();return}
+    if(existing)return;
+    var b=document.createElement('div');b.id='staleBanner';b.className='stale-banner';
+    b.innerHTML='<span class="stale-icon">⚠</span>'
+      +'<span class="stale-msg"><b>Server is running v'+info.version+'</b> but v'+info.onDiskVersion+' is on disk. Click <b>Restart</b> to load it.</span>'
+      +'<button type="button" class="stale-restart">Restart now</button>'
+      +'<button type="button" class="stale-close" title="Dismiss">×</button>';
+    b.querySelector('.stale-close').onclick=function(){b.remove()};
+    b.querySelector('.stale-restart').onclick=function(){
+      var btn=b.querySelector('.stale-restart');var msg=b.querySelector('.stale-msg');
+      btn.disabled=true;btn.textContent='Restarting…';
+      msg.innerHTML='<b>Restarting server…</b> Page will reload when the new version is ready.';
+      var oldStarted=info.startedAt;
+      fetch('/api/update/restart-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csrf:mapCsrf})}).catch(function(){});
+      var deadline=Date.now()+20000;
+      (function poll(){
+        if(Date.now()>deadline){msg.innerHTML='<b>Server did not restart.</b> Close and reopen LensLedger manually.';return}
+        fetch('/api/version',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+          if(j&&j.startedAt&&j.startedAt!==oldStarted)setTimeout(function(){location.reload()},200);
+          else setTimeout(poll,500);
+        }).catch(function(){setTimeout(poll,700)});
+      })();
+    };
+    document.body.prepend(b);
+  }).catch(function(){});
+}
+checkServerVersion();setInterval(checkServerVersion,30000);
+})();

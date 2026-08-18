@@ -138,4 +138,35 @@ renderRules();
 refreshStatus();
 loadLog();
 pollTimer=setInterval(refreshStatus,15000);
+
+function checkServerVersion(){
+  fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(info=>{
+    const existing=document.getElementById('staleBanner');
+    if(!info.restartReady){if(existing)existing.remove();return}
+    if(existing)return;
+    const b=document.createElement('div');b.id='staleBanner';b.className='stale-banner';
+    b.innerHTML='<span class="stale-icon">⚠</span>'
+      +'<span class="stale-msg"><b>Server is running v'+info.version+'</b> but v'+info.onDiskVersion+' is on disk. Click <b>Restart</b> to load it.</span>'
+      +'<button type="button" class="stale-restart">Restart now</button>'
+      +'<button type="button" class="stale-close" title="Dismiss">×</button>';
+    b.querySelector('.stale-close').onclick=()=>b.remove();
+    b.querySelector('.stale-restart').onclick=()=>{
+      const btn=b.querySelector('.stale-restart');const msg=b.querySelector('.stale-msg');
+      btn.disabled=true;btn.textContent='Restarting…';
+      msg.innerHTML='<b>Restarting server…</b> Page will reload when the new version is ready.';
+      const oldStarted=info.startedAt;
+      post('/api/update/restart-source',{}).catch(()=>{});
+      const deadline=Date.now()+20000;
+      (function poll(){
+        if(Date.now()>deadline){msg.innerHTML='<b>Server did not restart.</b> Close and reopen LensLedger manually.';return}
+        fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+          if(j&&j.startedAt&&j.startedAt!==oldStarted)setTimeout(()=>location.reload(),200);
+          else setTimeout(poll,500);
+        }).catch(()=>setTimeout(poll,700));
+      })();
+    };
+    document.body.prepend(b);
+  }).catch(()=>{});
+}
+checkServerVersion();setInterval(checkServerVersion,30000);
 })();
