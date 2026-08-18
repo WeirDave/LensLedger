@@ -344,12 +344,6 @@ $('pauseOcr').onclick = async () => {
   catch (error) { $('ocrMessage').textContent = error.message; }
 };
 
-$('installSemantic').onclick = async () => {
-  if (!confirm('This downloads and installs the local meaning-search model software (roughly 1-2 GB depending on your system) and may take several minutes. It runs entirely on this computer and nothing is uploaded. Continue?')) return;
-  $('installSemantic').disabled = true;
-  try { await api('/api/semantic/install', {}); refresh(); }
-  catch (error) { $('semanticMessage').textContent = error.message; $('installSemantic').disabled = false; }
-};
 $('startSemantic').onclick = async () => {
   $('startSemantic').disabled = true;
   try { await api('/api/semantic/start', { batch_size: 16 }); refresh(); }

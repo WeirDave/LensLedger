@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.52.0 — 2026-08-17
+
+- Fixed settings page CSS: nav menu panel was unstyled, rendering the logo at full native size and links as raw text.
+- Moved meaning search setup from the scan page to the settings page: the "Set up meaning search" button on the scan page now links to Settings, where users can install the model software with progress feedback and choose their preferred CLIP model.
+- Added install status polling, progress bar, and install button to the Settings page "Meaning search model" section.
+
 ## 0.51.1 — 2026-08-17
 
 - Updated backlog document: all 7 planned features are now implemented and shipped (v0.48.0–v0.51.0).

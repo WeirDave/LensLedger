@@ -199,8 +199,90 @@ if(importBtn)importBtn.onclick=async()=>{
   toast('Database imported: '+res.message);
 };
 
+let semanticInstalled=false;
+let semanticPolling=false;
+
+async function checkSemanticStatus(){
+  try{
+    const res=await fetch('/api/semantic/status');
+    const data=await res.json();
+    const setupArea=$('#semanticSetupArea');
+    const intro=$('#modelIntro');
+    const modelList=$('#modelList');
+    const msg=$('#semanticSetupMsg');
+    const barWrap=$('#semanticInstallBarWrap');
+    const installBtn=$('#installSemantic');
+    const install=data.install||{};
+    if(data.installed){
+      semanticInstalled=true;
+      setupArea.hidden=true;
+      intro.hidden=false;
+      modelList.hidden=false;
+      semanticPolling=false;
+    }else{
+      intro.hidden=true;
+      modelList.hidden=true;
+      setupArea.hidden=false;
+      if(install.state==='installing'){
+        msg.textContent=install.message||'Installing meaning search software…';
+        barWrap.hidden=false;
+        barWrap.classList.add('indeterminate');
+        installBtn.hidden=true;
+        if(!semanticPolling){semanticPolling=true;setTimeout(checkSemanticStatus,2000);}
+        else setTimeout(checkSemanticStatus,2000);
+        return;
+      }else if(install.state==='complete'){
+        semanticInstalled=true;
+        setupArea.hidden=true;
+        intro.hidden=false;
+        modelList.hidden=false;
+        semanticPolling=false;
+        toast('Meaning search installed successfully.');
+        return;
+      }else if(install.state==='error'){
+        msg.textContent=install.message||'Install failed.';
+        barWrap.hidden=true;
+        installBtn.hidden=false;
+        installBtn.disabled=false;
+        semanticPolling=false;
+      }else{
+        msg.textContent='Meaning search is not installed. Click the button below to download and install the model software (roughly 1–2 GB).';
+        barWrap.hidden=true;
+        installBtn.hidden=false;
+        installBtn.disabled=false;
+        semanticPolling=false;
+      }
+    }
+  }catch(e){
+    const msg=$('#semanticSetupMsg');
+    if(msg)msg.textContent='Could not check meaning search status.';
+    semanticPolling=false;
+  }
+}
+
+$('#installSemantic').onclick=async(e)=>{
+  e.preventDefault();
+  if(!confirm('This downloads and installs the local meaning-search model software (roughly 1–2 GB) and may take several minutes. It runs entirely on this computer and nothing is uploaded. Continue?'))return;
+  const btn=$('#installSemantic');
+  btn.disabled=true;
+  try{
+    await post('/api/semantic/install',{});
+    semanticPolling=true;
+    checkSemanticStatus();
+  }catch(err){
+    toast(err.message||'Install failed',true);
+    btn.disabled=false;
+  }
+};
+
+if(location.hash==='#meaning-search'){
+  const el=$('#meaning-search');
+  if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
 renderLibraries();
 renderModels();
 renderIngestRules();
 loadExportStatus();
+checkSemanticStatus();
 })();
