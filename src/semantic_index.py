@@ -117,10 +117,18 @@ def is_available() -> bool:
     return True
 
 
+SUPPORTED_MODELS = {
+    "ViT-B-32/openai": ("ViT-B-32", "openai"),
+    "ViT-B-16/openai": ("ViT-B-16", "openai"),
+    "ViT-L-14/openai": ("ViT-L-14", "openai"),
+}
+
+
 def encoder_for(model: str = DEFAULT_MODEL):
-    if model != DEFAULT_MODEL:
-        raise RuntimeError(f"This release does not provide the semantic model: {model}")
-    return OpenClipEncoder()
+    parts = SUPPORTED_MODELS.get(model)
+    if not parts:
+        raise RuntimeError(f"Unsupported semantic model: {model}. Supported: {', '.join(SUPPORTED_MODELS)}")
+    return OpenClipEncoder(model_name=parts[0], pretrained=parts[1])
 
 
 def status(db_path: Path) -> dict[str, object]:

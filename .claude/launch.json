@@ -10,8 +10,8 @@
     {
       "name": "lensledger-test",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["src/photo_search.py", "--no-open", "--port", "5339"],
-      "port": 5339
+      "runtimeArgs": ["src/photo_search.py", "--no-open", "--port", "5349"],
+      "port": 5349
     }
   ]
 }

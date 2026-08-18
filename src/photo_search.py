@@ -39,6 +39,9 @@ from library_config import (
     choose_library_folder, library_db_path, load_library_config, load_library_state,
     save_library_state, suggested_library_roots,
 )
+from settings_config import (
+    AVAILABLE_MODELS, load_settings, save_settings,
+)
 from lensledger_updater import check_for_update, is_managed_install, managed_install_root, updates_root
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
@@ -59,7 +62,7 @@ from semantic_index import (
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
-PAGE_SIZE = 250
+PAGE_SIZE = 250  # default; overridden per-request from settings
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
 WEB_ROOT = Path(__file__).parent.parent / "web"
 WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)")
@@ -120,6 +123,7 @@ def nav_menu() -> str:
         '<a class="menu-item" href="/faces-review">\U0001f642 Name faces</a>'
         '<a class="menu-item" href="/people-review">\U0001f465 Review people</a>'
         '<a class="menu-item" href="/map">\U0001f30d Photo map</a>'
+        '<a class="menu-item" href="/settings">⚙ Settings</a>'
         '</details>'
         '<div class="menu-divider"></div>'
         '<details class="menu-section">'
@@ -715,6 +719,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.map_page()
         if url.path == "/scan-photos":
             return self.scan_photos_page()
+        if url.path == "/settings":
+            return self.settings_page()
+        if url.path == "/api/settings":
+            return self.get_settings()
+        if url.path == "/api/settings/export-status":
+            return self.export_status()
         if url.path != "/":
             return self.send_error(404)
         return self.viewer_page(params)
@@ -820,6 +830,14 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.restart_source(body)
             if route == "/api/reveal-file":
                 return self.reveal_file(body)
+            if route == "/api/settings/save":
+                return self.save_settings_api(body)
+            if route == "/api/settings/remove-library":
+                return self.remove_library(body)
+            if route == "/api/settings/export":
+                return self.export_database(body)
+            if route == "/api/settings/import":
+                return self.import_database(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -910,6 +928,197 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/scan-photos.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
+
+    def settings_page(self):
+        settings = load_settings()
+        config = load_library_config()
+        libraries = []
+        for value in config.get("libraries", []):
+            root = Path(str(value))
+            if root.is_dir():
+                libraries.append({"label": root.name or str(root), "path": str(root.resolve())})
+        scan = settings.get("scan", {})
+        display = settings.get("display", {})
+        watch = settings.get("watch", {})
+        ingest = settings.get("ingest", {})
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
+{nav_menu()}
+<main>
+<section class="card"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div></section>
+<section class="card"><h2>Scan preferences</h2>
+<div class="field"><label for="ocrWorkers">OCR worker threads</label><input type="number" id="ocrWorkers" min="1" max="16" value="{int(scan.get('ocr_workers', 4))}"><span class="hint">More workers scan faster but use more CPU. Default: 4</span></div>
+<div class="field"><label for="ocrBatchSize">OCR batch size</label><input type="number" id="ocrBatchSize" min="10" max="500" value="{int(scan.get('ocr_batch_size', 50))}"><span class="hint">Photos processed per OCR commit. Default: 50</span></div>
+<div class="field"><label for="semanticBatchSize">Meaning search batch</label><input type="number" id="semanticBatchSize" min="1" max="128" value="{int(scan.get('semantic_batch_size', 16))}"><span class="hint">Images per CLIP encoding batch. Default: 16</span></div></section>
+<section class="card"><h2>Meaning search model</h2><p>Choose the CLIP model for meaning search. Better models produce higher quality results but are larger and slower. Changing the model will re-index your photos on the next meaning search run.</p><div class="model-list" id="modelList"></div></section>
+<section class="card"><h2>Display preferences</h2>
+<div class="field"><label for="photosPerPage">Photos per page</label><input type="number" id="photosPerPage" min="50" max="1000" value="{int(display.get('photos_per_page', 250))}"><span class="hint">Number of photos loaded per filmstrip page. Default: 250</span></div>
+<div class="field"><label for="defaultSort">Default sort order</label><select id="defaultSort"><option value="newest" {"selected" if display.get("default_sort", "newest") == "newest" else ""}>Newest first</option><option value="oldest" {"selected" if display.get("default_sort") == "oldest" else ""}>Oldest first</option><option value="name" {"selected" if display.get("default_sort") == "name" else ""}>By name</option></select></div>
+<div class="field"><label for="filmstripSize">Filmstrip thumbnail size</label><select id="filmstripSize"><option value="small" {"selected" if display.get("filmstrip_size") == "small" else ""}>Small</option><option value="medium" {"selected" if display.get("filmstrip_size", "medium") == "medium" else ""}>Medium</option><option value="large" {"selected" if display.get("filmstrip_size") == "large" else ""}>Large</option></select></div></section>
+<section class="card"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
+<div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 30))}"><span class="hint">How often to check for new files when watching is enabled. Default: 30</span></div></section>
+<section class="card"><h2>Camera upload auto-ingest</h2><p>Automatically scan, tag, and sort new photos from a camera upload folder into your organized collection.</p>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-ingest pipeline</label></div>
+<div class="field"><label for="ingestSource">Source folder</label><input type="text" id="ingestSource" value="{html.escape(str(ingest.get('source_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Dropbox\\Camera Uploads"><button type="button" class="secondary field-browse" id="browseIngestSource">Browse…</button></div>
+<div class="field"><label for="ingestDest">Destination folder</label><input type="text" id="ingestDest" value="{html.escape(str(ingest.get('destination_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Pictures\\Sorted"><button type="button" class="secondary field-browse" id="browseIngestDest">Browse…</button></div>
+<h3>Sorting rules</h3><p>Photos matching a rule are moved to its destination subfolder. Unmatched photos use the default date-based pattern.</p>
+<div class="rule-list" id="ruleList"></div>
+<button type="button" class="secondary" id="addRule">Add sorting rule</button></section>
+<section class="card"><h2>Database</h2>
+<div class="library-actions"><button type="button" class="secondary" id="exportDatabase">Export database</button><button type="button" class="secondary" id="importDatabase">Import database</button><span class="export-status" id="exportStatus"></span></div>
+<p class="data-location">Database and all application data stored at <code>{html.escape(str(data_root()))}</code></p></section>
+<div class="actions-bar"><button type="button" id="saveSettings">Save settings</button></div>
+</main>
+<div class="toast" id="toast"></div>
+<script src="{asset_url('js/settings.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def get_settings(self):
+        self.send_json(load_settings())
+
+    def save_settings_api(self, body):
+        values = body.get("settings")
+        if not isinstance(values, dict):
+            raise ValueError("invalid settings format")
+        save_settings(values)
+        self.send_json({"ok": True})
+
+    def remove_library(self, body):
+        path = str(body.get("path", "")).strip()
+        if not path:
+            raise ValueError("no path specified")
+        config = load_library_config()
+        libraries = config.get("libraries", [])
+        resolved = str(Path(path).resolve()).casefold()
+        current = str(self.library_root).casefold()
+        if resolved == current:
+            raise ValueError("cannot remove the active library")
+        libraries = [p for p in libraries if str(Path(p).resolve()).casefold() != resolved]
+        from library_config import LIBRARY_STATE_PATH
+        LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = LIBRARY_STATE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "current_root": str(self.library_root),
+            "libraries": libraries,
+        }, indent=2), encoding="utf-8")
+        tmp.replace(LIBRARY_STATE_PATH)
+        self.send_json({"ok": True})
+
+    def export_status(self):
+        backup_dir = database_backup_root()
+        last = None
+        if backup_dir.is_dir():
+            backups = sorted(backup_dir.glob("*.sqlite3"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if backups:
+                last = dt.datetime.fromtimestamp(backups[0].stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        self.send_json({"last_backup": last})
+
+    def export_database(self, _body):
+        import zipfile
+        export_dir = data_root() / "Exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_name = f"lensledger-export-{timestamp}.zip"
+        zip_path = export_dir / zip_name
+        db_path = self.db_path
+        face_dir = data_root() / "Face Data"
+        manifest = {
+            "library_root": str(self.library_root),
+            "schema_version": SCHEMA_VERSION,
+            "export_date": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "app_version": APP_VERSION,
+        }
+        with self.db() as con:
+            manifest["photo_count"] = int(con.execute(
+                "SELECT COUNT(*) FROM assets WHERE in_review_bin=0"
+            ).fetchone()[0])
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+            if db_path.is_file():
+                backup_path = export_dir / f"_temp_{timestamp}.sqlite3"
+                try:
+                    import sqlite3 as _sqlite3
+                    src_con = _sqlite3.connect(str(db_path))
+                    dst_con = _sqlite3.connect(str(backup_path))
+                    src_con.backup(dst_con)
+                    src_con.close()
+                    dst_con.close()
+                    zf.write(backup_path, "database.sqlite3")
+                finally:
+                    backup_path.unlink(missing_ok=True)
+            if face_dir.is_dir():
+                for fp in face_dir.rglob("*"):
+                    if fp.is_file():
+                        zf.write(fp, f"FaceData/{fp.relative_to(face_dir)}")
+        self.send_json({"ok": True, "path": str(zip_path)})
+
+    def import_database(self, _body):
+        import zipfile
+        browse_script = """
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'Choose a LensLedger export file'
+$dialog.Filter = 'ZIP files (*.zip)|*.zip'
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    Write-Output $dialog.FileName
+}
+"""
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-STA", "-Command", browse_script],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=600, check=False,
+        )
+        if result.returncode:
+            raise ValueError((result.stderr or "The file chooser could not open").strip())
+        zip_path = result.stdout.strip()
+        if not zip_path:
+            raise ValueError("no file selected")
+        if not Path(zip_path).is_file():
+            raise ValueError("selected file does not exist")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+            if "manifest.json" not in names:
+                raise ValueError("not a valid LensLedger export (no manifest.json)")
+            manifest = json.loads(zf.read("manifest.json"))
+            schema = manifest.get("schema_version", 0)
+            if schema > SCHEMA_VERSION:
+                raise ValueError(f"this export uses schema version {schema}, but this version of LensLedger only supports up to {SCHEMA_VERSION}")
+            if "database.sqlite3" in names:
+                db_dest = self.db_path
+                temp_db = db_dest.with_suffix(".import.sqlite3")
+                try:
+                    with zf.open("database.sqlite3") as src, open(temp_db, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    old_root = manifest.get("library_root", "")
+                    new_root = str(self.library_root)
+                    if old_root and old_root != new_root:
+                        import sqlite3 as _sqlite3
+                        con = _sqlite3.connect(str(temp_db))
+                        con.execute("UPDATE assets SET path=REPLACE(path,?,?)", (old_root, new_root))
+                        old_rel_prefix = ""
+                        con.execute("UPDATE assets SET relative_path=REPLACE(relative_path,?,?)", (old_rel_prefix, ""))
+                        con.commit()
+                        con.close()
+                    backup_existing = db_dest.with_suffix(f".pre-import-{dt.datetime.now().strftime('%Y%m%d%H%M%S')}.sqlite3")
+                    if db_dest.is_file():
+                        shutil.copy2(db_dest, backup_existing)
+                    shutil.move(str(temp_db), str(db_dest))
+                except Exception:
+                    temp_db.unlink(missing_ok=True)
+                    raise
+            face_data_root = data_root() / "Face Data"
+            for name in names:
+                if name.startswith("FaceData/") and not name.endswith("/"):
+                    rel = name[len("FaceData/"):]
+                    dest = face_data_root / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(name) as src, open(dest, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+        self.send_json({"ok": True, "message": f"Imported from {Path(zip_path).name} ({manifest.get('photo_count', '?')} photos)"})
 
     def parse_photo_query(self, params):
         """Parse q/date/scope/person/sort/page params into validated values,
@@ -2977,7 +3186,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         })
 
     def start_semantic_index(self, body):
-        batch_size = max(1, min(64, int(body.get("batch_size", 16))))
+        settings = load_settings()
+        scan_cfg = settings.get("scan", {})
+        batch_size = max(1, min(64, int(body.get("batch_size", scan_cfg.get("semantic_batch_size", 16)))))
         with type(self).semantic_lock:
             if type(self).semantic_job.get("state") == "running":
                 raise ValueError("meaning indexing is already running")

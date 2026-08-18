@@ -6,6 +6,19 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.48.0 — 2026-08-17
+
+- Added a global Settings page accessible from the navigation menu, providing a central place to configure all LensLedger behavior.
+- Added photo library management UI: view known libraries, switch between collections without restarting, add new libraries via folder browser, and remove libraries from the list.
+- Added configurable scan preferences: OCR worker threads, OCR batch size, and meaning search batch size.
+- Added meaning search model selection: choose between ViT-B-32, ViT-B-16, and ViT-L-14 CLIP models with different quality/speed tradeoffs. Changing the model re-indexes on the next meaning search run.
+- Added display preferences: configurable photos per page, default sort order, and filmstrip thumbnail size.
+- Added folder watching configuration: toggle automatic file detection and set the check interval.
+- Added camera upload auto-ingest configuration: enable/disable, set source and destination folders, and define sorting rules.
+- Added database export: creates a portable ZIP archive containing the SQLite database, face data, and a manifest with library metadata.
+- Added database import: restore from a LensLedger export ZIP, with automatic path remapping if the library root changed and a pre-import backup of the existing database.
+- Extended semantic_index.py to support multiple CLIP models (ViT-B-32, ViT-B-16, ViT-L-14) instead of only ViT-B-32.
+
 ## 0.47.1 — 2026-08-17
 
 - Added comprehensive backlog document covering planned features: global settings page, folder rename resilience, multiple collections, database import/export, meaning search improvements, growing collection handling, and camera upload auto-ingest pipeline.
