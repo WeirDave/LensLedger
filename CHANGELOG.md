@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.51.0 — 2026-08-17
+
+- Added camera upload auto-ingest pipeline: automatically scan, tag, and sort new photos from a camera upload folder (e.g. Dropbox Camera Uploads) into an organized collection.
+- Sorting uses configurable rules with template-based destination paths (`{year}/{month}/{day}` etc.). Unmatched photos use a default date-based pattern.
+- Duplicate detection using content hashing prevents the same photo from being ingested twice.
+- Partial upload protection: files are checked for stability (size unchanged after delay) before processing.
+- All actions are logged to `ingest-log.json` for auditability.
+- Never deletes originals — files are moved from source to destination.
+- Added `/api/ingest/status` and `/api/ingest/log` endpoints for monitoring.
+- Pipeline state is saved in settings and restored on server restart.
+
 ## 0.50.0 — 2026-08-17
 
 - Added automatic folder watching: LensLedger can now periodically check for new, changed, or moved files without a manual scan. Configurable via the Settings page with an adjustable interval (minimum 5 minutes, default 30).

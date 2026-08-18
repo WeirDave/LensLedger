@@ -40,6 +40,7 @@ from library_config import (
     load_library_state, save_library_state, suggested_library_roots,
 )
 from folder_watcher import FolderWatcher
+from ingest_pipeline import IngestPipeline
 from settings_config import (
     AVAILABLE_MODELS, load_settings, save_settings,
 )
@@ -631,6 +632,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
     folder_watcher: FolderWatcher | None = None
+    ingest_pipeline: IngestPipeline | None = None
 
     def db(self):
         return connect(self.db_path)
@@ -729,6 +731,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.export_status()
         if url.path == "/api/watcher/status":
             return self.watcher_status()
+        if url.path == "/api/ingest/status":
+            return self.ingest_status()
+        if url.path == "/api/ingest/log":
+            return self.ingest_log()
         if url.path != "/":
             return self.send_error(404)
         return self.viewer_page(params)
@@ -996,11 +1002,44 @@ class SearchHandler(BaseHTTPRequestHandler):
                 watcher.start()
             else:
                 watcher.stop()
+        ingest_cfg = values.get("ingest", {})
+        pipeline = type(self).ingest_pipeline
+        if pipeline:
+            pipeline.update_config(
+                source_folder=str(ingest_cfg.get("source_folder", "")),
+                destination_folder=str(ingest_cfg.get("destination_folder", "")),
+                rules=ingest_cfg.get("rules", []),
+            )
+            if ingest_cfg.get("enabled"):
+                pipeline.start()
+            else:
+                pipeline.stop()
         self.send_json({"ok": True})
 
     def watcher_status(self):
         watcher = type(self).folder_watcher
         self.send_json(watcher.status() if watcher else {"enabled": False, "interval_minutes": 30})
+
+    def ingest_status(self):
+        pipeline = type(self).ingest_pipeline
+        self.send_json(pipeline.status() if pipeline else {"enabled": False, "stats": {}})
+
+    def ingest_log(self):
+        from ingest_pipeline import INGEST_LOG_PATH
+        entries: list[dict] = []
+        if INGEST_LOG_PATH.is_file():
+            try:
+                with open(INGEST_LOG_PATH, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                entries.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+            except OSError:
+                pass
+        self.send_json({"entries": entries[-100:]})
 
     def remove_library(self, body):
         path = str(body.get("path", "")).strip()
@@ -3813,6 +3852,15 @@ def main():
     SearchHandler.folder_watcher = watcher
     if watch_cfg.get("enabled"):
         watcher.start()
+    ingest_cfg = settings.get("ingest", {})
+    pipeline = IngestPipeline(
+        source_folder=str(ingest_cfg.get("source_folder", "")),
+        destination_folder=str(ingest_cfg.get("destination_folder", "")),
+        rules=ingest_cfg.get("rules", []),
+    )
+    SearchHandler.ingest_pipeline = pipeline
+    if ingest_cfg.get("enabled"):
+        pipeline.start()
     print("\n" + "=" * 62, flush=True)
     if args.restarted:
         print(f"  {APP_NAME} v{APP_VERSION} — new version loaded.\n  {APP_TAGLINE}\n", flush=True)
@@ -3828,6 +3876,7 @@ def main():
     except KeyboardInterrupt: print(f"\n{APP_NAME} is stopping...", flush=True)
     finally:
         watcher.stop()
+        pipeline.stop()
         server.server_close(); print(f"{APP_NAME} stopped.", flush=True)
 
 
