@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.51.1 — 2026-08-17
+
+- Updated backlog document: all 7 planned features are now implemented and shipped (v0.48.0–v0.51.0).
+
 ## 0.51.0 — 2026-08-17
 
 - Added camera upload auto-ingest pipeline: automatically scan, tag, and sort new photos from a camera upload folder (e.g. Dropbox Camera Uploads) into an organized collection.
