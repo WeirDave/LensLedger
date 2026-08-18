@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.45.6 — 2026-08-17
+
+- Left-aligned header and content on People Review and Name Faces pages to match the main viewer layout — menu, logo, version, and theme toggle are now in the same position on every page.
+- Added "Home" link to the main viewer menu for consistency with sub-pages.
+- People Review photo grid now uses auto-fill columns, fitting more review cards on wider screens instead of a fixed 4-column layout.
+
 ## 0.45.5 — 2026-08-17
 
 - Replaced small text chevrons (‹ ›) on photo navigation buttons with properly sized SVG arrows, centered inside larger 48px circular buttons.
