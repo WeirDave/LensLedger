@@ -133,10 +133,29 @@ def status(db_path: Path) -> dict[str, object]:
             """SELECT COUNT(*) FROM assets WHERE media_type='image'
                AND metadata_scanned=1 AND in_review_bin=0"""
         ).fetchone()[0])
+        columns = {row[1] for row in con.execute("PRAGMA table_info(assets)")}
+        if "semantic_error" in columns:
+            failed = int(con.execute(
+                "SELECT COUNT(*) FROM assets WHERE semantic_error<>'' AND in_review_bin=0"
+            ).fetchone()[0])
+        else:
+            failed = 0
+        if not failed and indexed > 0:
+            model = model_row["model"] if model_row else DEFAULT_MODEL
+            unindexed = int(con.execute(
+                """SELECT COUNT(*) FROM assets a
+                   LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
+                   WHERE a.media_type='image' AND a.metadata_scanned=1
+                         AND a.in_review_bin=0 AND se.asset_id IS NULL""",
+                (model,),
+            ).fetchone()[0])
+            if unindexed > 0 and unindexed < eligible * 0.05:
+                failed = unindexed
     return {
         "indexed": indexed,
         "eligible": eligible,
-        "remaining": max(0, eligible - indexed),
+        "remaining": max(0, eligible - indexed - failed),
+        "failed": failed,
         "model": model_row["model"] if model_row else DEFAULT_MODEL,
         "installed": is_available(),
     }
@@ -178,6 +197,10 @@ def build_index(
             for row, vector in zip(batch, vectors):
                 if not vector:
                     counts["errors"] += 1
+                    con.execute(
+                        "UPDATE assets SET semantic_error=? WHERE id=?",
+                        ("Image could not be encoded by the meaning-search model.", int(row["id"])),
+                    )
                     continue
                 con.execute(
                     """INSERT INTO semantic_embeddings(asset_id,model,dimensions,embedding_f32,updated_at)
@@ -186,6 +209,7 @@ def build_index(
                        embedding_f32=excluded.embedding_f32,updated_at=excluded.updated_at""",
                     (int(row["id"]), model, len(vector), encode_vector(normalize(vector)), utc_now()),
                 )
+                con.execute("UPDATE assets SET semantic_error='' WHERE id=?", (int(row["id"]),))
                 counts["indexed"] += 1
         if progress:
             progress(dict(counts))

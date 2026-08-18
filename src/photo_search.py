@@ -298,10 +298,13 @@ def _run_library_scan_job(handler_class, root, database, started_at):
     """Run one location/library scan pass, updating handler_class.library_job as it goes."""
     try:
         def update_progress(counts):
+            job_counts = {k: v for k, v in counts.items() if k != "error_details"}
             with handler_class.library_lock:
                 handler_class.library_job = {
                     "state": "scanning", "message": f"Discovered {int(counts['scanned']):,} media files…",
-                    "target_root": str(root), "started_at": started_at, **counts,
+                    "target_root": str(root), "started_at": started_at,
+                    "error_details": counts.get("error_details", []),
+                    **job_counts,
                 }
 
         result = scan_library(
@@ -326,11 +329,19 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             progress_counts = {key: handler_class.library_job.get(key, 0) for key in (
                 "scanned", "changed", "unchanged", "removed", "errors", "placeholders"
             )}
+            error_details = handler_class.library_job.get("error_details", [])
             state = "cancelled" if result == 3 else "complete"
+            error_count = int(progress_counts.get("errors", 0))
+            if result == 3:
+                message = "Scan paused. Run it again to resume."
+            elif error_count:
+                message = f"Scan complete with {error_count:,} error{'s' if error_count != 1 else ''} — click the Errors count below for details."
+            else:
+                message = f"Library ready: {root}"
             handler_class.library_job = {
-                "state": state,
-                "message": "Scan paused. Run it again to resume." if result == 3 else f"Library ready: {root}",
-                "target_root": str(root), **progress_counts, "summary": summary,
+                "state": state, "message": message,
+                "target_root": str(root), "error_details": error_details,
+                **progress_counts, "summary": summary,
             }
     except Exception as exc:
         with handler_class.library_lock:
@@ -358,11 +369,14 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
         with handler_class.ocr_lock:
             current = dict(handler_class.ocr_job)
             state = "cancelled" if result == 3 else "complete"
-            current.update({
-                "state": state,
-                "message": "OCR paused safely. Start it again to resume." if result == 3
-                else "OCR pass complete.",
-            })
+            error_count = int(current.get("errors", 0))
+            if result == 3:
+                message = "OCR paused safely. Start it again to resume."
+            elif error_count:
+                message = f"OCR complete with {error_count:,} error{'s' if error_count != 1 else ''} — click the Errors count below for details."
+            else:
+                message = "OCR pass complete."
+            current.update({"state": state, "message": message})
             handler_class.ocr_job = current
     except Exception as exc:
         with handler_class.ocr_lock:
@@ -388,10 +402,16 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
             should_cancel=handler_class.semantic_cancel.is_set,
         )
         with handler_class.semantic_lock:
+            error_count = int(result["errors"])
+            if result["cancelled"]:
+                sem_message = "Meaning indexing paused safely."
+            elif error_count:
+                sem_message = f"Meaning index complete with {error_count:,} error{'s' if error_count != 1 else ''} — some images could not be indexed."
+            else:
+                sem_message = "Meaning index is ready."
             handler_class.semantic_job = {
                 "state": "cancelled" if result["cancelled"] else "complete",
-                "message": "Meaning indexing paused safely." if result["cancelled"]
-                else "Meaning index is ready.",
+                "message": sem_message,
                 "total": int(result["total"]),
                 "indexed_this_pass": int(result["indexed"]),
                 "errors": int(result["errors"]),
@@ -421,13 +441,21 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
         with handler_class.face_scan_lock:
             current = dict(handler_class.face_scan_job)
             state = "cancelled" if result["cancelled"] else "complete"
-            current.update({
-                "state": state,
-                "message": "Face detection paused safely. Start it again to resume." if result["cancelled"]
-                else f"Face detection complete: {result['faces_found']:,} faces found. "
-                     f"Use \"Name faces\" above to put names on them, then \"Find more matches\" "
-                     f"on People review to find the rest.",
-            })
+            face_error_count = int(result.get("errors", 0))
+            if result["cancelled"]:
+                face_message = "Face detection paused safely. Start it again to resume."
+            elif face_error_count:
+                face_message = (
+                    f"Face detection complete with {face_error_count:,} error{'s' if face_error_count != 1 else ''}: "
+                    f"{result['faces_found']:,} faces found — click the Errors count below for details."
+                )
+            else:
+                face_message = (
+                    f"Face detection complete: {result['faces_found']:,} faces found. "
+                    f"Use \"Name faces\" above to put names on them, then \"Find more matches\" "
+                    f"on People review to find the rest."
+                )
+            current.update({"state": state, "message": face_message})
             handler_class.face_scan_job = current
     except Exception as exc:
         with handler_class.face_scan_lock:
@@ -524,7 +552,15 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         else:
             skipped.append("face detection")
 
+        total_errors = (
+            int(handler_class.library_job.get("errors", 0))
+            + int(handler_class.ocr_job.get("errors", 0))
+            + int(handler_class.semantic_job.get("errors", 0))
+            + int(handler_class.face_scan_job.get("errors", 0))
+        )
         message = "Ran: " + ", ".join(ran) + "."
+        if total_errors:
+            message += f" {total_errors:,} error{'s' if total_errors != 1 else ''} — check each section below for details."
         if skipped:
             message += " Skipped (not set up yet): " + ", ".join(skipped) + " — set up below."
         with handler_class.scan_all_lock:
@@ -639,6 +675,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.trash_history()
         if url.path == "/api/library/status":
             return self.library_status()
+        if url.path == "/api/library/errors":
+            return self.library_errors()
         if url.path == "/api/library/options":
             return self.library_options()
         if url.path == "/api/library/items":
@@ -653,6 +691,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.ocr_errors()
         if url.path == "/api/semantic/status":
             return self.semantic_job_status()
+        if url.path == "/api/semantic/errors":
+            return self.semantic_errors()
         if url.path == "/api/faces/status":
             return self.face_scan_job_status()
         if url.path == "/api/faces/errors":
@@ -2640,6 +2680,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "ocr_pending": int(con.execute("""SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
                     WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0 AND x.ocr_scanned=0""").fetchone()[0]),
                 "ocr_errors": int(con.execute("SELECT COUNT(*) FROM text_data WHERE ocr_error<>''").fetchone()[0]),
+                "scan_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE scan_error<>''").fetchone()[0]),
+                "semantic_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE semantic_error<>''").fetchone()[0]),
                 "face_scan_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE face_scan_error<>''").fetchone()[0]),
                 "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
                 "unidentified_faces": int(con.execute(
@@ -2906,6 +2948,34 @@ class SearchHandler(BaseHTTPRequestHandler):
             install = dict(type(self).semantic_install_job)
         self.send_json({**coverage, **job, "install": install})
 
+    def semantic_errors(self):
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT relative_path, semantic_error FROM assets
+                   WHERE semantic_error<>'' AND in_review_bin=0
+                   ORDER BY id DESC LIMIT 200"""
+            ).fetchall()
+            if not rows:
+                model_row = con.execute(
+                    "SELECT model FROM semantic_embeddings LIMIT 1"
+                ).fetchone()
+                if model_row:
+                    rows = con.execute(
+                        """SELECT a.relative_path FROM assets a
+                           LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
+                           WHERE a.media_type='image' AND a.metadata_scanned=1
+                                 AND a.in_review_bin=0 AND se.asset_id IS NULL
+                           ORDER BY a.id DESC LIMIT 200""",
+                        (model_row["model"],),
+                    ).fetchall()
+                    self.send_json({
+                        "errors": [{"path": row["relative_path"], "error": "Image could not be encoded by the meaning-search model."} for row in rows],
+                    })
+                    return
+        self.send_json({
+            "errors": [{"path": row["relative_path"], "error": row["semantic_error"]} for row in rows],
+        })
+
     def start_semantic_index(self, body):
         batch_size = max(1, min(64, int(body.get("batch_size", 16))))
         with type(self).semantic_lock:
@@ -3128,8 +3198,22 @@ class SearchHandler(BaseHTTPRequestHandler):
     def library_status(self):
         with type(self).library_lock:
             job = dict(type(self).library_job)
+        job.pop("error_details", None)
         job["current_root"] = str(type(self).library_root)
         self.send_json(job)
+
+    def library_errors(self):
+        with type(self).library_lock:
+            in_memory = list(type(self).library_job.get("error_details", []))
+        if in_memory:
+            self.send_json({"errors": in_memory[:200]})
+            return
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT relative_path, scan_error FROM assets
+                   WHERE scan_error<>'' ORDER BY id DESC LIMIT 200"""
+            ).fetchall()
+        self.send_json({"errors": [{"path": row["relative_path"], "error": row["scan_error"]} for row in rows]})
 
     def library_options(self):
         config = load_library_config()

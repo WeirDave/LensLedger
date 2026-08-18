@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.47.0 — 2026-08-17
+
+- Made scan error counts clickable across all scan types — clicking the Errors metric now opens a modal showing which files failed and why.
+- Added error visibility to the photo locations scan: errors are now stored per-file in the database, retrievable via a new `/api/library/errors` endpoint, and clickable in the UI.
+- Added error visibility to the meaning search scan: failed files are now tracked with a `semantic_error` column, retrievable via a new `/api/semantic/errors` endpoint, and clickable in the UI.
+- Fixed the "66 remaining" mystery in meaning search: files that the model cannot encode are now correctly counted as errors rather than remaining, so the Remaining count reaches 0 when the scan is truly done.
+- Improved completion messages across all scan types to mention error counts and direct the user to click the Errors metric for details.
+- Improved the "Run all scans" completion message to report total errors across all sub-scans.
+
 ## 0.46.0 — 2026-08-17
 
 - Unified the navigation menu across all five pages — every page now shows the identical hamburger menu with the same items in the same order.

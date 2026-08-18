@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS assets (
     location_scanned INTEGER NOT NULL DEFAULT 0,
     face_scanned INTEGER NOT NULL DEFAULT 0,
     face_scan_error TEXT NOT NULL DEFAULT '',
+    scan_error TEXT NOT NULL DEFAULT '',
+    semantic_error TEXT NOT NULL DEFAULT '',
     in_review_bin INTEGER NOT NULL DEFAULT 0,
     gps_latitude REAL,
     gps_longitude REAL,
@@ -293,6 +295,10 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         )
     if "face_scan_error" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN face_scan_error TEXT NOT NULL DEFAULT ''")
+    if "scan_error" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN scan_error TEXT NOT NULL DEFAULT ''")
+    if "semantic_error" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN semantic_error TEXT NOT NULL DEFAULT ''")
     people_columns = {row[1] for row in con.execute("PRAGMA table_info(asset_people)")}
     if "face_id" not in people_columns:
         con.execute("ALTER TABLE asset_people ADD COLUMN face_id INTEGER REFERENCES face_embeddings(id) ON DELETE SET NULL")
@@ -567,10 +573,11 @@ def scan_library(
         "location_scanned, in_review_bin FROM assets"
     )}
     seen: set[str] = set()
-    counts: dict[str, int | bool] = {
+    counts: dict[str, int | bool | list] = {
         "scanned": 0, "changed": 0, "unchanged": 0, "removed": 0,
         "errors": 0, "placeholders": 0, "cancelled": False,
         "total_estimate": len(known),
+        "error_details": [],
     }
 
     def report() -> None:
@@ -614,7 +621,8 @@ def scan_library(
                     location_scanned=excluded.location_scanned,
                     gps_latitude=excluded.gps_latitude,
                     gps_longitude=excluded.gps_longitude,
-                    capture_date=excluded.capture_date, indexed_at=excluded.indexed_at
+                    capture_date=excluded.capture_date, indexed_at=excluded.indexed_at,
+                    scan_error=''
                 """,
                 (str(path), rel_text, folder, path.name, path.suffix.lower(), media_type(path),
                  stat.st_size, stat.st_mtime_ns, 0 if placeholder else 1, 0 if placeholder else 1,
@@ -640,6 +648,15 @@ def scan_library(
                 con.commit()
         except Exception as exc:  # keep indexing the rest of the library
             counts["errors"] += 1
+            error_text = str(exc)[:1000]
+            counts["error_details"].append({"path": rel_text, "error": error_text})
+            try:
+                con.execute(
+                    "UPDATE assets SET scan_error=? WHERE relative_path=?",
+                    (error_text, rel_text),
+                )
+            except Exception:
+                pass
             print(f"ERROR\t{path}\t{exc}", file=sys.stderr)
         if int(counts["scanned"]) % 100 == 0:
             report()

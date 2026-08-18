@@ -207,9 +207,11 @@ async function refresh() {
     // Photo locations (reuses the general incremental library scan)
     const locationScanning = locationStatus.state === 'scanning';
     $('locationMessage').textContent = locationStatus.message || 'Not run yet — click below to find GPS coordinates in your photos.';
+    const locationErrorCount = Math.max(c.scan_errors || 0, locationStatus.errors || 0);
     $('locationMetrics').replaceChildren(
       metric('Scanned', locationStatus.scanned), metric('Changed', locationStatus.changed),
-      metric('Unchanged', locationStatus.unchanged), metric('Errors', locationStatus.errors),
+      metric('Unchanged', locationStatus.unchanged),
+      metric('Errors', locationErrorCount, locationErrorCount ? () => showScanErrors('/api/library/errors', 'Photo location scan errors') : null),
     );
     $('startLocation').disabled = locationScanning || scanAllRunning;
     $('pauseLocation').disabled = !locationScanning || scanAllRunning;
@@ -252,9 +254,11 @@ async function refresh() {
       $('semanticBarWrap').classList.toggle('indeterminate', semanticInstalling);
     } else {
       $('semanticMessage').textContent = semantic.message || 'Ready. Build the index below to make your photos searchable by meaning.';
+      const semanticErrorCount = Math.max(semantic.failed || 0, semantic.errors || 0);
       $('semanticMetrics').replaceChildren(
         metric('Indexed', semantic.indexed), metric('Remaining', semantic.remaining),
-        metric('This pass', semantic.indexed_this_pass), metric('Errors', semantic.errors),
+        metric('This pass', semantic.indexed_this_pass),
+        metric('Errors', semanticErrorCount, semanticErrorCount ? () => showScanErrors('/api/semantic/errors', 'Meaning search errors') : null),
       );
     }
     const semanticRunning = semantic.state === 'running';
