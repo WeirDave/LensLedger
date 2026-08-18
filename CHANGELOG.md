@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.56.0 — 2026-08-18
+
+- Fixed auto-ingest page layout so Browse buttons align inline with their Source/Destination folder input fields instead of wrapping below them.
+- Added a "Run now" button to the auto-ingest page that triggers an immediate pipeline run without needing to enable the periodic auto-ingest timer.
+
 ## 0.55.1 — 2026-08-18
 
 - Added the "restart now" version banner to all pages — previously only the viewer detected when a newer version was on disk and offered a one-click restart; now every page (Settings, Scan, Map, Auto-ingest, Name faces, Review people) shows the same banner and restart button.

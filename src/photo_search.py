@@ -894,6 +894,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.remove_library(body)
             if route == "/api/ingest/save":
                 return self.save_ingest_config(body)
+            if route == "/api/ingest/run":
+                return self.ingest_run_now(body)
             if route == "/api/settings/export":
                 return self.export_database(body)
             if route == "/api/settings/import":
@@ -1053,7 +1055,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card"><h2>Activity log</h2><p>Recent pipeline activity — every file processed is logged here.</p>
 <div id="logList"><p class="log-empty">Loading…</p></div>
 <div class="actions-bar"><button type="button" class="secondary" id="refreshLog">Refresh log</button></div></section>
-<div class="actions-bar"><button type="button" id="saveConfig">Save configuration</button></div>
+<div class="actions-bar"><button type="button" class="secondary" id="runNow">Run now</button><button type="button" id="saveConfig">Save configuration</button></div>
 </main>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/auto-ingest.js')}" defer></script>
@@ -1080,6 +1082,17 @@ class SearchHandler(BaseHTTPRequestHandler):
             else:
                 pipeline.stop()
         self.send_json({"ok": True})
+
+    def ingest_run_now(self, body):
+        pipeline = type(self).ingest_pipeline
+        if not pipeline:
+            self.send_json({"error": "Pipeline not initialised"})
+            return
+        if not pipeline._source or not pipeline._destination:
+            self.send_json({"error": "Source and destination folders must be configured first"})
+            return
+        delta = pipeline.run_once()
+        self.send_json({"ok": True, "delta": delta})
 
     def get_settings(self):
         self.send_json(load_settings())

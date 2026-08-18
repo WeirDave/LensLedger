@@ -57,6 +57,22 @@ function collectConfig(){
   return c;
 }
 
+async function runNow(){
+  const btn=$('runNow');
+  btn.disabled=true;btn.textContent='Running…';
+  try{
+    const res=await post('/api/ingest/run',{});
+    if(res.error){toast(res.error,true);return;}
+    const d=res.delta||{};
+    toast('Run complete — '+
+      (d.ingested||0)+' ingested, '+
+      (d.duplicates||0)+' duplicates, '+
+      (d.errors||0)+' errors');
+    refreshStatus();loadLog();
+  }catch(e){toast('Run failed: '+e.message,true);}
+  finally{btn.disabled=false;btn.textContent='Run now';}
+}
+
 async function saveConfig(){
   const c=collectConfig();
   const res=await post('/api/ingest/save',{config:c});
@@ -109,6 +125,7 @@ async function browseFolder(inputId){
 
 document.addEventListener('click',e=>{
   if(e.target.id==='saveConfig')saveConfig();
+  if(e.target.id==='runNow')runNow();
   if(e.target.id==='addRule'){rules.push({match:'',destination:''});renderRules();}
   if(e.target.id==='browseIngestSource')browseFolder('ingestSource');
   if(e.target.id==='browseIngestDest')browseFolder('ingestDest');

@@ -164,6 +164,15 @@ class IngestPipeline:
                 self._rules = rules
             self._default_template = default_template or DEFAULT_TEMPLATE
 
+    def run_once(self) -> dict[str, int]:
+        """Run one processing pass immediately and return stats delta."""
+        before = dict(self._stats)
+        self._process_source()
+        return {
+            k: self._stats[k] - before.get(k, 0)
+            for k in self._stats
+        }
+
     def _schedule_next(self) -> None:
         self._timer = threading.Timer(self._interval, self._on_tick)
         self._timer.daemon = True
