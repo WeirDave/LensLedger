@@ -39,6 +39,7 @@ from library_config import (
     associate_db_path, choose_library_folder, library_db_path, load_library_config,
     load_library_state, save_library_state, suggested_library_roots,
 )
+from folder_watcher import FolderWatcher
 from settings_config import (
     AVAILABLE_MODELS, load_settings, save_settings,
 )
@@ -629,6 +630,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
+    folder_watcher: FolderWatcher | None = None
 
     def db(self):
         return connect(self.db_path)
@@ -725,6 +727,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.get_settings()
         if url.path == "/api/settings/export-status":
             return self.export_status()
+        if url.path == "/api/watcher/status":
+            return self.watcher_status()
         if url.path != "/":
             return self.send_error(404)
         return self.viewer_page(params)
@@ -984,7 +988,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not isinstance(values, dict):
             raise ValueError("invalid settings format")
         save_settings(values)
+        watch_cfg = values.get("watch", {})
+        watcher = type(self).folder_watcher
+        if watcher:
+            if watch_cfg.get("enabled"):
+                watcher.update_interval(int(watch_cfg.get("interval_minutes", 30)))
+                watcher.start()
+            else:
+                watcher.stop()
         self.send_json({"ok": True})
+
+    def watcher_status(self):
+        watcher = type(self).folder_watcher
+        self.send_json(watcher.status() if watcher else {"enabled": False, "interval_minutes": 30})
 
     def remove_library(self, body):
         path = str(body.get("path", "")).strip()
@@ -3780,6 +3796,23 @@ def main():
     associate_db_path(root, database)
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
     server = LensLedgerHTTPServer(("localhost", args.port), SearchHandler); url = f"http://localhost:{args.port}/"
+    def watcher_scan():
+        with SearchHandler.library_lock:
+            if SearchHandler.library_job.get("state") == "scanning":
+                return
+        try:
+            scan_library(SearchHandler.library_root, SearchHandler.db_path)
+        except Exception:
+            pass
+    settings = load_settings()
+    watch_cfg = settings.get("watch", {})
+    watcher = FolderWatcher(
+        interval_minutes=int(watch_cfg.get("interval_minutes", 30)),
+        scan_fn=watcher_scan,
+    )
+    SearchHandler.folder_watcher = watcher
+    if watch_cfg.get("enabled"):
+        watcher.start()
     print("\n" + "=" * 62, flush=True)
     if args.restarted:
         print(f"  {APP_NAME} v{APP_VERSION} — new version loaded.\n  {APP_TAGLINE}\n", flush=True)
@@ -3793,7 +3826,9 @@ def main():
         browser_timer.start()
     try: server.serve_forever()
     except KeyboardInterrupt: print(f"\n{APP_NAME} is stopping...", flush=True)
-    finally: server.server_close(); print(f"{APP_NAME} stopped.", flush=True)
+    finally:
+        watcher.stop()
+        server.server_close(); print(f"{APP_NAME} stopped.", flush=True)
 
 
 if __name__ == "__main__":

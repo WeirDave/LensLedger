@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.50.0 — 2026-08-17
+
+- Added automatic folder watching: LensLedger can now periodically check for new, changed, or moved files without a manual scan. Configurable via the Settings page with an adjustable interval (minimum 5 minutes, default 30).
+- The watcher uses scheduled incremental scans rather than filesystem notifications, avoiding false events from cloud-synced folders (OneDrive, Dropbox placeholders).
+- Watcher state is saved in settings and restored on server restart.
+- Added `/api/watcher/status` endpoint for monitoring watcher state.
+
 ## 0.49.0 — 2026-08-17
 
 - Added folder rename and move resilience using content-hash reconciliation. When files are moved or renamed within a library, LensLedger now matches them by content fingerprint instead of deleting the old record and creating a new one, preserving all enrichment data (tags, people, face embeddings, OCR text, review history).
