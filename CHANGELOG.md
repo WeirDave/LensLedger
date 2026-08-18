@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.44.1 — 2026-08-17
+
+- Fixed enlarge and trash button text color in light mode — now uses theme text color so buttons are readable against both light and dark backgrounds.
+- Replaced the 🗑 emoji trash icon with "✕ Trash" text label to match the "⛶ Enlarge" button style.
+
 ## 0.44.0 — 2026-08-17
 
 - Added consistent single-click enlarge button across all review pages — faces review now has the same ⛶ Enlarge button that people review already had.

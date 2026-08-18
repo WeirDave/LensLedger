@@ -224,7 +224,7 @@ function buildCard(face) {
   const card = document.createElement('article');
   card.className = 'face-card';
   card.dataset.faceId = face.face_id;
-  card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash">🗑</button></div>'
+  card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash">✕ Trash</button></div>'
     + '<div class="face-info"><small></small>'
     + '<div class="face-form"><div class="face-picker"></div></div>'
     + '<div class="face-actions"><button type="button" class="not-person">Not a person</button>'
