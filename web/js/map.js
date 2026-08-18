@@ -210,3 +210,11 @@ fetch('/api/map/points').then(response => response.json()).then(data => {
   document.getElementById('emptyText').textContent = error.message;
 });
 transform();
+
+const $ = id => document.getElementById(id);
+function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}
+document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{closeMenu();if(b.dataset.panel==='about'){const v=document.querySelector('.menu-panel-version');alert('LensLedger'+(v?' '+v.textContent:'')+'\n\nLocal-first photo and video indexing, search, people review, and safe metadata publishing for Windows.')}else if(b.dataset.panel==='guide'||b.dataset.panel==='update')window.location='/?panel='+b.dataset.panel});
+$('menuToggle').onclick = e => { e.stopPropagation(); if($('menuPanel').classList.contains('open'))closeMenu();else openMenu(); };
+$('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
+document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });

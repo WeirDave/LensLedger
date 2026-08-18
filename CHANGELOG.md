@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.46.0 — 2026-08-17
+
+- Unified the navigation menu across all five pages — every page now shows the identical hamburger menu with the same items in the same order.
+- Menu order now reflects the user workflow: Home, Scan photos, Name faces, Review people, Photo map.
+- Added the hamburger menu to the Scan photos and Photo map pages, replacing the old quick-nav link bar.
+- Added Quick guide, Check for updates, and Copy diagnostics to sub-page menus (redirects to the home page for panels that live there).
+- Slightly enlarged the menu logo from 32px to 40px.
+
 ## 0.45.7 — 2026-08-17
 
 - Renamed "Information already in this photo" to "Capture details" in the sidebar and quick guide.
