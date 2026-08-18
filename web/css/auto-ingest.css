@@ -48,3 +48,5 @@ main{width:min(820px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:7
 .toast.error{background:var(--danger)}
 .section-divider{height:1px;background:var(--border);margin:12px 0}
 @media(max-width:700px){main{width:calc(100% - 22px)}.card{padding:11px 12px}.field{grid-template-columns:1fr;gap:4px}.field .hint{grid-column:1}.rule-item{grid-template-columns:1fr;gap:4px}}
+
+.menu-panel .menu-item.active{background:var(--menu-hover);color:var(--accent);font-weight:700;border-left:3px solid var(--accent);padding-left:13px}.menu-library{padding:12px 16px;border-top:1px solid var(--border);margin-top:auto}.menu-library-label{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary);margin-bottom:3px}.menu-library-path{display:block;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

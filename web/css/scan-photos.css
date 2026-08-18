@@ -53,3 +53,5 @@ main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .error-modal-footer button{font-size:12px;padding:7px 12px}
 .setup-link{display:inline-block;border:0;border-radius:var(--radius-sm,6px);padding:8px 13px;background:var(--btn-primary);color:var(--text-on-accent);font-weight:700;font-size:13px;cursor:pointer;text-decoration:none}.setup-link:hover{opacity:.9}
 @media(max-width:700px){.health-summary{grid-template-columns:1fr 1fr}main{width:calc(100% - 22px)}.card{padding:11px 12px}}
+
+.menu-panel .menu-item.active{background:var(--menu-hover);color:var(--accent);font-weight:700;border-left:3px solid var(--accent);padding-left:13px}.menu-library{padding:12px 16px;border-top:1px solid var(--border);margin-top:auto}.menu-library-label{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary);margin-bottom:3px}.menu-library-path{display:block;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

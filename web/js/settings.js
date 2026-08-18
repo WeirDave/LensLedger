@@ -23,7 +23,7 @@ function renderLibraries(){
   libraries.forEach(lib=>{
     const item=document.createElement('div');item.className='library-item';
     const isCurrent=lib.path.replace(/\\/g,'/').toLowerCase()===currentRoot.replace(/\\/g,'/').toLowerCase();
-    item.innerHTML=`<span class="path">${esc(lib.label||lib.path)}</span>`
+    item.innerHTML=`<span class="path">${esc(lib.path)}</span>`
       +(isCurrent?'<span class="current-badge">Current</span>':'<button type="button" class="secondary switch-btn">Switch</button>')
       +`<button type="button" class="secondary remove-btn" ${isCurrent?'disabled':''}>Remove</button>`;
     if(!isCurrent){
@@ -82,6 +82,7 @@ async function saveSettings(){
 }
 
 async function switchLibrary(path){
+  if(!confirm('Switch to this library? Your current library will remain in the list.'))return;
   const res=await post('/api/library/open',{path});
   if(res.error){toast(res.error,true);return}
   currentRoot=path;
@@ -103,6 +104,7 @@ async function addLibrary(){
 }
 
 async function removeLibrary(path){
+  if(!confirm('Remove this library from the list? Your photos and index data are not deleted.'))return;
   const res=await post('/api/settings/remove-library',{path});
   if(res.error){toast(res.error,true);return}
   libraries=libraries.filter(l=>l.path.replace(/\\/g,'/').toLowerCase()!==path.replace(/\\/g,'/').toLowerCase());

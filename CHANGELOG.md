@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.54.0 — 2026-08-17
+
+- Added active-page highlighting in the navigation menu — the current page is visually marked with an accent border and bold text.
+- Added current library name and full path to the bottom of the navigation menu on every page.
+- Settings library list now shows the full folder path instead of just the leaf folder name.
+- Added confirmation dialogs before switching or removing a library in Settings.
+- Added explanatory text to the database export/import section in Settings.
+- Added tooltip to the OCR "Only since" date field explaining its purpose.
+- Fixed map empty-state link to point to the scan page instead of the home page.
+
 ## 0.53.0 — 2026-08-17
 
 - Moved camera upload auto-ingest from a settings section to its own dedicated page (`/auto-ingest`) with status dashboard, activity log, and clear documentation.
