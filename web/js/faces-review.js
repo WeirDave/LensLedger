@@ -56,8 +56,47 @@ function updateProgress() {
 }
 
 let initialLoadDone = false;
+let autoLearnTriggered = false;
 function checkEmpty() {
-  $('emptyState').hidden = !initialLoadDone || $('faceGrid').children.length > 0 || $('matchGroups').children.length > 0;
+  const gridEmpty = $('faceGrid').children.length === 0;
+  const groupsEmpty = $('matchGroups').children.length === 0;
+  const isEmpty = initialLoadDone && gridEmpty && groupsEmpty;
+  $('emptyState').hidden = !isEmpty;
+  if (isEmpty && !autoLearnTriggered) {
+    autoLearnTriggered = true;
+    autoLearn();
+  }
+}
+
+async function autoLearn() {
+  $('emptyState').hidden = true;
+  $('globalProgress').textContent = 'Learning from the faces you named…';
+  try {
+    const result = await api('/api/people/learn', {});
+    const autoCount = result.auto_confirmed ? (Array.isArray(result.auto_confirmed) ? result.auto_confirmed.length : result.auto_confirmed) : 0;
+    const sugCount = result.suggestions || 0;
+    if (autoCount || sugCount) {
+      $('emptyHeading').textContent = 'Ready for People Review';
+      $('globalProgress').textContent = (autoCount ? autoCount + ' auto-confirmed' : '') + (autoCount && sugCount ? '; ' : '') + (sugCount ? sugCount + ' suggestion' + (sugCount === 1 ? '' : 's') + ' ready' : '');
+      $('emptyText').innerHTML = (sugCount
+        ? '<strong>' + sugCount + ' suggestion' + (sugCount === 1 ? '' : 's') + '</strong> ready for review based on the faces you named.'
+        : 'All strong matches were confirmed automatically.') + (autoCount ? '<br>' + autoCount + ' near-certain match' + (autoCount === 1 ? ' was' : 'es were') + ' confirmed automatically.' : '');
+      const link = document.createElement('a');
+      link.className = 'button';
+      link.href = '/people-review';
+      link.textContent = 'Review people suggestions';
+      const existing = $('emptyState').querySelector('a.button');
+      if (existing) existing.replaceWith(link);
+    } else {
+      await loadMore();
+      if ($('faceGrid').children.length > 0) return;
+      $('emptyHeading').textContent = 'No unidentified faces';
+      $('globalProgress').textContent = 'No unidentified faces';
+    }
+  } catch (error) {
+    $('globalProgress').textContent = error.message || String(error);
+  }
+  $('emptyState').hidden = false;
 }
 
 function removeCard(card) {
@@ -301,9 +340,9 @@ async function loadMore() {
     updateProgress();
     knownPeople = data.people_options;
     const existing = new Set([...$('faceGrid').children].map(el => el.dataset.faceId));
-    data.faces
-      .filter(face => !existing.has(String(face.face_id)) && !pending.has(face.face_id))
-      .forEach(face => $('faceGrid').append(buildCard(face)));
+    const newFaces = data.faces.filter(face => !existing.has(String(face.face_id)) && !pending.has(face.face_id));
+    if (newFaces.length) autoLearnTriggered = false;
+    newFaces.forEach(face => $('faceGrid').append(buildCard(face)));
     checkEmpty();
   } catch (error) {
     $('globalProgress').textContent = error.message;

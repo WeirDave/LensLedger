@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.45.0 — 2026-08-17
+
+- Name Faces now shows a diverse variety of people instead of repeating the same person — uses greedy diversity sampling to pick one representative face per visual cluster.
+- Auto-learns after the review queue empties on both Name Faces and People Review pages, so the system finds more matches without needing to click "Find more matches" manually.
+- Name Faces transitions to a "Ready for People Review" prompt when learning generates new suggestions, guiding the user to the next step in the workflow.
+- People Review automatically re-learns and reloads when the last suggestion is reviewed, continuing the review cycle until no more matches are found.
+
 ## 0.44.1 — 2026-08-17
 
 - Fixed enlarge and trash button text color in light mode — now uses theme text color so buttons are readable against both light and dark backgrounds.

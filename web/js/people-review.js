@@ -11,6 +11,7 @@ let dispositions = new Map();
 const DISPOSITION_LABELS = { not_a_person: 'Not a person', unknown_person: 'Unknown person' };
 let history = [];
 let knownPeople = [];
+let autoLearnDone = false;
 const $ = id => document.getElementById(id);
 
 function registerKnownPerson(name) {
@@ -52,8 +53,13 @@ function render() {
   dispositions.clear();
   $('confirmBatch').disabled = false;
   if (!queue?.person) {
-    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
     $('actionbar').hidden = true;
+    if (!autoLearnDone) {
+      autoLearnDone = true;
+      autoLearnOnEmpty();
+      return;
+    }
+    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
     $('globalProgress').textContent = 'No suggestions remaining';
     return;
   }
@@ -273,6 +279,22 @@ function showError(error) {
   $('status').textContent = error.message || String(error);
 }
 
+async function autoLearnOnEmpty() {
+  $('reviewArea').innerHTML = '<div class="empty"><div><h2>Checking for more matches…</h2><p>Learning from the reviews you just completed.</p></div></div>';
+  $('globalProgress').textContent = 'Learning from confirmed faces…';
+  try {
+    const result = await api('/api/people/learn', {});
+    skipped.clear();
+    history = [];
+    await loadQueue();
+    if (queue?.person) return;
+    $('globalProgress').textContent = 'No suggestions remaining';
+  } catch (error) {
+    $('globalProgress').textContent = error.message || String(error);
+  }
+  $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
+}
+
 async function runLearning() {
   const button = $('learnMore');
   button.disabled = true;
@@ -281,6 +303,7 @@ async function runLearning() {
     const result = await api('/api/people/learn', {});
     skipped.clear();
     history = [];
+    autoLearnDone = false;
     await loadQueue();
     if (result.auto_confirmed) {
       $('globalProgress').textContent = result.auto_confirmed + ' near-certain match' + (result.auto_confirmed === 1 ? '' : 'es') + ' confirmed automatically' + (result.suggestions ? '; more added to this queue' : '');

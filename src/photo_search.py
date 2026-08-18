@@ -1233,7 +1233,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="findMatches">Find more matches</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 <div class="menu-backdrop" id="menuBackdrop"></div><nav class="menu-panel" id="menuPanel"><div class="menu-panel-header"><div class="menu-panel-brand"><img src="/logo.png?v={APP_VERSION}" alt=""><div class="menu-panel-brand-text"><span class="menu-panel-title">{APP_NAME}</span><span class="menu-panel-tagline">{APP_TAGLINE}</span><span class="menu-panel-version">v{APP_VERSION}</span><button type="button" class="menu-panel-about-btn" data-panel="about">ℹ About</button></div></div><button type="button" class="menu-close-btn" id="menuClose">&times;</button></div><div class="menu-body"><details class="menu-section" open><summary class="menu-section-label">Navigation</summary><a class="menu-item" href="/">📷 Photo library</a><a class="menu-item" href="/people-review">👥 Review people</a><a class="menu-item" href="/scan-photos">🔎 Scan photos</a><a class="menu-item" href="/map">🌍 Photo map</a></details><div class="menu-divider"></div><details class="menu-section"><summary class="menu-section-label">Help &amp; Support</summary><a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a><button type="button" class="menu-item" onclick="copyDiagnostics()">📋 Copy diagnostics</button></details></div></nav>
-<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><p class="intro" hidden>Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately. Double-click a portrait to see the full photo for context -- helpful for a profile, blurry, or dark face that's hard to place cropped down this small. If it's not a real face, use "Not a person"; if it's a real face you just can't identify (a stranger in a crowd shot, for example), use "Unknown person" so it stops resurfacing. Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2>No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><p class="intro" hidden>Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately. Double-click a portrait to see the full photo for context -- helpful for a profile, blurry, or dark face that's hard to place cropped down this small. If it's not a real face, use "Not a person"; if it's a real face you just can't identify (a stranger in a crowd shot, for example), use "Unknown person" so it stops resurfacing. Naming a few photos of the same person here helps "Find more matches" on People review suggest the rest automatically.</p><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
@@ -1971,16 +1971,18 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "published": 1})
 
     def unidentified_faces(self, params):
-        """Detected faces with no confirmed name yet, newest first.
+        """Detected faces with no confirmed name yet, diversity-sampled.
 
-        A face only qualifies once it has a recovered bounding box (so a
-        crop can be shown) and no confirmed asset_people row already points
-        at it -- the same "confirmed" bar People review uses. Capped to one
-        face per photo per batch: a single crowd photo can have dozens of
-        detections, and without this a big group shot would flood the whole
-        page with crops of itself instead of showing a diverse sample. The
-        photo's other faces surface on later batches once this one is named
-        or ignored."""
+        Instead of showing faces newest-first (which floods the page with
+        the same person over and over), this uses greedy diversity sampling:
+        pick a face, skip all faces that look too similar to any already
+        picked, repeat.  The result is one representative per visual
+        cluster -- the user sees a variety of different people and names
+        each once.  The existing "Also looks like X" match groups handle
+        confirming the rest of that person's photos after naming.
+
+        Still capped to one face per photo per batch to avoid group-shot
+        flooding, and still requires a recovered bounding box for cropping."""
         try:
             limit = max(1, min(100, int(params.get("limit", ["30"])[0])))
         except ValueError:
@@ -1995,22 +1997,47 @@ class SearchHandler(BaseHTTPRequestHandler):
             total = int(con.execute(
                 f"SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE {where}"
             ).fetchone()[0])
+            pool_limit = min(total, 500)
             rows = con.execute(
                 f"""WITH ranked AS (
                         SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date,
-                               f.box_left, f.box_top, f.box_right, f.box_bottom,
+                               f.box_left, f.box_top, f.box_right, f.box_bottom, f.embedding_f32,
                                ROW_NUMBER() OVER (PARTITION BY f.asset_id ORDER BY f.id) AS rn
                         FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                         WHERE {where}
                     )
                     SELECT face_id, asset_id, filename, folder, capture_date,
-                           box_left, box_top, box_right, box_bottom
+                           box_left, box_top, box_right, box_bottom, embedding_f32
                     FROM ranked WHERE rn=1 ORDER BY face_id DESC LIMIT ?""",
-                (limit,),
+                (pool_limit,),
             ).fetchall()
             people_names = [row[0] for row in con.execute(
                 "SELECT name FROM people ORDER BY name COLLATE NOCASE"
             )]
+
+        DIVERSITY_THRESHOLD = 0.72
+        candidates = []
+        for row in rows:
+            vector = decode_vector(row["embedding_f32"]) if row["embedding_f32"] else ()
+            candidates.append((row, vector))
+
+        selected = []
+        selected_vectors = []
+        for row, vector in candidates:
+            if len(selected) >= limit:
+                break
+            if not vector:
+                selected.append(row)
+                continue
+            too_similar = False
+            for sv in selected_vectors:
+                if dot(vector, sv) >= DIVERSITY_THRESHOLD:
+                    too_similar = True
+                    break
+            if not too_similar:
+                selected.append(row)
+                selected_vectors.append(vector)
+
         self.send_json({
             "total": total,
             "people_options": people_names,
@@ -2022,7 +2049,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "box_left": row["box_left"], "box_top": row["box_top"],
                     "box_right": row["box_right"], "box_bottom": row["box_bottom"],
                 }
-                for row in rows
+                for row in selected
             ],
         })
 
