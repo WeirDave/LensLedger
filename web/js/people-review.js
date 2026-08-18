@@ -295,28 +295,6 @@ async function autoLearnOnEmpty() {
   $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
 }
 
-async function runLearning() {
-  const button = $('learnMore');
-  button.disabled = true;
-  $('globalProgress').textContent = 'Learning from confirmed faces…';
-  try {
-    const result = await api('/api/people/learn', {});
-    skipped.clear();
-    history = [];
-    autoLearnDone = false;
-    await loadQueue();
-    if (result.auto_confirmed) {
-      $('globalProgress').textContent = result.auto_confirmed + ' near-certain match' + (result.auto_confirmed === 1 ? '' : 'es') + ' confirmed automatically' + (result.suggestions ? '; more added to this queue' : '');
-    } else if (!result.suggestions) {
-      $('globalProgress').textContent = 'No additional strong matches found';
-    }
-  } catch (error) {
-    $('globalProgress').textContent = error.message || String(error);
-  } finally {
-    button.disabled = false;
-  }
-}
-
 async function deferPerson() {
   if (!queue?.person) return;
   const person = queue.person;
@@ -357,7 +335,6 @@ $('skipBatch').onclick = skipBatch;
 $('nextPerson').onclick = () => loadQueue(queue?.person?.id, true).catch(showError);
 $('deferPerson').onclick = deferPerson;
 $('undoBatch').onclick = undoBatch;
-$('learnMore').onclick = runLearning;
 $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => setDispositionFromLightbox('not_a_person');
 $('lightboxUnknownPerson').onclick = () => setDispositionFromLightbox('unknown_person');

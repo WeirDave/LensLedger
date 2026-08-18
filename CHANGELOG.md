@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.45.3 — 2026-08-17
+
+- Removed the "Find more matches" button from both Name Faces and People Review pages — learning now happens automatically when the review queue empties, so the manual button was redundant and confusing.
+- Updated the Name Faces intro text to explain the automatic workflow instead of referencing the removed button.
+
+## 0.45.2 — 2026-08-17
+
+- Renamed "Photo library" to "Home" in the sub-page menu navigation, matching WaxFrame's convention and reflecting that the photo library page is the app's main landing page.
+
 ## 0.45.1 — 2026-08-17
 
 - Trash button on review cards now uses a red danger background with a clean SVG trash can icon, making it visually distinct as a destructive action in both light and dark modes.

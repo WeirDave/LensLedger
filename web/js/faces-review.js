@@ -357,25 +357,6 @@ async function loadMore() {
   }
 }
 
-$('findMatches').onclick = async () => {
-  $('findMatches').disabled = true;
-  const previous = $('globalProgress').textContent;
-  $('globalProgress').textContent = 'Learning from confirmed faces…';
-  try {
-    const result = await api('/api/people/learn', {});
-    $('globalProgress').textContent = result.auto_confirmed || result.suggestions
-      ? (result.auto_confirmed ? result.auto_confirmed + ' near-certain match' + (result.auto_confirmed === 1 ? '' : 'es') + ' confirmed automatically' : '')
-        + (result.auto_confirmed && result.suggestions ? '; ' : '')
-        + (result.suggestions ? result.suggestions + ' new suggestion' + (result.suggestions === 1 ? '' : 's') + ' ready in People review' : '')
-      : 'No additional strong matches found yet';
-  } catch (error) {
-    $('globalProgress').textContent = error.message;
-  } finally {
-    $('findMatches').disabled = false;
-    setTimeout(updateProgress, 4000);
-  }
-};
-
 async function trashPhoto(card, face) {
   if (!confirm('Move "' + face.filename + '" to Trash?\n\nIt will leave the photo library and disappear from search.')) return;
   try {
