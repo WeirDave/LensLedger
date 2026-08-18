@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.45.1 — 2026-08-17
+
+- Trash button on review cards now uses a red danger background with a clean SVG trash can icon, making it visually distinct as a destructive action in both light and dark modes.
+- Brightened the "Face being checked" label in light mode — uses the same golden yellow as dark mode instead of a muted olive tone.
+
 ## 0.45.0 — 2026-08-17
 
 - Name Faces now shows a diverse variety of people instead of repeating the same person — uses greedy diversity sampling to pick one representative face per visual cluster.
