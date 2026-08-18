@@ -125,6 +125,7 @@ def nav_menu() -> str:
         '<a class="menu-item" href="/faces-review">\U0001f642 Name faces</a>'
         '<a class="menu-item" href="/people-review">\U0001f465 Review people</a>'
         '<a class="menu-item" href="/map">\U0001f30d Photo map</a>'
+        '<a class="menu-item" href="/auto-ingest">\U0001f4f7 Auto-ingest</a>'
         '<a class="menu-item" href="/settings">⚙ Settings</a>'
         '</details>'
         '<div class="menu-divider"></div>'
@@ -723,6 +724,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.map_page()
         if url.path == "/scan-photos":
             return self.scan_photos_page()
+        if url.path == "/auto-ingest":
+            return self.auto_ingest_page()
         if url.path == "/settings":
             return self.settings_page()
         if url.path == "/api/settings":
@@ -844,6 +847,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.save_settings_api(body)
             if route == "/api/settings/remove-library":
                 return self.remove_library(body)
+            if route == "/api/ingest/save":
+                return self.save_ingest_config(body)
             if route == "/api/settings/export":
                 return self.export_database(body)
             if route == "/api/settings/import":
@@ -950,7 +955,6 @@ class SearchHandler(BaseHTTPRequestHandler):
         scan = settings.get("scan", {})
         display = settings.get("display", {})
         watch = settings.get("watch", {})
-        ingest = settings.get("ingest", {})
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
@@ -969,13 +973,6 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 30))}"><span class="hint">How often to check for new files when watching is enabled. Default: 30</span></div></section>
-<section class="card"><h2>Camera upload auto-ingest</h2><p>Automatically scan, tag, and sort new photos from a camera upload folder into your organized collection.</p>
-<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-ingest pipeline</label></div>
-<div class="field"><label for="ingestSource">Source folder</label><input type="text" id="ingestSource" value="{html.escape(str(ingest.get('source_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Dropbox\\Camera Uploads"><button type="button" class="secondary field-browse" id="browseIngestSource">Browse…</button></div>
-<div class="field"><label for="ingestDest">Destination folder</label><input type="text" id="ingestDest" value="{html.escape(str(ingest.get('destination_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Pictures\\Sorted"><button type="button" class="secondary field-browse" id="browseIngestDest">Browse…</button></div>
-<h3>Sorting rules</h3><p>Photos matching a rule are moved to its destination subfolder. Unmatched photos use the default date-based pattern.</p>
-<div class="rule-list" id="ruleList"></div>
-<button type="button" class="secondary" id="addRule">Add sorting rule</button></section>
 <section class="card"><h2>Database</h2>
 <div class="library-actions"><button type="button" class="secondary" id="exportDatabase">Export database</button><button type="button" class="secondary" id="importDatabase">Import database</button><span class="export-status" id="exportStatus"></span></div>
 <p class="data-location">Database and all application data stored at <code>{html.escape(str(data_root()))}</code></p></section>
@@ -985,6 +982,59 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/settings.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
+
+    def auto_ingest_page(self):
+        settings = load_settings()
+        ingest = settings.get("ingest", {})
+        default_template = ingest.get("default_template", "{year}/{year}_{month}_{day}")
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto-ingest — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/auto-ingest.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "ingest": ingest})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Auto-ingest</h1><p>Automatically sort new photos from a camera upload folder into your collection</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
+{nav_menu()}
+<main>
+<section class="card"><h2>Status</h2>
+<div class="status-grid"><div><strong id="statusEnabled">—</strong><span>Pipeline</span></div><div><strong id="statIngested">0</strong><span>Ingested</span></div><div><strong id="statDuplicates">0</strong><span>Duplicates skipped</span></div><div><strong id="statErrors">0</strong><span>Errors</span></div></div></section>
+<section class="card"><h2>Pipeline</h2><p>When enabled, the pipeline periodically checks the source folder for new photos and moves them into the destination folder, sorted by date.</p>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-ingest pipeline</label></div>
+<div class="field"><label for="ingestSource">Source folder</label><input type="text" id="ingestSource" value="{html.escape(str(ingest.get('source_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Dropbox\\Camera Uploads"><button type="button" class="secondary field-browse" id="browseIngestSource">Browse…</button></div>
+<div class="field"><label for="ingestDest">Destination folder</label><input type="text" id="ingestDest" value="{html.escape(str(ingest.get('destination_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Pictures\\Sorted"><button type="button" class="secondary field-browse" id="browseIngestDest">Browse…</button></div></section>
+<section class="card"><h2>Date sorting template</h2><p>Photos are sorted into subfolders based on their capture date (from EXIF data, or file modification date as a fallback). Customise the folder structure using the placeholders below.</p>
+<div class="field"><label for="templateInput">Template</label><input type="text" id="templateInput" value="{html.escape(default_template)}"></div>
+<div class="template-preview" id="templatePreview"></div>
+<div class="placeholder-list"><strong>Available placeholders:</strong><br><code>{{year}}</code> — four-digit year (e.g. 2026)<br><code>{{month}}</code> — two-digit month (01–12)<br><code>{{day}}</code> — two-digit day (01–31)<br><code>{{hour}}</code> — two-digit hour (00–23)<br><code>{{minute}}</code> — two-digit minute (00–59)</div></section>
+<section class="card"><h2>Override rules</h2><p>If a photo's filename contains the match text, it goes to the rule's destination instead of the date template. Rules are checked in order; the first match wins. Leave this empty to sort everything by date.</p>
+<div class="rule-list" id="ruleList"></div>
+<button type="button" class="secondary" id="addRule">Add rule</button></section>
+<section class="card"><h2>Activity log</h2><p>Recent pipeline activity — every file processed is logged here.</p>
+<div id="logList"><p class="log-empty">Loading…</p></div>
+<div class="actions-bar"><button type="button" class="secondary" id="refreshLog">Refresh log</button></div></section>
+<div class="actions-bar"><button type="button" id="saveConfig">Save configuration</button></div>
+</main>
+<div class="toast" id="toast"></div>
+<script src="{asset_url('js/auto-ingest.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def save_ingest_config(self, body):
+        config = body.get("config")
+        if not isinstance(config, dict):
+            raise ValueError("invalid config format")
+        settings = load_settings()
+        settings["ingest"] = config
+        save_settings(settings)
+        pipeline = type(self).ingest_pipeline
+        if pipeline:
+            pipeline.update_config(
+                source_folder=str(config.get("source_folder", "")),
+                destination_folder=str(config.get("destination_folder", "")),
+                rules=config.get("rules", []),
+                default_template=str(config.get("default_template", "")),
+            )
+            if config.get("enabled"):
+                pipeline.start()
+            else:
+                pipeline.stop()
+        self.send_json({"ok": True})
 
     def get_settings(self):
         self.send_json(load_settings())
@@ -1002,18 +1052,6 @@ class SearchHandler(BaseHTTPRequestHandler):
                 watcher.start()
             else:
                 watcher.stop()
-        ingest_cfg = values.get("ingest", {})
-        pipeline = type(self).ingest_pipeline
-        if pipeline:
-            pipeline.update_config(
-                source_folder=str(ingest_cfg.get("source_folder", "")),
-                destination_folder=str(ingest_cfg.get("destination_folder", "")),
-                rules=ingest_cfg.get("rules", []),
-            )
-            if ingest_cfg.get("enabled"):
-                pipeline.start()
-            else:
-                pipeline.stop()
         self.send_json({"ok": True})
 
     def watcher_status(self):
@@ -3857,6 +3895,7 @@ def main():
         source_folder=str(ingest_cfg.get("source_folder", "")),
         destination_folder=str(ingest_cfg.get("destination_folder", "")),
         rules=ingest_cfg.get("rules", []),
+        default_template=str(ingest_cfg.get("default_template", "")),
     )
     SearchHandler.ingest_pipeline = pipeline
     if ingest_cfg.get("enabled"):

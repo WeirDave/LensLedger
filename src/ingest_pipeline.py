@@ -52,10 +52,14 @@ def _capture_date(path: Path) -> dt.datetime | None:
         return dt.datetime.now()
 
 
+DEFAULT_TEMPLATE = "{year}/{year}_{month}_{day}"
+
+
 def _apply_sorting_rules(
     path: Path,
     capture: dt.datetime,
     rules: list[dict[str, str]],
+    default_template: str = "",
 ) -> str:
     """Determine the destination subfolder for a file based on sorting rules.
 
@@ -69,7 +73,7 @@ def _apply_sorting_rules(
         destination = rule.get("destination", "").strip()
         if match_pattern and destination and match_pattern in filename:
             return _expand_template(destination, capture)
-    return _expand_template("{year}/{year}_{month}_{day}", capture)
+    return _expand_template(default_template or DEFAULT_TEMPLATE, capture)
 
 
 def _expand_template(template: str, capture: dt.datetime) -> str:
@@ -111,12 +115,14 @@ class IngestPipeline:
         source_folder: str = "",
         destination_folder: str = "",
         rules: list[dict[str, str]] | None = None,
+        default_template: str = "",
         interval_minutes: int = 10,
         on_file_ingested: Callable[[str, str], None] | None = None,
     ):
         self._source = Path(source_folder) if source_folder else None
         self._destination = Path(destination_folder) if destination_folder else None
         self._rules = rules or []
+        self._default_template = default_template or DEFAULT_TEMPLATE
         self._interval = max(5, interval_minutes) * 60
         self._on_file_ingested = on_file_ingested
         self._timer: threading.Timer | None = None
@@ -149,12 +155,14 @@ class IngestPipeline:
         source_folder: str = "",
         destination_folder: str = "",
         rules: list[dict[str, str]] | None = None,
+        default_template: str = "",
     ) -> None:
         with self._lock:
             self._source = Path(source_folder) if source_folder else None
             self._destination = Path(destination_folder) if destination_folder else None
             if rules is not None:
                 self._rules = rules
+            self._default_template = default_template or DEFAULT_TEMPLATE
 
     def _schedule_next(self) -> None:
         self._timer = threading.Timer(self._interval, self._on_tick)
@@ -221,7 +229,7 @@ class IngestPipeline:
                 continue
 
             capture = _capture_date(path)
-            subfolder = _apply_sorting_rules(path, capture, self._rules)
+            subfolder = _apply_sorting_rules(path, capture, self._rules, self._default_template)
             dest_dir = self._destination / subfolder
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / path.name

@@ -52,19 +52,6 @@ function renderModels(){
   });
 }
 
-function renderIngestRules(){
-  const el=$('#ruleList');if(!el)return;
-  const rules=(settings.ingest||{}).rules||[];
-  el.innerHTML='';
-  rules.forEach((rule,i)=>{
-    const item=document.createElement('div');item.className='rule-item';
-    item.innerHTML=`<input type="text" value="${esc(rule.match||'')}" placeholder="Match pattern (e.g. person name)" data-idx="${i}" data-field="match">`
-      +`<input type="text" value="${esc(rule.destination||'')}" placeholder="Destination subfolder" data-idx="${i}" data-field="destination">`
-      +`<button type="button" class="danger remove-rule" data-idx="${i}">✕</button>`;
-    el.appendChild(item);
-  });
-}
-
 function collectSettings(){
   const s=JSON.parse(JSON.stringify(settings));
   const v=(id)=>{const el=$('#'+id);return el?el.value:undefined};
@@ -83,16 +70,6 @@ function collectSettings(){
   s.watch=s.watch||{};
   s.watch.enabled=c('watchEnabled');
   s.watch.interval_minutes=n('watchInterval');
-  s.ingest=s.ingest||{};
-  s.ingest.enabled=c('ingestEnabled');
-  s.ingest.source_folder=v('ingestSource')||'';
-  s.ingest.destination_folder=v('ingestDest')||'';
-  const ruleEls=$$('#ruleList .rule-item');
-  s.ingest.rules=ruleEls.map(el=>{
-    const match=el.querySelector('[data-field="match"]').value.trim();
-    const dest=el.querySelector('[data-field="destination"]').value.trim();
-    return {match,destination:dest};
-  }).filter(r=>r.match||r.destination);
   return s;
 }
 
@@ -133,33 +110,11 @@ async function removeLibrary(path){
   toast('Removed from list.');
 }
 
-async function browseFolder(inputId){
-  const res=await post('/api/library/browse',{});
-  if(res.error){toast(res.error,true);return}
-  if(res.path){const el=$('#'+inputId);if(el)el.value=res.path;}
-}
-
-function addRule(){
-  const s=settings.ingest=settings.ingest||{};
-  s.rules=s.rules||[];
-  s.rules.push({match:'',destination:''});
-  renderIngestRules();
-}
-
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 document.addEventListener('click',e=>{
   if(e.target.id==='saveSettings')saveSettings();
   if(e.target.id==='addLibrary')addLibrary();
-  if(e.target.id==='addRule')addRule();
-  if(e.target.id==='browseIngestSource')browseFolder('ingestSource');
-  if(e.target.id==='browseIngestDest')browseFolder('ingestDest');
-  if(e.target.classList.contains('remove-rule')){
-    const idx=parseInt(e.target.dataset.idx,10);
-    const rules=(settings.ingest||{}).rules||[];
-    rules.splice(idx,1);
-    renderIngestRules();
-  }
   const menuToggle=$('#menuToggle');
   const menuPanel=$('#menuPanel');
   const menuBackdrop=$('#menuBackdrop');
@@ -282,7 +237,6 @@ if(location.hash==='#meaning-search'){
 
 renderLibraries();
 renderModels();
-renderIngestRules();
 loadExportStatus();
 checkSemanticStatus();
 })();

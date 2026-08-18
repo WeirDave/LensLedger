@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.53.0 — 2026-08-17
+
+- Moved camera upload auto-ingest from a settings section to its own dedicated page (`/auto-ingest`) with status dashboard, activity log, and clear documentation.
+- Added configurable date sorting template with live preview and placeholder reference (`{year}`, `{month}`, `{day}`, `{hour}`, `{minute}`).
+- Override rules are now clearly documented as optional filename-based overrides, with help text explaining how they interact with the date template.
+- Added Auto-ingest link to the navigation menu.
+- Added dedicated `/api/ingest/save` endpoint for saving ingest configuration independently from general settings.
+
 ## 0.52.0 — 2026-08-17
 
 - Fixed settings page CSS: nav menu panel was unstyled, rendering the logo at full native size and links as raw text.
