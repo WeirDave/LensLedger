@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.45.7 — 2026-08-17
+
+- Renamed "Information already in this photo" to "Capture details" in the sidebar and quick guide.
+- Thickened the filmstrip selection border from 4px to 5px for better visibility.
+
 ## 0.45.6 — 2026-08-17
 
 - Left-aligned header and content on People Review and Name Faces pages to match the main viewer layout — menu, logo, version, and theme toggle are now in the same position on every page.
