@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.49.0 — 2026-08-17
+
+- Added folder rename and move resilience using content-hash reconciliation. When files are moved or renamed within a library, LensLedger now matches them by content fingerprint instead of deleting the old record and creating a new one, preserving all enrichment data (tags, people, face embeddings, OCR text, review history).
+- Added content hashing during library scans: a fast fingerprint (SHA-256 of the first 8 KB + file size) is computed for each file and stored in the database.
+- Added stable database filenames: library root paths are now mapped to database files in `library-state.json`, so renaming a library root folder no longer creates a new empty database.
+- Added a `library_metadata` table to the database schema for persistent library identification.
+- Bumped database schema to version 12 with the new `content_hash` column and `library_metadata` table.
+
 ## 0.48.0 — 2026-08-17
 
 - Added a global Settings page accessible from the navigation menu, providing a central place to configure all LensLedger behavior.

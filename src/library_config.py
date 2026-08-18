@@ -20,11 +20,46 @@ DEFAULT_LIBRARY_ROOT = default_library_root()
 
 def library_db_path(root: Path) -> Path:
     root = root.resolve()
+    config = _load_db_mappings()
+    root_key = str(root).casefold()
+    if root_key in config:
+        candidate = LIBRARY_DATABASE_ROOT / config[root_key]
+        if candidate.is_file():
+            return candidate
     if root == DEFAULT_LIBRARY_ROOT.resolve():
         return LIBRARY_DATABASE_ROOT / "default.sqlite3"
     label = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name).strip("-") or "photo-library"
     digest = hashlib.sha256(str(root).casefold().encode("utf-8")).hexdigest()[:12]
     return LIBRARY_DATABASE_ROOT / f"{label}-{digest}.sqlite3"
+
+
+def associate_db_path(root: Path, db_path: Path) -> None:
+    """Record that `root` uses `db_path`, so renaming root doesn't lose the database."""
+    config = _load_db_mappings()
+    config[str(root.resolve()).casefold()] = db_path.name
+    _save_db_mappings(config)
+
+
+def _load_db_mappings() -> dict[str, str]:
+    try:
+        raw = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        return dict(raw.get("db_mappings", {})) if isinstance(raw, dict) else {}
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _save_db_mappings(mappings: dict[str, str]) -> None:
+    LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        raw = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raw = {}
+    except (OSError, ValueError, json.JSONDecodeError):
+        raw = {}
+    raw["db_mappings"] = mappings
+    tmp = LIBRARY_STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+    tmp.replace(LIBRARY_STATE_PATH)
 
 
 def load_library_config() -> dict[str, object]:

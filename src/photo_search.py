@@ -36,8 +36,8 @@ from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as lea
 from face_locations import is_available as face_is_available
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
-    choose_library_folder, library_db_path, load_library_config, load_library_state,
-    save_library_state, suggested_library_roots,
+    associate_db_path, choose_library_folder, library_db_path, load_library_config,
+    load_library_state, save_library_state, suggested_library_roots,
 )
 from settings_config import (
     AVAILABLE_MODELS, load_settings, save_settings,
@@ -3450,6 +3450,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         if not root.is_dir():
             raise ValueError("that photo library folder does not exist")
         database = library_db_path(root).resolve()
+        associate_db_path(root, database)
         with type(self).library_lock:
             if type(self).library_job.get("state") == "scanning":
                 raise ValueError("another photo library is currently being indexed")
@@ -3776,6 +3777,7 @@ def main():
     args = parser.parse_args()
     root = (args.root or load_library_state()).resolve()
     database = (args.db or library_db_path(root)).resolve()
+    associate_db_path(root, database)
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
     server = LensLedgerHTTPServer(("localhost", args.port), SearchHandler); url = f"http://localhost:{args.port}/"
     print("\n" + "=" * 62, flush=True)

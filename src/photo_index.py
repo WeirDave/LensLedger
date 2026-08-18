@@ -12,6 +12,7 @@ import array
 import concurrent.futures
 import csv
 import datetime as dt
+import hashlib
 import html
 import re
 import sqlite3
@@ -39,7 +40,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -233,6 +234,11 @@ CREATE TABLE IF NOT EXISTS runs (
     cancelled INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS library_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
     asset_id UNINDEXED,
     path,
@@ -257,6 +263,33 @@ class LensLedgerConnection(sqlite3.Connection):
 
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+CONTENT_HASH_BLOCK = 8192
+
+
+def content_hash(path: Path) -> str:
+    """Fast content fingerprint: SHA-256 of the first 8 KB + file size."""
+    try:
+        size = path.stat().st_size
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            h.update(f.read(CONTENT_HASH_BLOCK))
+        h.update(size.to_bytes(8, "little"))
+        return h.hexdigest()[:24]
+    except OSError:
+        return ""
+
+
+def get_library_id(db_path: Path) -> str | None:
+    try:
+        con = sqlite3.connect(str(db_path), timeout=5)
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT value FROM library_metadata WHERE key='library_id'").fetchone()
+        con.close()
+        return str(row["value"]) if row else None
+    except (sqlite3.Error, OSError):
+        return None
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -329,6 +362,11 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("UPDATE text_data SET ocr_scanned=1 WHERE ocr_text<>''")
     if "ocr_error" not in text_columns:
         con.execute("ALTER TABLE text_data ADD COLUMN ocr_error TEXT NOT NULL DEFAULT ''")
+    if "content_hash" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
+    if not con.execute("SELECT 1 FROM library_metadata WHERE key='library_id'").fetchone():
+        import uuid
+        con.execute("INSERT OR IGNORE INTO library_metadata(key,value) VALUES ('library_id',?)", (str(uuid.uuid4()),))
     if int(con.execute("PRAGMA user_version").fetchone()[0]) != SCHEMA_VERSION:
         con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         con.commit()
@@ -606,12 +644,13 @@ def scan_library(
                 continue
             folder = rel.parent.as_posix()
             latitude, longitude = (None, None) if placeholder else extract_gps_coordinates(path)
+            file_hash = "" if placeholder else content_hash(path)
             con.execute(
                 """
                 INSERT INTO assets(path, relative_path, folder, filename, extension, media_type,
                                    size_bytes, mtime_ns, metadata_scanned, location_scanned,
-                                   gps_latitude, gps_longitude, capture_date, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   gps_latitude, gps_longitude, capture_date, content_hash, indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(relative_path) DO UPDATE SET
                     path=excluded.path, folder=excluded.folder, filename=excluded.filename,
                     extension=excluded.extension, media_type=excluded.media_type,
@@ -621,13 +660,14 @@ def scan_library(
                     location_scanned=excluded.location_scanned,
                     gps_latitude=excluded.gps_latitude,
                     gps_longitude=excluded.gps_longitude,
-                    capture_date=excluded.capture_date, indexed_at=excluded.indexed_at,
+                    capture_date=excluded.capture_date,
+                    content_hash=excluded.content_hash, indexed_at=excluded.indexed_at,
                     scan_error=''
                 """,
                 (str(path), rel_text, folder, path.name, path.suffix.lower(), media_type(path),
                  stat.st_size, stat.st_mtime_ns, 0 if placeholder else 1, 0 if placeholder else 1,
                  latitude, longitude,
-                 capture_date_from_path(path), utc_now()),
+                 capture_date_from_path(path), file_hash, utc_now()),
             )
             asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path = ?", (rel_text,)).fetchone()[0])
             if not placeholder:
@@ -663,6 +703,60 @@ def scan_library(
 
     if not counts["cancelled"]:
         missing = {rel for rel, row in known.items() if not row["in_review_bin"]} - seen
+        if missing:
+            orphan_hashes: dict[str, list[str]] = {}
+            for rel_text in missing:
+                row = con.execute(
+                    "SELECT content_hash FROM assets WHERE relative_path=?", (rel_text,)
+                ).fetchone()
+                h = row["content_hash"] if row else ""
+                if h:
+                    orphan_hashes.setdefault(h, []).append(rel_text)
+            new_hashes: dict[str, str] = {}
+            for rel_text in seen - set(known.keys()):
+                row = con.execute(
+                    "SELECT content_hash FROM assets WHERE relative_path=?", (rel_text,)
+                ).fetchone()
+                h = row["content_hash"] if row else ""
+                if h and h not in new_hashes:
+                    new_hashes[h] = rel_text
+            remapped = 0
+            for h, orphan_rels in orphan_hashes.items():
+                if h in new_hashes:
+                    new_rel = new_hashes[h]
+                    old_rel = orphan_rels[0]
+                    old_id = int(known[old_rel]["id"])
+                    new_row = con.execute(
+                        "SELECT id FROM assets WHERE relative_path=?", (new_rel,)
+                    ).fetchone()
+                    if new_row:
+                        new_id = int(new_row["id"])
+                        con.execute("DELETE FROM search_fts WHERE asset_id=?", (new_id,))
+                        con.execute("DELETE FROM assets WHERE id=?", (new_id,))
+                    new_path = str(root / new_rel)
+                    new_folder = str(Path(new_rel).parent.as_posix())
+                    new_filename = Path(new_rel).name
+                    con.execute(
+                        """UPDATE assets SET path=?, relative_path=?, folder=?, filename=?,
+                           scan_error='' WHERE id=?""",
+                        (new_path, new_rel, new_folder, new_filename, old_id),
+                    )
+                    apply_asset_annotation(con, old_id, new_rel)
+                    folder_names = [r[0] for r in con.execute(
+                        "SELECT tag FROM folder_tags WHERE folder=?", (new_folder,)
+                    )]
+                    if not folder_names:
+                        inferred = infer_tags(new_folder)
+                        if inferred:
+                            for tag in inferred:
+                                con.execute("INSERT OR IGNORE INTO folder_tags(folder,tag) VALUES(?,?)", (new_folder, tag))
+                            folder_names = inferred
+                    set_source_tags(con, old_id, "folder_rule", folder_names)
+                    rebuild_search_row(con, old_id)
+                    missing.discard(old_rel)
+                    remapped += 1
+            if remapped:
+                counts["changed"] += remapped
         for rel_text in missing:
             asset_id = int(known[rel_text]["id"])
             con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
