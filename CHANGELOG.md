@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.65.1 — 2026-08-28
+
+- Review People thumbnails now fall back to the full photo when a face crop is unavailable (faces imported without bounding box data), instead of showing a dark empty box.
+
 ## 0.65.0 — 2026-08-28
 
 - Redesigned Review People page with compact face crop thumbnails instead of large full-photo cards, fitting ~60 faces on screen at once for much faster bulk review.
