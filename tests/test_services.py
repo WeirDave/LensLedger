@@ -42,10 +42,10 @@ class ServiceModuleTests(unittest.TestCase):
                  patch.object(library_config, "LIBRARY_DATABASE_ROOT", databases), \
                  patch.object(library_config, "DEFAULT_LIBRARY_ROOT", default):
                 default_db = library_config.library_db_path(default)
-                self.assertEqual(default_db.parent, default / ".LensLedger")
+                self.assertEqual(default_db.parent, default.resolve() / ".LensLedger")
                 self.assertEqual(default_db.name, "LensLedger-default-library.sqlite3")
                 other_database = library_config.library_db_path(other)
-                self.assertEqual(other_database.parent, other / ".LensLedger")
+                self.assertEqual(other_database.parent, other.resolve() / ".LensLedger")
                 self.assertEqual(other_database.name, "LensLedger-Vacation 2026.sqlite3")
                 library_config.save_library_state(other)
                 self.assertEqual(library_config.load_library_state(), other.resolve())

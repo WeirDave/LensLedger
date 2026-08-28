@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.59.1 — 2026-08-28
+
+- Fixed CI test failure caused by Windows short path name mismatch in library path assertions.
+
 ## 0.59.0 — 2026-08-28
 
 - Changed default database location: databases now live inside the library in a hidden `.LensLedger` folder (e.g. `Photos\.LensLedger\LensLedger-Photos.sqlite3`). The index travels with the photos — copy the folder to another drive and everything comes with it.
