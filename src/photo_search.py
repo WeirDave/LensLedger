@@ -2777,34 +2777,33 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     if action in {"rejected", "corrected", *self.FACE_DISPOSITION_COLUMNS}:
                         removals.setdefault(int(item["asset_id"]), set()).add(person["name"])
                 actions_by_asset = dict(zip(asset_ids, action_ids))
-                for asset_id in asset_ids:
-                    result = self._publish_people_metadata(
-                        con, asset_id, removals.get(asset_id, set()), actions_by_asset[asset_id]
-                    )
-                    if result is not None:
-                        published.append(result)
                 filenames = {int(row["id"]): row["filename"] for row in con.execute(
                     f"SELECT id, filename FROM assets WHERE id IN ({','.join('?' * len(asset_ids))})",
                     asset_ids
                 )}
+                person_name = str(person["name"])
+                for item in decisions:
+                    aid = int(item["asset_id"])
+                    result = self._publish_people_metadata(
+                        con, aid, removals.get(aid, set()), actions_by_asset[aid]
+                    )
+                    if result is not None:
+                        published.append(result)
+                    fname = filenames.get(aid, f"asset #{aid}")
+                    action = item.get("action", "")
+                    corrected = item.get("corrected_name", "").strip()
+                    if action == "confirmed":
+                        print(f'[Name faces] Confirmed "{person_name}" in {fname}', flush=True)
+                    elif action == "corrected" and corrected:
+                        print(f'[Name faces] Corrected "{person_name}" → "{corrected}" in {fname}', flush=True)
+                    elif action == "rejected":
+                        print(f'[Name faces] Rejected "{person_name}" in {fname}', flush=True)
+                    elif action in self.FACE_DISPOSITION_COLUMNS:
+                        label = "not a person" if action == "not_a_person" else "unknown person"
+                        print(f'[Name faces] Marked {label} in {fname}', flush=True)
         except Exception:
             self._restore_people_batch(published)
             raise
-        person_name = str(person["name"])
-        for item in decisions:
-            aid = int(item["asset_id"])
-            fname = filenames.get(aid, f"asset #{aid}")
-            action = item.get("action", "")
-            corrected = item.get("corrected_name", "").strip()
-            if action == "confirmed":
-                print(f'[Name faces] Confirmed "{person_name}" in {fname}', flush=True)
-            elif action == "corrected" and corrected:
-                print(f'[Name faces] Corrected "{person_name}" → "{corrected}" in {fname}', flush=True)
-            elif action == "rejected":
-                print(f'[Name faces] Rejected "{person_name}" in {fname}', flush=True)
-            elif action in self.FACE_DISPOSITION_COLUMNS:
-                label = "not a person" if action == "not_a_person" else "unknown person"
-                print(f'[Name faces] Marked {label} in {fname}', flush=True)
         self.send_json({"ok": True, "action_ids": action_ids, "published": len(published)})
 
     def _undo_people_review_action(self, con, action_id):

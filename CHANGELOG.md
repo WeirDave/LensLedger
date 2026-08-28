@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.65.2 — 2026-08-28
+
+- Review People terminal logging now prints each entry in real time as each photo's metadata is written, instead of batching all log entries at the end.
+
 ## 0.65.1 — 2026-08-28
 
 - Review People thumbnails now fall back to the full photo when a face crop is unavailable (faces imported without bounding box data), instead of showing a dark empty box.
