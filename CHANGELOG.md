@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.60.0 — 2026-08-28
+
+- Settings page now shows the actual database path for the current library, not just the general application data folder.
+
 ## 0.59.2 — 2026-08-28
 
 - User Manual now opens in a new browser tab so it can be viewed side-by-side with LensLedger.

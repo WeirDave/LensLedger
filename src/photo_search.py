@@ -1029,7 +1029,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 30))}"><span class="hint">How often to check for new files when watching is enabled. Default: 30</span></div></section>
 <section class="card"><h2>Database</h2><p>Export creates a portable copy of your tags, people, and scan results — useful for backups or moving to a new machine. Import restores from a previous export. Your photos are not included; only the LensLedger index is transferred.</p>
 <div class="library-actions"><button type="button" class="secondary" id="exportDatabase">Export database</button><button type="button" class="secondary" id="importDatabase">Import database</button><span class="export-status" id="exportStatus"></span></div>
-<p class="data-location">Database and all application data stored at <code>{html.escape(str(data_root()))}</code></p></section>
+<p class="data-location">Database: <code>{html.escape(str(library_db_path(Path(self.library_root))))}</code></p>
+<p class="data-location">Application data: <code>{html.escape(str(data_root()))}</code></p></section>
 <div class="actions-bar"><button type="button" id="saveSettings">Save settings</button></div>
 </main>
 <div class="toast" id="toast"></div>
