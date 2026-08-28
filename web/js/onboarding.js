@@ -137,7 +137,7 @@ async function startScan() {
   const path = $('libraryPath').value.trim();
   if (!path) return;
   const dbSelect = $('dbLocation');
-  const dbLocation = dbSelect ? dbSelect.value : 'appdata';
+  const dbLocation = dbSelect ? dbSelect.value : 'library';
   $('start').disabled = true;
   $('start').textContent = 'Scanning…';
   $('cancel').hidden = false;

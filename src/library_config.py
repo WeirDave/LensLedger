@@ -23,9 +23,20 @@ def library_db_path(root: Path) -> Path:
     config = _load_db_mappings()
     root_key = str(root).casefold()
     if root_key in config:
-        candidate = LIBRARY_DATABASE_ROOT / config[root_key]
+        mapped = config[root_key]
+        if os.path.isabs(mapped):
+            candidate = Path(mapped)
+        else:
+            candidate = LIBRARY_DATABASE_ROOT / mapped
         if candidate.is_file():
             return candidate
+    label = re.sub(r'[<>:"/\\|?*]+', " ", root.name).strip() or "photo-library"
+    return root / ".LensLedger" / f"LensLedger-{label}.sqlite3"
+
+
+def library_db_path_appdata(root: Path) -> Path:
+    """Legacy: return a database path inside the central AppData Libraries folder."""
+    root = root.resolve()
     if root == DEFAULT_LIBRARY_ROOT.resolve():
         return LIBRARY_DATABASE_ROOT / "default.sqlite3"
     label = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name).strip("-") or "photo-library"
@@ -36,7 +47,7 @@ def library_db_path(root: Path) -> Path:
 def associate_db_path(root: Path, db_path: Path) -> None:
     """Record that `root` uses `db_path`, so renaming root doesn't lose the database."""
     config = _load_db_mappings()
-    config[str(root.resolve()).casefold()] = db_path.name
+    config[str(root.resolve()).casefold()] = str(db_path.resolve())
     _save_db_mappings(config)
 
 

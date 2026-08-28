@@ -33,12 +33,19 @@ When you first launch LensLedger, the setup page walks you through creating your
 
 Select the folder that contains your photos. LensLedger shows suggested locations (Pictures, Dropbox Photos, Camera Uploads, OneDrive, removable drives) or you can click **Browse** to pick any folder.
 
-### Step 2: Choose where to store the database
+### How libraries work
 
-You have two options:
+A **library = one root folder**. Everything inside that folder (all subfolders, any depth) belongs to the library. Each library has its own separate database — there is no shared master database.
 
-- **Application data folder** (default) — stores the database index in `%LOCALAPPDATA%\LensLedger\Libraries\`. This keeps your photo folder clean.
-- **Inside the photo library folder** — stores the database as `LensLedger.sqlite3` inside the photo folder itself. This is useful when your photos are on an external or shared drive, so the index travels with the drive.
+- Add more subfolders, reorganize within the root — the next scan picks up the changes automatically.
+- Files outside the root folder are not tracked. If you move a photo out, the next scan marks it as removed.
+- You can have multiple libraries and switch between them from **Settings**.
+
+### Step 2: Where the database is stored
+
+By default, the database is stored in a hidden `.LensLedger` folder inside your photo library (e.g. `Photos\.LensLedger\LensLedger-Photos.sqlite3`). This means the index travels with your photos — copy the folder to another drive and everything comes with it.
+
+You can also choose to store the database in the application data folder (`%LOCALAPPDATA%\LensLedger\Libraries\`) if you prefer to keep the photo folder completely clean.
 
 ### Step 3: Build your library
 
@@ -58,11 +65,11 @@ Click **Open my library** to enter the main photo browser.
 
 ## Library Management
 
-LensLedger supports multiple libraries. You can switch between them, add new ones, and relocate existing ones.
+LensLedger supports multiple libraries. You can switch between them, add new ones, and relocate existing ones. All library management happens on the **Settings** page.
 
 ### Adding a library
 
-Go to **Settings** and click **Add library**. Browse to the folder, then choose where to store the database. The library is registered in your list without starting a scan immediately, so you can add libraries even while another scan is running. Switch to it and scan when ready.
+Go to **Settings** and click **Add library**. Browse to the folder, then choose where to store the database. By default, the database goes in a hidden `.LensLedger` folder inside your photo library. The library is registered without starting a scan immediately, so you can add libraries even while another scan is running. Switch to it and scan when ready.
 
 ### Switching libraries
 

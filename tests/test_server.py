@@ -177,7 +177,7 @@ class ServerWorkflowTests(unittest.TestCase):
         finally:
             self.photo_search.SearchHandler.current_library = (self.library.resolve(), self.database)
         self.assertIn("Let’s find your photo library", page)
-        self.assertIn(html.escape(str(data_root())), page)
+        self.assertIn(".LensLedger", page)
         self.assertIn("startOcr", page)
 
     def test_update_status_runs_in_background_and_reports_current_release(self):

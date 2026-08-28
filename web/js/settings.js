@@ -98,11 +98,11 @@ async function addLibrary(){
   if(!res.path)return;
   const dbChoice=prompt(
     'Where should the database be stored?\n\n'
-    +'1) Application data folder (default — keeps photos folder clean)\n'
-    +'2) Inside the photo library folder (useful if photos are on an external drive)\n\n'
+    +'1) Inside the photo library folder (default — index travels with your photos)\n'
+    +'2) Application data folder (keeps photos folder clean)\n\n'
     +'Enter 1 or 2:','1');
   if(!dbChoice)return;
-  const dbLocation=dbChoice.trim()==='2'?'library':'appdata';
+  const dbLocation=dbChoice.trim()==='2'?'appdata':'library';
   const addRes=await post('/api/library/add',{path:res.path,db_location:dbLocation});
   if(addRes.error){toast(addRes.error,true);return}
   const exists=libraries.some(l=>l.path.replace(/\\/g,'/').toLowerCase()===res.path.replace(/\\/g,'/').toLowerCase());

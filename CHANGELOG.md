@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.59.0 — 2026-08-28
+
+- Changed default database location: databases now live inside the library in a hidden `.LensLedger` folder (e.g. `Photos\.LensLedger\LensLedger-Photos.sqlite3`). The index travels with the photos — copy the folder to another drive and everything comes with it.
+- Database filename convention is `LensLedger-{folder name}.sqlite3` so displaced files are self-identifying.
+- Added "How libraries work" explanation to the User Manual, Quick guide, and onboarding page: one library = one root folder, each library has its own separate database, no shared master database.
+- Existing libraries with databases in AppData continue to work unchanged.
+
 ## 0.58.0 — 2026-08-28
 
 - Added in-app User Manual page at `/manual`, accessible from the navigation menu under Help & Support.

@@ -36,7 +36,7 @@ from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as lea
 from face_locations import is_available as face_is_available
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
-    associate_db_path, choose_library_folder, library_db_path, load_library_config,
+    associate_db_path, choose_library_folder, library_db_path, library_db_path_appdata, load_library_config,
     load_library_state, save_library_state, suggested_library_roots,
 )
 from folder_watcher import FolderWatcher
@@ -934,9 +934,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Set up {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/onboarding.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token})}><main class="shell"><header class="brand"><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>{APP_NAME}</h1><p>{APP_TAGLINE}</p></div><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></header><section class="card">
-<div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p><p class="data-location" id="dataLocationNote">Your photos stay exactly where they are. The searchable index lives separately at <code>{html.escape(str(data_root()))}</code> by default, or you can store it inside your photo folder.</p></div>
+<div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p><p class="data-location" id="dataLocationNote">Your photos stay exactly where they are. The searchable index is stored in a hidden <code>.LensLedger</code> folder inside your photo library by default, so the index travels with your photos.</p></div>
 <div class="steps"><div class="step"><strong>1 · Discover</strong><span>Record file locations, types, dates, and locally available metadata.</span></div><div class="step"><strong>2 · Review</strong><span>See exactly what was found, including cloud files that are not downloaded.</span></div><div class="step"><strong>3 · Enrich</strong><span>Add subjects, people, OCR, and approved metadata at your pace.</span></div></div>
-<section class="chooser"><h3>Choose your first library</h3><p>You can add and switch between more libraries later. Start with the folder that best represents one photo collection.</p><div class="suggestions" id="suggestions"></div><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="C:\\Users\\you\\Pictures"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="db-location-row"><label for="dbLocation">Store the database in:</label><select id="dbLocation"><option value="appdata">Application data folder (default)</option><option value="library">Inside the photo library folder</option></select><span class="hint">Choose "Inside the photo library folder" if your photos are on an external or shared drive.</span></div><div class="actions"><span class="privacy">🔒 The index stays on this computer. Cloud placeholders are counted without forcing a download.</span><span class="spacer"></span><button type="button" id="start">Build my library</button></div></section>
+<section class="chooser"><h3>Choose your first library</h3><p>You can add and switch between more libraries later. Start with the folder that best represents one photo collection.</p><div class="suggestions" id="suggestions"></div><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="C:\\Users\\you\\Pictures"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="db-location-row"><label for="dbLocation">Store the database in:</label><select id="dbLocation"><option value="library">Inside the photo library folder (default)</option><option value="appdata">Application data folder</option></select><span class="hint">The database is stored in a hidden <code>.LensLedger</code> folder inside your photo library, so the index travels with your photos.</span></div><div class="actions"><span class="privacy">🔒 The index stays on this computer. Cloud placeholders are counted without forcing a download.</span><span class="spacer"></span><button type="button" id="start">Build my library</button></div></section>
 <section class="progress-panel" id="progressPanel" aria-live="polite"><div class="progress-head"><div><h3 id="progressTitle">Building your library</h3><p id="progressMessage">Preparing scan…</p></div><span class="spacer"></span><button type="button" class="danger" id="cancel">Pause scan</button></div><div class="bar"><span></span></div><div class="metrics"><div class="metric"><strong id="scanned">0</strong><span>discovered</span></div><div class="metric"><strong id="changed">0</strong><span>indexed</span></div><div class="metric"><strong id="unchanged">0</strong><span>unchanged</span></div><div class="metric"><strong id="placeholders">0</strong><span>cloud-only</span></div><div class="metric"><strong id="errors">0</strong><span>errors</span></div></div><div class="complete-grid" id="completeGrid"></div><div class="next-step" id="nextStep"><p>Want LensLedger to also read visible text in your photos (signs, screenshots, receipts) so it's searchable? This runs in the background on your computer — it keeps going even if you move on or close this tab — and you can pause it any time from the "Scan your photos" page.</p><button type="button" class="secondary" id="startOcr">Scan for text now</button></div><div class="completion-actions"><button type="button" id="enterLibrary">Open my library</button></div></section>
 </section></main><script src="{asset_url('js/onboarding.js')}" defer></script>
 </body></html>"""
@@ -1069,14 +1069,18 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="manual-section" id="getting-started">
 <h2>1. Getting Started</h2>
 <p>When you first launch LensLedger, the setup page walks you through creating your first library.</p>
+<h3>How libraries work</h3>
+<p>A <strong>library = one root folder</strong>. Everything inside that folder (all subfolders, any depth) belongs to the library. LensLedger creates a separate database for each library &mdash; there is no shared master database. Each database stores only the index for its own library&rsquo;s photos.</p>
+<ul>
+<li>Add more subfolders, reorganize within the root &mdash; the next scan picks up the changes automatically.</li>
+<li>Files outside the root folder are not tracked. If you move a photo out, the next scan marks it as removed.</li>
+<li>You can have multiple libraries and switch between them from <a href="/settings">Settings</a>.</li>
+</ul>
 <h3>Choose a photo folder</h3>
 <p>Select the folder that contains your photos. LensLedger shows suggested locations (Pictures, Dropbox Photos, Camera Uploads, OneDrive, removable drives) or you can click <strong>Browse</strong> to pick any folder.</p>
-<h3>Choose where to store the database</h3>
-<p>You have two options:</p>
-<ul>
-<li><strong>Application data folder</strong> (default) &mdash; stores the database index in <code>%LOCALAPPDATA%\\LensLedger\\Libraries\\</code>. This keeps your photo folder clean.</li>
-<li><strong>Inside the photo library folder</strong> &mdash; stores the database as <code>LensLedger.sqlite3</code> inside the photo folder itself. Useful when your photos are on an external or shared drive, so the index travels with the drive.</li>
-</ul>
+<h3>Where the database is stored</h3>
+<p>By default, the database is stored in a hidden <code>.LensLedger</code> folder inside your photo library (e.g. <code>Photos\\.LensLedger\\LensLedger-Photos.sqlite3</code>). This means the index travels with your photos &mdash; copy the folder to another drive and everything comes with it.</p>
+<p>You can also choose to store the database in the application data folder (<code>%LOCALAPPDATA%\\LensLedger\\Libraries\\</code>) if you prefer to keep the photo folder completely clean.</p>
 <h3>Build your library</h3>
 <p>Click <strong>Build my library</strong> to start an initial scan. LensLedger discovers all photos and videos, records their locations, types, dates, and any embedded metadata (EXIF, IPTC, XMP). Cloud-only files (e.g. Dropbox Smart Sync placeholders) are counted without forcing a download.</p>
 <p>The scan can be paused and resumed at any time.</p>
@@ -1089,7 +1093,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h2>2. Library Management</h2>
 <p>LensLedger supports multiple libraries. You can switch between them, add new ones, and relocate existing ones. All library management happens on the <a href="/settings">Settings</a> page.</p>
 <h3>Adding a library</h3>
-<p>Click <strong>Add library</strong> in Settings. Browse to the folder, then choose where to store the database (application data folder or inside the photo folder). The library is registered without starting a scan immediately, so you can add libraries even while another scan is running.</p>
+<p>Click <strong>Add library</strong> in Settings. Browse to the folder, then choose where to store the database. By default, the database goes in a hidden <code>.LensLedger</code> folder inside your photo library. The library is registered without starting a scan immediately, so you can add libraries even while another scan is running.</p>
 <h3>Switching libraries</h3>
 <p>Click <strong>Switch</strong> next to any library in the list. Your current library remains in the list and its index is preserved.</p>
 <h3>Relocating a library</h3>
@@ -1312,7 +1316,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="manual-section" id="database">
 <h2>12. Database and Backups</h2>
 <h3>Database location</h3>
-<p>By default, databases are stored in <code>{html.escape(str(data_root()))}\\Libraries\\</code>. When adding a library, you can choose to store the database inside the photo folder instead.</p>
+<p>Each library has its own database. By default, it is stored inside the library in a hidden <code>.LensLedger</code> folder (e.g. <code>Photos\\.LensLedger\\LensLedger-Photos.sqlite3</code>). You can also choose to store it in <code>{html.escape(str(data_root()))}\\Libraries\\</code> when adding a library.</p>
 <h3>Verified backups</h3>
 <p>From <a href="/scan-photos">Scan your photos</a>, click <strong>Create verified database backup</strong>. Backups are stored in <code>{html.escape(str(data_root()))}\\Database Backups\\</code>.</p>
 <h3>Export and import</h3>
@@ -3996,9 +4000,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         root = Path(value).resolve()
         if not root.is_dir():
             raise ValueError("that folder does not exist")
-        db_location = str(body.get("db_location", "appdata")).strip()
-        if db_location == "library":
-            database = (root / "LensLedger.sqlite3").resolve()
+        db_location = str(body.get("db_location", "library")).strip()
+        if db_location == "appdata":
+            database = library_db_path_appdata(root).resolve()
         else:
             database = library_db_path(root).resolve()
         database.parent.mkdir(parents=True, exist_ok=True)
@@ -4057,9 +4061,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         root = Path(value).resolve()
         if not root.is_dir():
             raise ValueError("that photo library folder does not exist")
-        db_location = str(body.get("db_location", "appdata")).strip()
-        if db_location == "library":
-            database = (root / "LensLedger.sqlite3").resolve()
+        db_location = str(body.get("db_location", "library")).strip()
+        if db_location == "appdata":
+            database = library_db_path_appdata(root).resolve()
         else:
             database = library_db_path(root).resolve()
         database.parent.mkdir(parents=True, exist_ok=True)
