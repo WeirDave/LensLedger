@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.65.0 — 2026-08-28
+
+- Redesigned Review People page with compact face crop thumbnails instead of large full-photo cards, fitting ~60 faces on screen at once for much faster bulk review.
+- Click any thumbnail to toggle confirmed/rejected. Enlarge button opens a lightbox with the full photo, filename, date, and correction options.
+- Raised batch limit from 8 to 200 suggestions per person.
+- Added terminal logging for all people review decisions, labeled `[Name faces]`, showing the action and filename for each confirm, reject, correction, or disposition.
+
 ## 0.64.3 — 2026-08-28
 
 - Updated the Name faces intro text, user manual, and Quick guide to explain the recommended two-stage workflow: name a handful of people (5–10), then go to Review people where LensLedger suggests matches across the whole library.

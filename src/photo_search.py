@@ -2129,7 +2129,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 {nav_menu("people-review", str(self.library_root))}
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
 <div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
-<div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
+<div class="lightbox" id="lightbox"><div class="lightbox-head"><span id="lightboxInfo" class="lightbox-info"></span><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxToggle">Mark as wrong</button><span id="lightboxCorrectionArea" class="lightbox-correction" hidden><span id="lightboxPicker" class="lightbox-picker"></span><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></span></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <div class="saving-overlay" id="savingOverlay"><div class="saving-content"><div class="saving-spinner"></div><h2>Saving tags…</h2><p>Publishing metadata to your photos.</p></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
@@ -2734,16 +2734,29 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 published.append(self._publish_people_metadata(
                     con, int(body["asset_id"]), removed, action_id
                 ))
+                asset_row = con.execute("SELECT filename FROM assets WHERE id=?", (int(body["asset_id"]),)).fetchone()
+                log_fname = asset_row["filename"] if asset_row else f"asset #{body['asset_id']}"
         except Exception:
             self._restore_people_batch(published)
             raise
+        person_name = str(person["name"])
+        corrected = body.get("corrected_name", "").strip()
+        if action == "confirmed":
+            print(f'[Name faces] Confirmed "{person_name}" in {log_fname}', flush=True)
+        elif action == "corrected" and corrected:
+            print(f'[Name faces] Corrected "{person_name}" → "{corrected}" in {log_fname}', flush=True)
+        elif action == "rejected":
+            print(f'[Name faces] Rejected "{person_name}" in {log_fname}', flush=True)
+        elif action in self.FACE_DISPOSITION_COLUMNS:
+            label = "not a person" if action == "not_a_person" else "unknown person"
+            print(f'[Name faces] Marked {label} in {log_fname}', flush=True)
         self.send_json({"ok": True, "action_id": action_id, "published": 1})
 
     def people_review_batch_decision(self, body):
         person_id = int(body["person_id"])
         decisions = body.get("decisions")
-        if not isinstance(decisions, list) or not 1 <= len(decisions) <= 8:
-            raise ValueError("choose between one and eight photos")
+        if not isinstance(decisions, list) or not 1 <= len(decisions) <= 200:
+            raise ValueError("choose between one and 200 photos")
         asset_ids = [int(item["asset_id"]) for item in decisions]
         if len(asset_ids) != len(set(asset_ids)):
             raise ValueError("the same photo cannot appear twice")
@@ -2770,9 +2783,28 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     )
                     if result is not None:
                         published.append(result)
+                filenames = {int(row["id"]): row["filename"] for row in con.execute(
+                    f"SELECT id, filename FROM assets WHERE id IN ({','.join('?' * len(asset_ids))})",
+                    asset_ids
+                )}
         except Exception:
             self._restore_people_batch(published)
             raise
+        person_name = str(person["name"])
+        for item in decisions:
+            aid = int(item["asset_id"])
+            fname = filenames.get(aid, f"asset #{aid}")
+            action = item.get("action", "")
+            corrected = item.get("corrected_name", "").strip()
+            if action == "confirmed":
+                print(f'[Name faces] Confirmed "{person_name}" in {fname}', flush=True)
+            elif action == "corrected" and corrected:
+                print(f'[Name faces] Corrected "{person_name}" → "{corrected}" in {fname}', flush=True)
+            elif action == "rejected":
+                print(f'[Name faces] Rejected "{person_name}" in {fname}', flush=True)
+            elif action in self.FACE_DISPOSITION_COLUMNS:
+                label = "not a person" if action == "not_a_person" else "unknown person"
+                print(f'[Name faces] Marked {label} in {fname}', flush=True)
         self.send_json({"ok": True, "action_ids": action_ids, "published": len(published)})
 
     def _undo_people_review_action(self, con, action_id):
@@ -2848,8 +2880,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
     def undo_people_review_batch(self, body):
         action_ids = body.get("action_ids")
-        if not isinstance(action_ids, list) or not 1 <= len(action_ids) <= 8:
-            raise ValueError("choose between one and eight review decisions")
+        if not isinstance(action_ids, list) or not 1 <= len(action_ids) <= 200:
+            raise ValueError("choose between one and 200 review decisions")
         if len(action_ids) != len({int(value) for value in action_ids}):
             raise ValueError("the same review decision cannot appear twice")
         with self.db() as con:

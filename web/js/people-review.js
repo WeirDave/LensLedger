@@ -1,14 +1,13 @@
 const LL = JSON.parse(document.body.dataset.ll);
 const csrf = LL.csrf;
 const initialPersonId = LL.initialPersonId;
-const batchSize = 8;
+const maxVisible = 100;
 let queue = null;
 let batch = [];
 let rejected = new Set();
 let skipped = new Set();
 let corrections = new Map();
 let dispositions = new Map();
-const DISPOSITION_LABELS = { not_a_person: 'Not a person', unknown_person: 'Unknown person' };
 let history = [];
 let knownPeople = [];
 let autoLearnDone = false;
@@ -68,14 +67,15 @@ function render() {
     loadQueue(queue.person.id, true).catch(showError);
     return;
   }
-  batch = available.slice(0, batchSize);
+  batch = available.slice(0, maxVisible);
   $('globalProgress').textContent = queue.remaining_total.toLocaleString() + ' photos · ' + queue.people_remaining.toLocaleString() + ' people remaining';
   knownPeople = queue.people_options;
   const section = document.createElement('section');
-  section.innerHTML = '<div class="review-head"><div><h1></h1><p>These photos may contain this person. Mark the incorrect ones, then save and publish the group.</p></div><div class="person-count"></div></div><div class="photo-grid"></div>';
+  section.innerHTML = '<div class="review-head"><div><h1></h1><p>Click a face to mark it wrong. Use ⛶ Enlarge to see the full photo or set corrections.</p></div><div class="person-count"></div></div><div class="thumb-grid"></div>';
   section.querySelector('h1').textContent = 'Does this photo contain ' + queue.person.name + '?';
-  section.querySelector('.person-count').textContent = batch.length + ' shown · ' + queue.suggestions.length + ' suggestions for ' + queue.person.name;
-  const grid = section.querySelector('.photo-grid');
+  const countText = batch.length + (available.length > maxVisible ? ' of ' + available.length : '') + ' suggestion' + (batch.length === 1 ? '' : 's') + ' for ' + queue.person.name;
+  section.querySelector('.person-count').textContent = countText;
+  const grid = section.querySelector('.thumb-grid');
   batch.forEach(item => grid.append(buildCard(item)));
   $('reviewArea').replaceChildren(section);
   $('actionbar').hidden = false;
@@ -84,8 +84,90 @@ function render() {
   updateSummary();
 }
 
+function buildCard(item) {
+  const card = document.createElement('div');
+  card.className = 'review-thumb';
+  card.dataset.id = item.id;
+  const photo = document.createElement('div');
+  photo.className = 'thumb-photo';
+  const img = document.createElement('img');
+  img.loading = 'lazy';
+  img.alt = 'Suggested face';
+  img.src = item.face_id ? '/media-face?face_id=' + item.face_id : '/media?id=' + item.id;
+  const badge = document.createElement('span');
+  badge.className = 'state-badge';
+  badge.textContent = '✓';
+  const expand = document.createElement('button');
+  expand.type = 'button';
+  expand.className = 'expand';
+  expand.title = 'Show the full photo larger';
+  expand.textContent = '⛶ Enlarge';
+  expand.onclick = e => { e.stopPropagation(); openLarge(item); };
+  const trash = document.createElement('button');
+  trash.type = 'button';
+  trash.className = 'trash';
+  trash.title = 'Move to Trash';
+  trash.innerHTML = '<svg viewBox="0 0 16 16"><path d="M5.5 0h5a.5.5 0 0 1 .5.5V2h4v2h-1l-1 11.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5L2 4H1V2h4V.5a.5.5 0 0 1 .5-.5zM6 1v1h4V1H6zm-2.9 3 .9 11h8l.9-11H3.1zM5.5 5v8h1V5h-1zm2 0v8h1V5h-1zm2 0v8h1V5h-1z"/></svg>';
+  trash.onclick = e => { e.stopPropagation(); trashPhoto(card, item); };
+  photo.append(img, badge, expand, trash);
+  card.append(photo);
+  card.onclick = () => toggleCard(card, item);
+  img.ondblclick = e => { e.stopPropagation(); api('/api/reveal-file', { id: item.id }); };
+  return card;
+}
+
+function markWrong(card, item) {
+  if (rejected.has(item.id)) return;
+  rejected.add(item.id);
+  card.classList.add('wrong');
+  card.querySelector('.state-badge').textContent = '✗';
+}
+
+function toggleCard(card, item) {
+  if (rejected.has(item.id)) {
+    rejected.delete(item.id);
+    corrections.delete(item.id);
+    dispositions.delete(item.id);
+    card.classList.remove('wrong');
+    card.querySelector('.state-badge').textContent = '✓';
+  } else {
+    markWrong(card, item);
+  }
+  updateSummary();
+}
+
+function updateSummary() {
+  const wrong = rejected.size;
+  const matches = batch.length - wrong;
+  $('selectionSummary').textContent = matches + ' confirmed' + (wrong ? ' · ' + wrong + ' rejected' : '');
+  $('confirmBatch').textContent = 'Save & publish ' + batch.length + ' decision' + (batch.length === 1 ? '' : 's');
+}
+
+let openItem = null;
+let lightboxPicker = null;
+
+function initLightboxPicker() {
+  const container = $('lightboxPicker');
+  if (!container || lightboxPicker) return;
+  lightboxPicker = createPersonPicker({
+    container,
+    getNames: () => knownPeople,
+    placeholder: 'Correct name',
+    onChoose: name => {
+      if (!openItem) return;
+      registerKnownPerson(name);
+      corrections.set(openItem.id, name);
+      dispositions.delete(openItem.id);
+      const card = document.querySelector('.review-thumb[data-id="' + openItem.id + '"]');
+      if (card) markWrong(card, openItem);
+      updateSummary();
+      updateLightboxState();
+    },
+  });
+}
+
 function hasFaceBox(item) {
-  return [item.box_left, item.box_top, item.box_right, item.box_bottom].every(value => Number.isFinite(value));
+  return [item.box_left, item.box_top, item.box_right, item.box_bottom].every(v => Number.isFinite(v));
 }
 
 function markFace(container, img, item) {
@@ -119,99 +201,28 @@ function markFace(container, img, item) {
   new ResizeObserver(position).observe(container);
 }
 
-function buildCard(item) {
-  const card = document.createElement('article');
-  card.className = 'review-card';
-  card.dataset.id = item.id;
-  card.innerHTML = '<div class="photo-box"><img loading="lazy" alt="Suggested photo"><span class="state-badge">✓ Contains person</span><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash"><svg viewBox="0 0 16 16"><path d="M5.5 0h5a.5.5 0 0 1 .5.5V2h4v2h-1l-1 11.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5L2 4H1V2h4V.5a.5.5 0 0 1 .5-.5zM6 1v1h4V1H6zm-2.9 3 .9 11h8l.9-11H3.1zM5.5 5v8h1V5h-1zm2 0v8h1V5h-1zm2 0v8h1V5h-1z"/></svg>Trash</button></div><div class="card-info"><div class="file-line"><div><strong></strong><small></small></div><span class="confidence"></span></div><button type="button" class="toggle-wrong">This photo contains ' + escapeText(queue.person.name) + '</button><div class="correction"><label>If you know who it is, choose the correct name (optional)</label><div class="correction-picker"></div><div class="correction-alt"><button type="button" class="disposition-btn" data-disposition="not_a_person">Not a person</button><button type="button" class="disposition-btn" data-disposition="unknown_person">Unknown person</button></div></div></div>';
-  const img = card.querySelector('img');
-  img.src = '/media?id=' + item.id;
-  markFace(card.querySelector('.photo-box'), img, item);
-  card.querySelector('strong').textContent = item.filename;
-  card.querySelector('small').textContent = (item.capture_date || 'Date unknown') + ' · ' + item.folder;
-  card.querySelector('.confidence').textContent = Math.round((item.confidence || 0) * 100) + '%';
-  card.querySelector('.toggle-wrong').onclick = () => toggleCard(card, item);
-  card.querySelector('.expand').onclick = () => openLarge(item);
-  card.querySelector('.trash').onclick = () => trashPhoto(card, item);
-  img.ondblclick = () => api('/api/reveal-file', { id: item.id });
-  card.querySelectorAll('.disposition-btn').forEach(button => {
-    button.onclick = () => setDisposition(card, item, button.dataset.disposition);
-  });
-  card.correctionPicker = createPersonPicker({
-    container: card.querySelector('.correction-picker'),
-    getNames: () => knownPeople,
-    placeholder: 'Correct name',
-    onChoose: name => {
-      registerKnownPerson(name);
-      corrections.set(item.id, name);
-      dispositions.delete(item.id);
-      clearDispositionButtons(card);
-      card.querySelector('.state-badge').textContent = '✕ Does not contain ' + queue.person.name;
-    },
-  });
-  return card;
-}
-
-function escapeText(value) {
-  const span = document.createElement('span');
-  span.textContent = value;
-  return span.innerHTML;
-}
-
-function clearDispositionButtons(card) {
-  card.querySelectorAll('.disposition-btn').forEach(button => button.classList.remove('active'));
-}
-
-function markWrong(card, item) {
-  if (rejected.has(item.id)) return;
-  rejected.add(item.id);
-  card.classList.add('wrong');
-  card.querySelector('.state-badge').textContent = '✕ Does not contain ' + queue.person.name;
-  card.querySelector('.toggle-wrong').textContent = 'Marked as not containing this person';
-}
-
-function setDisposition(card, item, value) {
-  markWrong(card, item);
-  dispositions.set(item.id, value);
-  corrections.delete(item.id);
-  card.correctionPicker.reset();
-  clearDispositionButtons(card);
-  card.querySelector('[data-disposition="' + value + '"]').classList.add('active');
-  card.querySelector('.state-badge').textContent = DISPOSITION_LABELS[value];
-  updateSummary();
-}
-
-function toggleCard(card, item) {
-  const key = item.id;
-  if (rejected.has(key)) {
-    rejected.delete(key);
-    corrections.delete(key);
-    dispositions.delete(key);
-    card.correctionPicker.reset();
-    clearDispositionButtons(card);
-    card.classList.remove('wrong');
-    card.querySelector('.state-badge').textContent = '✓ Contains person';
-    card.querySelector('.toggle-wrong').textContent = 'This photo contains ' + queue.person.name;
-  } else {
-    markWrong(card, item);
-  }
-  updateSummary();
-}
-
-function updateSummary() {
-  const wrong = rejected.size;
-  const matches = batch.length - wrong;
-  $('selectionSummary').textContent = matches + ' will be confirmed and published' + (wrong ? ' · ' + wrong + ' marked incorrect' : '');
-  $('confirmBatch').textContent = 'Save & publish ' + batch.length + ' decision' + (batch.length === 1 ? '' : 's');
-}
-
-let openItem = null;
-
 function openLarge(item) {
   openItem = item;
   $('largePhoto').src = '/media?id=' + item.id;
-  markFace($('largePhotoBox'), $('largePhoto'), item, false);
+  markFace($('largePhotoBox'), $('largePhoto'), item);
+  const info = $('lightboxInfo');
+  info.innerHTML = '';
+  const strong = document.createElement('strong');
+  strong.textContent = item.filename;
+  const small = document.createElement('small');
+  small.textContent = (item.capture_date || 'Date unknown') + ' · ' + item.folder;
+  info.append(strong, small);
+  initLightboxPicker();
+  if (lightboxPicker) lightboxPicker.reset();
+  updateLightboxState();
   $('lightbox').classList.add('open');
+}
+
+function updateLightboxState() {
+  if (!openItem) return;
+  const isWrong = rejected.has(openItem.id);
+  $('lightboxToggle').textContent = isWrong ? 'Mark as correct' : 'Mark as wrong';
+  $('lightboxCorrectionArea').hidden = !isWrong;
 }
 
 function closeLarge() {
@@ -223,9 +234,15 @@ function closeLarge() {
 
 function setDispositionFromLightbox(value) {
   if (!openItem) return;
-  const card = document.querySelector('.review-card[data-id="' + openItem.id + '"]');
-  if (card) setDisposition(card, openItem, value);
-  closeLarge();
+  const card = document.querySelector('.review-thumb[data-id="' + openItem.id + '"]');
+  if (card) {
+    markWrong(card, openItem);
+    dispositions.set(openItem.id, value);
+    corrections.delete(openItem.id);
+    if (lightboxPicker) lightboxPicker.reset();
+    updateSummary();
+  }
+  updateLightboxState();
 }
 
 async function submitBatch() {
@@ -238,11 +255,7 @@ async function submitBatch() {
       const corrected = (corrections.get(item.id) || '').trim();
       let action = 'confirmed';
       if (rejected.has(item.id)) action = disposition || (corrected ? 'corrected' : 'rejected');
-      return {
-        asset_id: item.id,
-        action,
-        corrected_name: disposition ? '' : corrected,
-      };
+      return { asset_id: item.id, action, corrected_name: disposition ? '' : corrected };
     });
     const result = await api('/api/people/review/batch', { person_id: queue.person.id, decisions });
     history.push({ person_id: queue.person.id, action_ids: result.action_ids });
@@ -315,6 +328,10 @@ async function trashPhoto(card, item) {
     card.remove();
     const i = batch.indexOf(item);
     if (i >= 0) batch.splice(i, 1);
+    rejected.delete(item.id);
+    corrections.delete(item.id);
+    dispositions.delete(item.id);
+    updateSummary();
     showTrashUndo(result.review_id, item.filename);
   } catch (error) { showError(error); }
 }
@@ -336,6 +353,12 @@ $('nextPerson').onclick = () => loadQueue(queue?.person?.id, true).catch(showErr
 $('deferPerson').onclick = deferPerson;
 $('undoBatch').onclick = undoBatch;
 $('closeLightbox').onclick = closeLarge;
+$('lightboxToggle').onclick = () => {
+  if (!openItem) return;
+  const card = document.querySelector('.review-thumb[data-id="' + openItem.id + '"]');
+  if (card) toggleCard(card, openItem);
+  updateLightboxState();
+};
 $('lightboxNotAPerson').onclick = () => setDispositionFromLightbox('not_a_person');
 $('lightboxUnknownPerson').onclick = () => setDispositionFromLightbox('unknown_person');
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
