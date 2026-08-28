@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.57.1 — 2026-08-28
+
+- Added library management section to the Quick guide covering adding libraries, switching, relocating, and database location choices.
+
 ## 0.57.0 — 2026-08-28
 
 - Fixed folder browse dialog appearing behind the browser window by making it open as a topmost window.
