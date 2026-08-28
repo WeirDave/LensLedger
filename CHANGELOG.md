@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.63.4 — 2026-08-28
+
+- Auto-import now caches the destination file index across cycles instead of rehashing all library photos every check — first run logs progress, subsequent checks are near-instant.
+- Auto-import now logs cloud-only placeholder files that were skipped (Dropbox smart sync files not yet downloaded).
+- Auto-import now logs files skipped because they are still uploading.
+- Auto-import errors during processing are now logged to the console instead of being silently swallowed.
+- Auto-import now reports how many candidate photos it found before processing.
+
 ## 0.63.3 — 2026-08-28
 
 - Auto-import now fires first on startup (5 seconds) before folder watcher (30 seconds) so new photos are imported before the scan runs.

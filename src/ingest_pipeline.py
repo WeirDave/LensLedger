@@ -130,6 +130,7 @@ class IngestPipeline:
         self._running = False
         self._lock = threading.Lock()
         self._stats: dict[str, int] = {"ingested": 0, "duplicates": 0, "errors": 0}
+        self._dest_hashes: set[str] | None = None
 
     @property
     def running(self) -> bool:
@@ -160,8 +161,11 @@ class IngestPipeline:
         interval_minutes: int | None = None,
     ) -> None:
         with self._lock:
+            new_dest = Path(destination_folder) if destination_folder else None
+            if new_dest != self._destination:
+                self._dest_hashes = None
             self._source = Path(source_folder) if source_folder else None
-            self._destination = Path(destination_folder) if destination_folder else None
+            self._destination = new_dest
             if rules is not None:
                 self._rules = rules
             self._default_template = default_template or DEFAULT_TEMPLATE
@@ -193,8 +197,8 @@ class IngestPipeline:
         before = dict(self._stats)
         try:
             self._process_source()
-        except Exception:
-            pass
+        except Exception as exc:
+            console_log(f"Auto-import: error during processing — {exc}")
         ingested = self._stats["ingested"] - before.get("ingested", 0)
         dupes = self._stats["duplicates"] - before.get("duplicates", 0)
         errors = self._stats["errors"] - before.get("errors", 0)
@@ -206,6 +210,25 @@ class IngestPipeline:
             if self._running:
                 self._schedule_next()
 
+    def _build_dest_hashes(self) -> set[str]:
+        """Build hash index of destination files, cached across cycles."""
+        if self._dest_hashes is not None:
+            return self._dest_hashes
+        console_log("Auto-import: building destination index (first run only)...")
+        hashes: set[str] = set()
+        count = 0
+        for existing in self._destination.rglob("*"):
+            if existing.is_file() and existing.suffix.lower() in MEDIA_EXTENSIONS:
+                h = content_hash(existing)
+                if h:
+                    hashes.add(h)
+                count += 1
+                if count % 5000 == 0:
+                    console_log(f"Auto-import: indexed {count} files...")
+        console_log(f"Auto-import: destination index ready ({count} files, {len(hashes)} unique hashes)")
+        self._dest_hashes = hashes
+        return hashes
+
     def _process_source(self) -> None:
         if not self._source or not self._source.is_dir():
             return
@@ -213,13 +236,10 @@ class IngestPipeline:
             return
         self._destination.mkdir(parents=True, exist_ok=True)
 
-        existing_hashes: set[str] = set()
-        for existing in self._destination.rglob("*"):
-            if existing.is_file() and existing.suffix.lower() in MEDIA_EXTENSIONS:
-                h = content_hash(existing)
-                if h:
-                    existing_hashes.add(h)
+        existing_hashes = self._build_dest_hashes()
 
+        candidates = []
+        placeholders = 0
         for path in sorted(self._source.iterdir()):
             if not path.is_file():
                 continue
@@ -227,19 +247,28 @@ class IngestPipeline:
                 continue
             if path.name.startswith("."):
                 continue
-
             try:
                 stat = path.stat()
             except OSError:
                 continue
-
             try:
                 if is_cloud_placeholder(stat, path):
+                    placeholders += 1
                     continue
             except Exception:
                 pass
+            candidates.append(path)
 
+        if placeholders:
+            console_log(f"Auto-import: skipped {placeholders} cloud-only files (not downloaded)")
+        if not candidates:
+            return
+
+        console_log(f"Auto-import: found {len(candidates)} photos to check")
+
+        for path in candidates:
             if not _is_stable(path):
+                console_log(f"Auto-import: skipped {path.name} (still uploading)")
                 continue
 
             file_hash = content_hash(path)
