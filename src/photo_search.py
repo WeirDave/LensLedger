@@ -168,7 +168,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         + _link("/faces-review", "\U0001f642 Name faces", "faces-review")
         + _link("/people-review", "\U0001f465 Review people", "people-review")
         + _link("/map", "\U0001f30d Photo map", "map")
-        + _link("/auto-ingest", "\U0001f4f7 Auto-ingest", "auto-ingest")
+        + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
         + _link("/settings", "⚙ Settings", "settings")
         + '</details>'
         '<div class="menu-divider"></div>'
@@ -770,8 +770,13 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.map_page()
         if url.path == "/scan-photos":
             return self.scan_photos_page()
+        if url.path == "/auto-import":
+            return self.auto_import_page()
         if url.path == "/auto-ingest":
-            return self.auto_ingest_page()
+            self.send_response(301)
+            self.send_header("Location", "/auto-import")
+            self.end_headers()
+            return
         if url.path == "/settings":
             return self.settings_page()
         if url.path == "/manual":
@@ -1055,7 +1060,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><a href="#viewing">Viewing and Editing Metadata</a></li>
 <li><a href="#people">People and Faces</a></li>
 <li><a href="#map">Photo Map</a></li>
-<li><a href="#auto-ingest">Auto-Ingest</a></li>
+<li><a href="#auto-import">Auto-import Photos</a></li>
 <li><a href="#publishing">Publishing Metadata</a></li>
 <li><a href="#review-bin">Review Bin (Trash)</a></li>
 <li><a href="#batch">Batch Editing</a></li>
@@ -1227,9 +1232,9 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
-<section class="manual-section" id="auto-ingest">
-<h2>8. Auto-Ingest</h2>
-<p>The <a href="/auto-ingest">Auto-ingest</a> page sets up an automatic pipeline for sorting new photos from a camera upload folder into your collection.</p>
+<section class="manual-section" id="auto-import">
+<h2>8. Auto-import Photos</h2>
+<p>The <a href="/auto-import">Auto-import photos</a> page sets up an automatic pipeline for sorting new photos from a camera upload folder into your collection.</p>
 <h3>How it works</h3>
 <ol>
 <li>Set a <strong>source folder</strong> (e.g. <code>C:\\Users\\you\\Dropbox\\Camera Uploads</code>)</li>
@@ -1249,7 +1254,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Route specific files to different destinations based on filename matching. For example, photos with &ldquo;Screenshot&rdquo; in the name could go to a Screenshots folder. Rules are checked in order; the first match wins.</p>
 <h3>Controls</h3>
 <ul>
-<li><strong>Enable/disable toggle</strong> &mdash; when enabled, the pipeline checks periodically</li>
+<li><strong>Enable/disable toggle</strong> &mdash; when enabled, the pipeline checks at the configured interval (default: every 10 minutes)</li>
+<li><strong>Check interval</strong> &mdash; how often to check for new photos (5 minutes to 24 hours)</li>
 <li><strong>Run now</strong> &mdash; trigger an immediate pipeline run</li>
 <li><strong>Activity log</strong> &mdash; shows every file processed</li>
 </ul>
@@ -1431,21 +1437,22 @@ class SearchHandler(BaseHTTPRequestHandler):
 </body></html>"""
         self.send_html(page)
 
-    def auto_ingest_page(self):
+    def auto_import_page(self):
         settings = load_settings()
         ingest = settings.get("ingest", {})
         default_template = ingest.get("default_template", "{year}/{year}_{month}_{day}")
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Auto-ingest — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/auto-ingest.css')}">
-<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "ingest": ingest})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Auto-ingest</h1><p>Automatically sort new photos from a camera upload folder into your collection</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
-{nav_menu("auto-ingest", str(self.library_root))}
+<title>Auto-import — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/auto-import.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "ingest": ingest})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Auto-import photos</h1><p>Automatically sort new photos from a camera upload folder into your collection</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
+{nav_menu("auto-import", str(self.library_root))}
 <main>
 <section class="card"><h2>Status</h2>
 <div class="status-grid"><div><strong id="statusEnabled">—</strong><span>Pipeline</span></div><div><strong id="statIngested">0</strong><span>Ingested</span></div><div><strong id="statDuplicates">0</strong><span>Duplicates skipped</span></div><div><strong id="statErrors">0</strong><span>Errors</span></div></div></section>
 <section class="card"><h2>Pipeline</h2><p>When enabled, the pipeline periodically checks the source folder for new photos and moves them into the destination folder, sorted by date.</p>
-<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-ingest pipeline</label></div>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-import pipeline</label></div>
 <div class="field"><label for="ingestSource">Source folder</label><input type="text" id="ingestSource" value="{html.escape(str(ingest.get('source_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Dropbox\\Camera Uploads"><button type="button" class="secondary field-browse" id="browseIngestSource">Browse…</button></div>
-<div class="field"><label for="ingestDest">Destination folder</label><input type="text" id="ingestDest" value="{html.escape(str(ingest.get('destination_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Pictures\\Sorted"><button type="button" class="secondary field-browse" id="browseIngestDest">Browse…</button></div></section>
+<div class="field"><label for="ingestDest">Destination folder</label><input type="text" id="ingestDest" value="{html.escape(str(ingest.get('destination_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Pictures\\Sorted"><button type="button" class="secondary field-browse" id="browseIngestDest">Browse…</button></div>
+<div class="field"><label for="ingestInterval">Check interval (minutes)</label><input type="number" id="ingestInterval" min="5" max="1440" value="{int(ingest.get('interval_minutes', 10))}"><span class="hint">How often to check for new photos when the pipeline is enabled. Default: 10</span></div></section>
 <section class="card"><h2>Date sorting template</h2><p>Photos are sorted into subfolders based on their capture date (from EXIF data, or file modification date as a fallback). Customise the folder structure using the placeholders below.</p>
 <div class="field"><label for="templateInput">Template</label><input type="text" id="templateInput" value="{html.escape(default_template)}"></div>
 <div class="template-preview" id="templatePreview"></div>
@@ -1459,7 +1466,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="actions-bar"><button type="button" class="secondary" id="runNow">Run now</button><button type="button" id="saveConfig">Save configuration</button></div>
 </main>
 <div class="toast" id="toast"></div>
-<script src="{asset_url('js/auto-ingest.js')}" defer></script>
+<script src="{asset_url('js/auto-import.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -1477,6 +1484,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 destination_folder=str(config.get("destination_folder", "")),
                 rules=config.get("rules", []),
                 default_template=str(config.get("default_template", "")),
+                interval_minutes=int(config.get("interval_minutes", 10)),
             )
             if config.get("enabled"):
                 pipeline.start()

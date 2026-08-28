@@ -156,6 +156,7 @@ class IngestPipeline:
         destination_folder: str = "",
         rules: list[dict[str, str]] | None = None,
         default_template: str = "",
+        interval_minutes: int | None = None,
     ) -> None:
         with self._lock:
             self._source = Path(source_folder) if source_folder else None
@@ -163,6 +164,11 @@ class IngestPipeline:
             if rules is not None:
                 self._rules = rules
             self._default_template = default_template or DEFAULT_TEMPLATE
+            if interval_minutes is not None:
+                self._interval = max(5, interval_minutes) * 60
+                if self._running and self._timer:
+                    self._timer.cancel()
+                    self._schedule_next()
 
     def run_once(self) -> dict[str, int]:
         """Run one processing pass immediately and return stats delta."""

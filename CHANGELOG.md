@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.61.0 — 2026-08-28
+
+- Renamed "Auto-ingest" to "Auto-import photos" across the entire application (nav menu, page title, manual, docs).
+- Added configurable check interval (5 minutes to 24 hours) to the auto-import page — previously hardcoded at 10 minutes.
+- Old `/auto-ingest` URL redirects to `/auto-import` so bookmarks still work.
+
 ## 0.60.0 — 2026-08-28
 
 - Settings page now shows the actual database path for the current library, not just the general application data folder.

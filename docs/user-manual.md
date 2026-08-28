@@ -13,7 +13,7 @@ LensLedger is a local-first photo and video indexing tool for Windows. It builds
 5. [Viewing and Editing Photo Metadata](#viewing-and-editing-photo-metadata)
 6. [People and Faces](#people-and-faces)
 7. [Photo Map](#photo-map)
-8. [Auto-Ingest](#auto-ingest)
+8. [Auto-import Photos](#auto-import-photos)
 9. [Publishing Metadata](#publishing-metadata)
 10. [Review Bin (Trash)](#review-bin-trash)
 11. [Batch Editing](#batch-editing)
@@ -257,9 +257,9 @@ GPS coordinates are extracted during the Photo locations scan. They are read fro
 
 ---
 
-## Auto-Ingest
+## Auto-import Photos
 
-The **Auto-ingest** page sets up an automatic pipeline for sorting new photos from a camera upload folder into your collection.
+The **Auto-import photos** page sets up an automatic pipeline for sorting new photos from a camera upload folder into your collection.
 
 ### How it works
 
@@ -279,7 +279,8 @@ You can add rules that route specific files to different destinations based on f
 
 ### Controls
 
-- **Enable/disable toggle** — when enabled, the pipeline checks periodically for new files
+- **Enable/disable toggle** — when enabled, the pipeline checks at the configured interval
+- **Check interval** — how often to check for new photos (5 minutes to 24 hours, default: 10 minutes)
 - **Run now** — trigger an immediate pipeline run
 - **Activity log** — shows every file processed, with duplicates and errors
 

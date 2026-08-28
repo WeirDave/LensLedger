@@ -48,6 +48,7 @@ function collectConfig(){
   c.source_folder=$('ingestSource').value.trim();
   c.destination_folder=$('ingestDest').value.trim();
   c.default_template=$('templateInput').value.trim()||'{year}/{year}_{month}_{day}';
+  c.interval_minutes=Math.max(5,Math.min(1440,parseInt($('ingestInterval').value,10)||10));
   const ruleEls=document.querySelectorAll('#ruleList .rule-item');
   c.rules=Array.from(ruleEls).map(el=>{
     const match=el.querySelector('[data-field="match"]').value.trim();
@@ -79,7 +80,7 @@ async function saveConfig(){
   if(res.error){toast(res.error,true);return;}
   config=c;
   rules=c.rules||[];
-  toast('Auto-ingest configuration saved.');
+  toast('Auto-import configuration saved.');
 }
 
 async function refreshStatus(){
