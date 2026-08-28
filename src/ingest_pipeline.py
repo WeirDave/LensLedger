@@ -202,6 +202,23 @@ class IngestPipeline:
             if self._running:
                 self._schedule_next()
 
+    def _find_existing_folder(self, subfolder: str) -> Path:
+        """Match an existing folder with the same date prefix.
+
+        If the template produces '2026/2026_08_22' but a folder named
+        '2026/2026_08_22 - Beach Day' already exists, use that instead.
+        """
+        dest_dir = self._destination / subfolder
+        if dest_dir.exists():
+            return dest_dir
+        parent = dest_dir.parent
+        leaf = dest_dir.name
+        if parent.is_dir():
+            for existing in parent.iterdir():
+                if existing.is_dir() and existing.name.startswith(leaf):
+                    return existing
+        return dest_dir
+
     def _process_source(self) -> None:
         if not self._source or not self._source.is_dir():
             return
@@ -244,25 +261,33 @@ class IngestPipeline:
 
             capture = _capture_date(path)
             subfolder = _apply_sorting_rules(path, capture, self._rules, self._default_template)
-            dest_dir = self._destination / subfolder
+            dest_dir = self._find_existing_folder(subfolder)
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / path.name
-            counter = 1
-            while dest_path.exists():
-                stem = path.stem
-                dest_path = dest_dir / f"{stem}_{counter}{path.suffix}"
-                counter += 1
+
+            if dest_path.exists():
+                try:
+                    if path.stat().st_size == dest_path.stat().st_size:
+                        console_log(f"Auto-import: already exists — {path.name}")
+                        continue
+                except OSError:
+                    pass
+                counter = 1
+                while dest_path.exists():
+                    dest_path = dest_dir / f"{path.stem}_{counter}{path.suffix}"
+                    counter += 1
 
             try:
                 shutil.move(str(path), str(dest_path))
                 self._stats["ingested"] += 1
-                console_log(f"Auto-import: imported {path.name} → {subfolder}")
+                actual_subfolder = dest_dir.relative_to(self._destination).as_posix()
+                console_log(f"Auto-import: imported {path.name} → {actual_subfolder}")
                 _log_action({
                     "action": "ingested",
                     "source": str(path),
                     "destination": str(dest_path),
                     "capture_date": capture.isoformat() if capture else None,
-                    "subfolder": subfolder,
+                    "subfolder": actual_subfolder,
                     "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
                 })
                 if self._on_file_ingested:

@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.63.6 — 2026-08-28
+
+- Auto-import now matches existing folders by date prefix — if `2026_08_22 - Beach Day` exists, new photos for that date go there instead of creating a bare `2026_08_22` folder.
+- Auto-import now skips files that already exist at the destination with the same name and size instead of creating `_1` copies.
+
 ## 0.63.5 — 2026-08-28
 
 - Auto-import no longer scans the entire destination library for duplicates — it just imports files and handles filename collisions with a numeric suffix. Startup is now instant instead of spending minutes hashing 50K+ photos.
