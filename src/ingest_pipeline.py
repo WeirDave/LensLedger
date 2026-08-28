@@ -126,7 +126,7 @@ class IngestPipeline:
         self._timer: threading.Timer | None = None
         self._running = False
         self._lock = threading.Lock()
-        self._stats: dict[str, int] = {"ingested": 0, "errors": 0}
+        self._stats: dict[str, int] = {"imported": 0, "errors": 0}
 
     @property
     def running(self) -> bool:
@@ -192,7 +192,7 @@ class IngestPipeline:
             self._process_source()
         except Exception as exc:
             console_log(f"Auto-import: error during processing — {exc}")
-        ingested = self._stats["ingested"] - before.get("ingested", 0)
+        ingested = self._stats["imported"] - before.get("imported", 0)
         errors = self._stats["errors"] - before.get("errors", 0)
         if ingested or errors:
             console_log(f"Auto-import: {ingested} imported, {errors} errors")
@@ -279,11 +279,11 @@ class IngestPipeline:
 
             try:
                 shutil.move(str(path), str(dest_path))
-                self._stats["ingested"] += 1
+                self._stats["imported"] += 1
                 actual_subfolder = dest_dir.relative_to(self._destination).as_posix()
                 console_log(f"Auto-import: imported {path.name} → {actual_subfolder}")
                 _log_action({
-                    "action": "ingested",
+                    "action": "imported",
                     "source": str(path),
                     "destination": str(dest_path),
                     "capture_date": capture.isoformat() if capture else None,

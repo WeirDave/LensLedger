@@ -66,7 +66,7 @@ async function runNow(){
     if(res.error){toast(res.error,true);return;}
     const d=res.delta||{};
     toast('Run complete — '+
-      (d.ingested||0)+' ingested, '+
+      (d.imported||0)+' imported, '+
       (d.errors||0)+' errors');
     refreshStatus();loadLog();
   }catch(e){toast('Run failed: '+e.message,true);}
@@ -87,7 +87,7 @@ async function refreshStatus(){
     const res=await fetch('/api/ingest/status');
     const data=await res.json();
     const stats=data.stats||{};
-    $('statIngested').textContent=String(stats.ingested||0);
+    $('statImported').textContent=String(stats.imported||0);
     $('statErrors').textContent=String(stats.errors||0);
     $('statusEnabled').textContent=data.enabled?'Running':'Stopped';
   }catch(e){}
