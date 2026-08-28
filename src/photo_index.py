@@ -601,6 +601,7 @@ def scan_library(
     db_path: Path,
     progress: Callable[[dict[str, int | bool]], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    quiet: bool = False,
 ) -> int:
     root = root.resolve()
     con = connect(db_path)
@@ -771,7 +772,8 @@ def scan_library(
     con.commit()
     con.close()
     report()
-    print("\n".join(f"{key}: {value}" for key, value in counts.items()))
+    if not quiet:
+        print("\n".join(f"{key}: {value}" for key, value in counts.items()))
     if counts["cancelled"]:
         return 3
     return 0 if counts["errors"] == 0 else 2
@@ -902,6 +904,7 @@ def ocr_assets(
     workers: int,
     progress: Callable[[dict[str, int | bool]], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    quiet: bool = False,
 ) -> int:
     con = connect(db_path)
     sql = """
@@ -963,7 +966,8 @@ def ocr_assets(
                         "UPDATE text_data SET ocr_error=? WHERE asset_id=?",
                         (error[:1000], asset_id),
                     )
-                    print(f"OCR_ERROR\t{path or expected_path}\t{error}", file=sys.stderr)
+                    if not quiet:
+                        print(f"OCR_ERROR\t{path or expected_path}\t{error}", file=sys.stderr)
                 else:
                     if text:
                         counts["with_text"] += 1
@@ -974,7 +978,8 @@ def ocr_assets(
                     rebuild_search_row(con, asset_id)
                 if int(counts["attempted"]) % 20 == 0:
                     con.commit()
-                    print(f"ocr progress: {counts['attempted']}/{len(rows)}", file=sys.stderr)
+                    if not quiet:
+                        print(f"ocr progress: {counts['attempted']}/{len(rows)}", file=sys.stderr)
                 report()
                 if not (should_cancel and should_cancel()):
                     submit_next()
@@ -986,10 +991,11 @@ def ocr_assets(
     con.commit()
     con.close()
     report()
-    print(f"ocr attempted: {counts['attempted']}")
-    print(f"ocr with text: {counts['with_text']}")
-    print(f"ocr errors: {counts['errors']}")
-    print(f"ocr cancelled: {counts['cancelled']}")
+    if not quiet:
+        print(f"ocr attempted: {counts['attempted']}")
+        print(f"ocr with text: {counts['with_text']}")
+        print(f"ocr errors: {counts['errors']}")
+        print(f"ocr cancelled: {counts['cancelled']}")
     if counts["cancelled"]:
         return 3
     return 0 if counts["errors"] == 0 else 2

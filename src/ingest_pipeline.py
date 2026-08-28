@@ -142,7 +142,7 @@ class IngestPipeline:
             if not self._source or not self._destination:
                 return
             self._running = True
-            self._schedule_next(delay=15)
+            self._schedule_next(delay=5)
 
     def stop(self) -> None:
         with self._lock:

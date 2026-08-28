@@ -365,6 +365,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
         result = scan_library(
             root, database, progress=update_progress,
             should_cancel=handler_class.library_cancel.is_set,
+            quiet=True,
         )
         if result not in {0, 2, 3}:
             raise ValueError("the library index did not complete")
@@ -432,6 +433,7 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
         result = ocr_assets(
             database, since, workers, progress=update_progress,
             should_cancel=handler_class.ocr_cancel.is_set,
+            quiet=True,
         )
         with handler_class.ocr_lock:
             current = dict(handler_class.ocr_job)
@@ -4470,7 +4472,7 @@ def main():
             if SearchHandler.library_job.get("state") == "scanning":
                 return
         try:
-            scan_library(SearchHandler.library_root, SearchHandler.db_path)
+            scan_library(SearchHandler.library_root, SearchHandler.db_path, quiet=True)
         except Exception:
             pass
     settings = load_settings()

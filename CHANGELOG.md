@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.63.3 — 2026-08-28
+
+- Auto-import now fires first on startup (5 seconds) before folder watcher (30 seconds) so new photos are imported before the scan runs.
+- Suppressed raw diagnostic output from scans and OCR in the console window — only the clean timestamped `console_log` lines appear now.
+
 ## 0.63.2 — 2026-08-28
 
 - Meaning search errors now show the actual reason an image failed (e.g. "cannot identify image file", "truncated JPEG") instead of the generic "Image could not be encoded by the meaning-search model."
