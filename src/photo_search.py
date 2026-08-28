@@ -175,7 +175,8 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<details class="menu-section">'
         '<summary class="menu-section-label">Help &amp; Support</summary>'
         '<button type="button" class="menu-item" data-panel="guide">\U0001f4d6 Quick guide</button>'
-        '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a>'
+        + _link("/manual", "\U0001f4d3 User manual", "manual")
+        + '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a>'
         '<button type="button" class="menu-item" onclick="copyDiagnostics()">\U0001f4cb Copy diagnostics</button>'
         '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'
         '</details>'
@@ -773,6 +774,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.auto_ingest_page()
         if url.path == "/settings":
             return self.settings_page()
+        if url.path == "/manual":
+            return self.manual_page()
         if url.path == "/api/settings":
             return self.get_settings()
         if url.path == "/api/settings/export-status":
@@ -1031,6 +1034,395 @@ class SearchHandler(BaseHTTPRequestHandler):
 </main>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/settings.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def manual_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>User Manual — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/manual.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>User Manual</h1><p>Complete guide to using LensLedger</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
+{nav_menu("manual", str(self.library_root))}
+<main id="top">
+
+<div class="manual-toc">
+<h2>Contents</h2>
+<ol>
+<li><a href="#getting-started">Getting Started</a></li>
+<li><a href="#library-management">Library Management</a></li>
+<li><a href="#scanning">Scanning Your Photos</a></li>
+<li><a href="#searching">Searching and Browsing</a></li>
+<li><a href="#viewing">Viewing and Editing Metadata</a></li>
+<li><a href="#people">People and Faces</a></li>
+<li><a href="#map">Photo Map</a></li>
+<li><a href="#auto-ingest">Auto-Ingest</a></li>
+<li><a href="#publishing">Publishing Metadata</a></li>
+<li><a href="#review-bin">Review Bin (Trash)</a></li>
+<li><a href="#batch">Batch Editing</a></li>
+<li><a href="#database">Database and Backups</a></li>
+<li><a href="#settings">Settings</a></li>
+<li><a href="#shortcuts">Keyboard and Mouse Shortcuts</a></li>
+<li><a href="#formats">Supported File Formats</a></li>
+<li><a href="#advanced">Advanced Configuration</a></li>
+</ol>
+</div>
+
+<section class="manual-section" id="getting-started">
+<h2>1. Getting Started</h2>
+<p>When you first launch LensLedger, the setup page walks you through creating your first library.</p>
+<h3>Choose a photo folder</h3>
+<p>Select the folder that contains your photos. LensLedger shows suggested locations (Pictures, Dropbox Photos, Camera Uploads, OneDrive, removable drives) or you can click <strong>Browse</strong> to pick any folder.</p>
+<h3>Choose where to store the database</h3>
+<p>You have two options:</p>
+<ul>
+<li><strong>Application data folder</strong> (default) &mdash; stores the database index in <code>%LOCALAPPDATA%\\LensLedger\\Libraries\\</code>. This keeps your photo folder clean.</li>
+<li><strong>Inside the photo library folder</strong> &mdash; stores the database as <code>LensLedger.sqlite3</code> inside the photo folder itself. Useful when your photos are on an external or shared drive, so the index travels with the drive.</li>
+</ul>
+<h3>Build your library</h3>
+<p>Click <strong>Build my library</strong> to start an initial scan. LensLedger discovers all photos and videos, records their locations, types, dates, and any embedded metadata (EXIF, IPTC, XMP). Cloud-only files (e.g. Dropbox Smart Sync placeholders) are counted without forcing a download.</p>
+<p>The scan can be paused and resumed at any time.</p>
+<h3>Optional text scanning</h3>
+<p>After the initial scan completes, LensLedger offers to scan your photos for visible text (signs, screenshots, receipts) using local OCR. This runs in the background and can be started later from the <a href="/scan-photos">Scan your photos</a> page.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="library-management">
+<h2>2. Library Management</h2>
+<p>LensLedger supports multiple libraries. You can switch between them, add new ones, and relocate existing ones. All library management happens on the <a href="/settings">Settings</a> page.</p>
+<h3>Adding a library</h3>
+<p>Click <strong>Add library</strong> in Settings. Browse to the folder, then choose where to store the database (application data folder or inside the photo folder). The library is registered without starting a scan immediately, so you can add libraries even while another scan is running.</p>
+<h3>Switching libraries</h3>
+<p>Click <strong>Switch</strong> next to any library in the list. Your current library remains in the list and its index is preserved.</p>
+<h3>Relocating a library</h3>
+<p>If you moved your photos from one location to another (for example, from a USB drive to your hard drive), click <strong>Relocate</strong> next to the library. Browse to the new folder location. LensLedger updates all file paths in the database so your existing tags, people, OCR results, and scan data carry over.</p>
+<div class="tip"><strong>Important:</strong> Your photos must already be at the new location before you relocate. LensLedger does not move files &mdash; it updates the database to point at the new path.</div>
+<h3>Removing a library</h3>
+<p>Click <strong>Remove</strong> to take a library out of the list. This does not delete any photos or the database &mdash; it only removes the entry from the library list. You cannot remove the currently active library.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="scanning">
+<h2>3. Scanning Your Photos</h2>
+<p>The <a href="/scan-photos">Scan your photos</a> page is the dashboard for all scanning operations. Each scan runs in the background and can be paused and resumed.</p>
+<h3>Run all scans</h3>
+<p>Runs photo locations, OCR, meaning search, and face detection back to back, so you don&rsquo;t have to start each one manually.</p>
+<h3>Photo locations (GPS)</h3>
+<p>An incremental library scan that discovers new and changed files and extracts embedded GPS coordinates. These coordinates power the <a href="/map">Photo map</a>. Safe to run any time.</p>
+<h3>Local text recognition (OCR)</h3>
+<p>Reads visible text in your photos &mdash; signs, screenshots, receipts, documents &mdash; and makes it searchable.</p>
+<table>
+<tr><th>Setting</th><th>Range</th><th>Default</th><th>Description</th></tr>
+<tr><td>OCR workers</td><td>1&ndash;16</td><td>4</td><td>More workers scan faster but use more CPU</td></tr>
+<tr><td>Batch size</td><td>10&ndash;500</td><td>50</td><td>Photos processed per commit</td></tr>
+<tr><td>Only since</td><td>Date</td><td>&mdash;</td><td>Skip photos taken before this date</td></tr>
+</table>
+<h3>Meaning search (optional)</h3>
+<p>Uses a local AI vision model (CLIP) to search photos by natural language descriptions like &ldquo;a birthday cake&rdquo; or &ldquo;sunset over water.&rdquo; Requires a one-time model download.</p>
+<table>
+<tr><th>Model</th><th>Size</th><th>Quality</th></tr>
+<tr><td>ViT-B-32</td><td>~400 MB</td><td>Good general quality, fast</td></tr>
+<tr><td>ViT-B-16</td><td>~600 MB</td><td>Better quality, slower</td></tr>
+<tr><td>ViT-L-14</td><td>~1.8 GB</td><td>High quality, significantly slower</td></tr>
+</table>
+<p>Set up meaning search from <a href="/settings#meaning-search">Settings</a>. Changing the model re-indexes on the next run.</p>
+<h3>Face detection (optional)</h3>
+<p>Finds faces in your photos so they can be identified in <a href="/faces-review">Name faces</a> and <a href="/people-review">Review people</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
+<h3>Backups</h3>
+<p>Click <strong>Create verified database backup</strong> to make a verified copy of your database with an integrity check.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="searching">
+<h2>4. Searching and Browsing</h2>
+<p>The <a href="/">home page</a> is the main photo browser with a search toolbar and scrollable filmstrip.</p>
+<h3>Search scopes</h3>
+<ul>
+<li><strong>Everything</strong> (default) &mdash; searches all sources combined</li>
+<li><strong>Visible image tags</strong> &mdash; subjects, objects, people, and OCR text</li>
+<li><strong>Day/event context</strong> &mdash; folder-derived tags</li>
+<li><strong>People</strong> &mdash; browse and filter by recognized people (shows a card grid)</li>
+<li><strong>Meaning</strong> &mdash; semantic search with natural language (requires meaning search)</li>
+</ul>
+<h3>Sorting</h3>
+<ul>
+<li><strong>Best match</strong> &mdash; relevance ranking (with &ldquo;Everything&rdquo; scope)</li>
+<li><strong>Newest first</strong> / <strong>Oldest first</strong> &mdash; by capture date</li>
+<li><strong>Filename A&ndash;Z</strong> &mdash; alphabetical</li>
+</ul>
+<h3>Date filtering</h3>
+<p>Click the date filter button to open a calendar picker. Use <strong>Previous day</strong> / <strong>Next day</strong> buttons to navigate between days with photos.</p>
+<h3>Filmstrip</h3>
+<p>Scroll horizontally or drag to browse thumbnails. More photos load automatically as you scroll. Click a thumbnail to view the full photo.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="viewing">
+<h2>5. Viewing and Editing Metadata</h2>
+<p>Click a photo in the filmstrip to view it. The sidebar shows editable metadata.</p>
+<h3>Primary subject</h3>
+<p>A short phrase describing the main thing in the photo (e.g. &ldquo;Golden Gate Bridge at sunset&rdquo;). Stored as IPTC/XMP Title and Headline when published.</p>
+<h3>Photo tags</h3>
+<p>Comma-separated searchable tags for other visible things (e.g. &ldquo;bridge, fog, bay, cars&rdquo;). Stored as IPTC/XMP Keywords when published.</p>
+<h3>People in this photo</h3>
+<p>Shows confirmed people and face-recognition suggestions. Accept or reject suggestions, or manually add a person using the picker with autocomplete.</p>
+<h3>Event / folder tags</h3>
+<p>Reusable tags applied to every photo in the same folder (e.g. &ldquo;Christmas 2025&rdquo;). Useful for shared context across a batch.</p>
+<h3>Capture details</h3>
+<p>Expandable section showing read-only embedded EXIF, IPTC, and XMP metadata. GPS coordinates link to the Photo map and OpenStreetMap.</p>
+<h3>Hidden tags</h3>
+<p>You can hide incorrect tags for individual photos. Hidden tags can be restored from the sidebar.</p>
+<h3>Zooming</h3>
+<ul>
+<li>Scroll wheel on the main image to zoom (up to 20x)</li>
+<li>Triple-click to toggle 3x zoom</li>
+<li>Click and drag to pan while zoomed</li>
+</ul>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="people">
+<h2>6. People and Faces</h2>
+<p>LensLedger has a two-stage workflow for identifying people in your photos.</p>
+<h3>Stage 1: Name faces</h3>
+<p>Go to <a href="/faces-review">Name faces</a>. A grid of unidentified face crops is shown, diversity-sampled for variety. For each face:</p>
+<ul>
+<li><strong>Name it</strong> &mdash; type a name (with autocomplete). Similar unidentified faces are then grouped for one-click confirmation.</li>
+<li><strong>Not a person</strong> &mdash; mark false detections (statues, posters, etc.)</li>
+<li><strong>Unknown person</strong> &mdash; mark as a real person you don&rsquo;t want to name yet</li>
+</ul>
+<p>Click any face crop to see the full photo for context.</p>
+<h3>Stage 2: Review people</h3>
+<p>Go to <a href="/people-review">Review people</a>. Batches of face-match suggestions are shown per person. For each photo:</p>
+<ul>
+<li><strong>Confirm</strong> &mdash; this is the right person</li>
+<li><strong>Wrong</strong> &mdash; this is not the right person</li>
+<li><strong>Correct</strong> &mdash; reassign to a different person</li>
+</ul>
+<p>Use <strong>Save &amp; publish this group</strong> to confirm and write names into JPEG metadata. <strong>Undo last batch</strong> rolls back decisions including metadata changes. You can <strong>defer</strong> a person&rsquo;s suggestions for 1&ndash;30 days.</p>
+<h3>Managing people</h3>
+<p>From the People search scope on the home page:</p>
+<ul>
+<li><strong>Edit name</strong> &mdash; change a person&rsquo;s primary name (propagates to all JPEG metadata)</li>
+<li><strong>Aliases</strong> &mdash; add alternate names (nicknames, maiden names) that also match in search</li>
+<li><strong>Merge</strong> &mdash; combine duplicate person records, preserving aliases and updating metadata</li>
+</ul>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="map">
+<h2>7. Photo Map</h2>
+<p>The <a href="/map">Photo map</a> shows an interactive world map with markers at every GPS-tagged photo location.</p>
+<ul>
+<li><strong>Scroll</strong> to zoom in and out</li>
+<li><strong>Drag</strong> to pan</li>
+<li><strong>Click a cluster marker</strong> to zoom into that area</li>
+<li><strong>Click a single marker</strong> to see photo count, date range, coordinates, and a preview</li>
+</ul>
+<p>From marker details you can open the photo in the viewer, view all photos from that location, or open the coordinates in OpenStreetMap.</p>
+<p>GPS coordinates are extracted during the Photo locations scan and are never written back to your files.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="auto-ingest">
+<h2>8. Auto-Ingest</h2>
+<p>The <a href="/auto-ingest">Auto-ingest</a> page sets up an automatic pipeline for sorting new photos from a camera upload folder into your collection.</p>
+<h3>How it works</h3>
+<ol>
+<li>Set a <strong>source folder</strong> (e.g. <code>C:\\Users\\you\\Dropbox\\Camera Uploads</code>)</li>
+<li>Set a <strong>destination folder</strong> (e.g. <code>C:\\Users\\you\\Pictures\\Sorted</code>)</li>
+<li>Configure a <strong>date sorting template</strong> using placeholders</li>
+</ol>
+<table>
+<tr><th>Placeholder</th><th>Example</th></tr>
+<tr><td><code>{{year}}</code></td><td>2026</td></tr>
+<tr><td><code>{{month}}</code></td><td>08</td></tr>
+<tr><td><code>{{day}}</code></td><td>28</td></tr>
+<tr><td><code>{{hour}}</code></td><td>14</td></tr>
+<tr><td><code>{{minute}}</code></td><td>30</td></tr>
+</table>
+<p>The default template <code>{{year}}/{{year}}_{{month}}_{{day}}</code> creates folders like <code>2026/2026_08_28</code>.</p>
+<h3>Override rules</h3>
+<p>Route specific files to different destinations based on filename matching. For example, photos with &ldquo;Screenshot&rdquo; in the name could go to a Screenshots folder. Rules are checked in order; the first match wins.</p>
+<h3>Controls</h3>
+<ul>
+<li><strong>Enable/disable toggle</strong> &mdash; when enabled, the pipeline checks periodically</li>
+<li><strong>Run now</strong> &mdash; trigger an immediate pipeline run</li>
+<li><strong>Activity log</strong> &mdash; shows every file processed</li>
+</ul>
+<p>Duplicates are detected by content hash and skipped automatically.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="publishing">
+<h2>9. Publishing Metadata</h2>
+<p>Publishing writes your subjects, people, tags, and descriptions back into the photo file&rsquo;s embedded metadata (IPTC/XMP). Only JPEG and HEIC/HEIF files are publishable.</p>
+<h3>How to publish</h3>
+<ol>
+<li>Open a photo and fill in the metadata you want to save</li>
+<li>Click <strong>Preview &amp; publish</strong> in the sidebar</li>
+<li>Review the before/after comparison</li>
+<li>Click <strong>Publish</strong> to write the metadata</li>
+</ol>
+<h3>Safety features</h3>
+<ul>
+<li>A <strong>safety backup</strong> is created before every write</li>
+<li>After writing, LensLedger verifies the image pixels haven&rsquo;t changed (hash comparison)</li>
+<li>Click <strong>Restore last publish</strong> to revert from the safety backup</li>
+</ul>
+<h3>Auto-publishing</h3>
+<p>When you confirm people in <a href="/people-review">Review people</a>, their names are automatically published to the JPEG metadata.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="review-bin">
+<h2>10. Review Bin (Trash)</h2>
+<p>The review bin is a safe staging area for photos you want to remove. Photos are moved to a separate folder &mdash; not permanently deleted.</p>
+<h3>Moving photos to the review bin</h3>
+<ul>
+<li>Click the trash icon on any photo</li>
+<li>Use batch selection and click <strong>Trash selected</strong></li>
+<li>An undo toast appears for 12 seconds after trashing</li>
+</ul>
+<h3>Managing the review bin</h3>
+<p>Open from the hamburger menu (<strong>Trash &amp; restore</strong>):</p>
+<ul>
+<li><strong>Restore</strong> &mdash; move a photo back to its original location</li>
+<li><strong>Delete</strong> &mdash; permanently remove a single photo</li>
+<li><strong>Empty trash</strong> &mdash; permanently delete all items</li>
+</ul>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="batch">
+<h2>11. Batch Editing</h2>
+<h3>Selecting photos</h3>
+<ul>
+<li><strong>Ctrl+click</strong> (or Cmd+click) a thumbnail to toggle its selection</li>
+<li><strong>Shift+click</strong> a thumbnail to select a range</li>
+</ul>
+<p>A batch bar appears at the bottom with the selected count.</p>
+<h3>Batch actions</h3>
+<ul>
+<li><strong>Add tags</strong> &mdash; add the same tags to all selected photos</li>
+<li><strong>Trash</strong> &mdash; move all selected photos to the review bin</li>
+<li><strong>Clear selection</strong> &mdash; deselect all</li>
+</ul>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="database">
+<h2>12. Database and Backups</h2>
+<h3>Database location</h3>
+<p>By default, databases are stored in <code>{html.escape(str(data_root()))}\\Libraries\\</code>. When adding a library, you can choose to store the database inside the photo folder instead.</p>
+<h3>Verified backups</h3>
+<p>From <a href="/scan-photos">Scan your photos</a>, click <strong>Create verified database backup</strong>. Backups are stored in <code>{html.escape(str(data_root()))}\\Database Backups\\</code>.</p>
+<h3>Export and import</h3>
+<p>From <a href="/settings">Settings &gt; Database</a>:</p>
+<ul>
+<li><strong>Export database</strong> &mdash; creates a portable ZIP containing the database, face data, and a manifest. Useful for backups or moving to a new machine.</li>
+<li><strong>Import database</strong> &mdash; restores from a previous export ZIP. File paths are automatically remapped to the current library location.</li>
+</ul>
+<div class="tip"><strong>Note:</strong> Your photos are not included in exports &mdash; only the LensLedger index is transferred.</div>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="settings">
+<h2>13. Settings</h2>
+<p>Access <a href="/settings">Settings</a> from the navigation menu.</p>
+<h3>Photo libraries</h3>
+<p>Add, switch, relocate, or remove libraries. See <a href="#library-management">Library Management</a>.</p>
+<h3>Scan preferences</h3>
+<table>
+<tr><th>Setting</th><th>Range</th><th>Default</th><th>Description</th></tr>
+<tr><td>OCR worker threads</td><td>1&ndash;16</td><td>4</td><td>More workers = faster scanning, more CPU</td></tr>
+<tr><td>OCR batch size</td><td>10&ndash;500</td><td>50</td><td>Photos processed per commit</td></tr>
+<tr><td>Meaning search batch</td><td>1&ndash;128</td><td>16</td><td>Images per CLIP encoding batch</td></tr>
+</table>
+<h3>Meaning search model</h3>
+<p>Choose the CLIP model for meaning search. See <a href="#scanning">Scanning</a> for model details.</p>
+<h3>Display preferences</h3>
+<table>
+<tr><th>Setting</th><th>Options</th><th>Default</th></tr>
+<tr><td>Photos per page</td><td>50&ndash;1000</td><td>250</td></tr>
+<tr><td>Default sort order</td><td>Newest / Oldest / Name</td><td>Newest</td></tr>
+<tr><td>Filmstrip thumbnail size</td><td>Small / Medium / Large</td><td>Medium</td></tr>
+</table>
+<h3>Folder watching</h3>
+<p>Automatically detect new and changed photos without manually running a scan.</p>
+<table>
+<tr><th>Setting</th><th>Range</th><th>Default</th></tr>
+<tr><td>Enable watching</td><td>On/Off</td><td>Off</td></tr>
+<tr><td>Check interval</td><td>5&ndash;1440 minutes</td><td>30</td></tr>
+</table>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="shortcuts">
+<h2>14. Keyboard and Mouse Shortcuts</h2>
+<table>
+<tr><th>Action</th><th>Shortcut</th></tr>
+<tr><td>Next / previous photo</td><td>Left / Right arrow keys</td></tr>
+<tr><td>Open photo in file explorer</td><td>Double-click the main image</td></tr>
+<tr><td>Toggle 3x zoom</td><td>Triple-click the main image</td></tr>
+<tr><td>Zoom in / out</td><td>Scroll wheel on the main image</td></tr>
+<tr><td>Pan while zoomed</td><td>Click and drag</td></tr>
+<tr><td>Select photo for batch editing</td><td>Ctrl+click (or Cmd+click) a thumbnail</td></tr>
+<tr><td>Select a range of photos</td><td>Shift+click a thumbnail</td></tr>
+<tr><td>Close any panel or dialog</td><td>Escape</td></tr>
+</table>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="formats">
+<h2>15. Supported File Formats</h2>
+<table>
+<tr><th>Format</th><th>Metadata</th><th>Faces</th><th>Viewable</th><th>Publishable</th></tr>
+<tr><td>JPEG (.jpg, .jpeg)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>PNG (.png)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>WebP (.webp)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>TIFF (.tif, .tiff)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>GIF (.gif)</td><td>&mdash;</td><td>Yes</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>BMP (.bmp)</td><td>&mdash;</td><td>Yes</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>HEIC / HEIF</td><td>&mdash;</td><td>Yes</td><td>Yes *</td><td>Yes</td></tr>
+<tr><td>RAW (.dng, .cr2, .cr3, .nef, .arw, .orf, .rw2, .raf)</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>Video (.mp4, .mov, .avi, .wmv, .mpg, .mpeg, .mkv)</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+</table>
+<p>* HEIC/HEIF files are converted to JPEG on the fly for viewing. RAW and video files are indexed and searchable but not viewable or face-scanned.</p>
+<p><strong>Publishable</strong> means LensLedger can write people names, tags, and subjects back into the file&rsquo;s embedded metadata.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+<section class="manual-section" id="advanced">
+<h2>16. Advanced Configuration</h2>
+<h3>Data directory</h3>
+<p>All application data is stored at <code>{html.escape(str(data_root()))}</code> by default.</p>
+<table>
+<tr><th>Folder</th><th>Contents</th></tr>
+<tr><td><code>Libraries\\</code></td><td>Per-library SQLite databases</td></tr>
+<tr><td><code>Metadata Backups\\</code></td><td>Pre-publish safety backups</td></tr>
+<tr><td><code>Database Backups\\</code></td><td>Verified database backups</td></tr>
+<tr><td><code>Review Bin\\</code></td><td>Trashed photos</td></tr>
+<tr><td><code>Face Data\\</code></td><td>Face detection data</td></tr>
+<tr><td><code>Exports\\</code></td><td>Database export ZIPs</td></tr>
+<tr><td><code>library-state.json</code></td><td>Library list and current library</td></tr>
+<tr><td><code>settings.json</code></td><td>Application settings</td></tr>
+</table>
+<p>Override the data directory by setting the <code>LENSLEDGER_DATA_DIR</code> environment variable.</p>
+<h3>Command-line options</h3>
+<table>
+<tr><th>Option</th><th>Description</th></tr>
+<tr><td><code>--version</code></td><td>Print version and exit</td></tr>
+<tr><td><code>--port N</code></td><td>Set the HTTP port (default: 5309)</td></tr>
+<tr><td><code>--root PATH</code></td><td>Override the library root path</td></tr>
+<tr><td><code>--db PATH</code></td><td>Override the database path</td></tr>
+<tr><td><code>--no-open</code></td><td>Don&rsquo;t auto-open the browser on startup</td></tr>
+</table>
+<h3>Updates</h3>
+<p>LensLedger checks for updates from GitHub automatically. When a new version is available, an update badge appears in the navigation menu. A banner appears on all pages when the on-disk code is newer than the running server, with a <strong>Restart</strong> button to load the new version.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
+</main>
+<script src="{asset_url('js/manual.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
