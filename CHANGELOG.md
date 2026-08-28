@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.64.1 — 2026-08-28
+
+- Name faces page now shows more diverse faces instead of repeating the same person. Raised the diversity sampling threshold from 0.72 to 0.78 to close a gap where similar faces would slip past the diversity filter but not be similar enough for the "Also looks like" auto-grouping.
+
 ## 0.64.0 — 2026-08-28
 
 - Auto-import now triggers a library scan 5 seconds after importing new photos, so they get indexed immediately instead of waiting for the next folder watcher cycle.

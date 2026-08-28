@@ -2925,7 +2925,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 "SELECT name FROM people ORDER BY name COLLATE NOCASE"
             )]
 
-        DIVERSITY_THRESHOLD = 0.72
+        DIVERSITY_THRESHOLD = 0.78
         candidates = []
         for row in rows:
             vector = decode_vector(row["embedding_f32"]) if row["embedding_f32"] else ()
