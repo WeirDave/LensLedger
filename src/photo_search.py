@@ -175,7 +175,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<details class="menu-section">'
         '<summary class="menu-section-label">Help &amp; Support</summary>'
         '<button type="button" class="menu-item" data-panel="guide">\U0001f4d6 Quick guide</button>'
-        + _link("/manual", "\U0001f4d3 User manual", "manual")
+        + '<a class="menu-item" href="/manual" target="_blank" rel="noopener">\U0001f4d3 User manual</a>'
         + '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a>'
         '<button type="button" class="menu-item" onclick="copyDiagnostics()">\U0001f4cb Copy diagnostics</button>'
         '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'

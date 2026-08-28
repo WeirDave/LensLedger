@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.59.2 — 2026-08-28
+
+- User Manual now opens in a new browser tab so it can be viewed side-by-side with LensLedger.
+
 ## 0.59.1 — 2026-08-28
 
 - Fixed CI test failure caused by Windows short path name mismatch in library path assertions.
