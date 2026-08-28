@@ -138,19 +138,27 @@ function addMatchGroup(name, matches) {
   group.querySelector('.match-count').textContent = matches.length + (matches.length === 1 ? ' photo' : ' photos');
   const thumbs = group.querySelector('.match-thumbs');
   matches.forEach(match => {
+    const wrap = document.createElement('div');
+    wrap.className = 'match-item';
+    wrap.dataset.faceId = match.face_id;
     const thumb = document.createElement('label');
     thumb.className = 'match-thumb';
-    thumb.dataset.faceId = match.face_id;
     thumb.innerHTML = '<input type="checkbox" checked><img loading="lazy" alt="Possible match">';
     thumb.querySelector('img').src = '/media-face?face_id=' + match.face_id;
-    thumbs.append(thumb);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'match-enlarge';
+    btn.textContent = '⛶ Enlarge';
+    btn.onclick = () => openLarge(match, null);
+    wrap.append(thumb, btn);
+    thumbs.append(wrap);
   });
   const status = group.querySelector('.match-status');
   group.querySelector('.dismiss').onclick = () => { group.remove(); releasePending(ids); };
   group.querySelector('.confirm-all').onclick = async () => {
-    const allThumbs = [...thumbs.querySelectorAll('.match-thumb')];
-    const checked = allThumbs.filter(t => t.querySelector('input').checked && !t.classList.contains('failed'));
-    const skipped = allThumbs.filter(t => !t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
+    const allItems = [...thumbs.querySelectorAll('.match-item')];
+    const checked = allItems.filter(t => t.querySelector('input').checked && !t.classList.contains('failed'));
+    const skipped = allItems.filter(t => !t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
     if (!checked.length) { group.remove(); releasePending(skipped); return; }
     group.querySelectorAll('button').forEach(b => b.disabled = true);
     let done = 0, failed = 0;

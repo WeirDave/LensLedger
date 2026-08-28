@@ -3059,7 +3059,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         if not vector:
             return []
         rows = con.execute(
-            """SELECT f.id AS face_id, f.embedding_f32, a.filename, a.folder, a.capture_date
+            """SELECT f.id AS face_id, f.asset_id, f.embedding_f32,
+                      f.box_left, f.box_top, f.box_right, f.box_bottom,
+                      a.filename, a.folder, a.capture_date
                FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                WHERE f.id!=? AND f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
                      AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
@@ -3080,7 +3082,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 scored.append((score, row))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [
-            {"face_id": int(row["face_id"]), "score": round(score, 4),
+            {"face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
+             "score": round(score, 4),
+             "box_left": row["box_left"], "box_top": row["box_top"],
+             "box_right": row["box_right"], "box_bottom": row["box_bottom"],
              "filename": row["filename"], "folder": row["folder"], "capture_date": row["capture_date"]}
             for score, row in scored[:limit]
         ]
