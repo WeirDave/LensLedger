@@ -136,6 +136,8 @@ async function poll() {
 async function startScan() {
   const path = $('libraryPath').value.trim();
   if (!path) return;
+  const dbSelect = $('dbLocation');
+  const dbLocation = dbSelect ? dbSelect.value : 'appdata';
   $('start').disabled = true;
   $('start').textContent = 'Scanning…';
   $('cancel').hidden = false;
@@ -143,7 +145,7 @@ async function startScan() {
   $('progressTitle').textContent = 'Building your library';
   $('progressMessage').className = '';
   try {
-    await api('/api/library/open', { path });
+    await api('/api/library/open', { path, db_location: dbLocation });
     polling = true;
     poll();
   } catch (error) {

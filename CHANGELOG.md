@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.57.0 — 2026-08-28
+
+- Fixed folder browse dialog appearing behind the browser window by making it open as a topmost window.
+- Added ability to add a new library without immediately starting a scan, so libraries can be registered even while another scan is running.
+- Added database location choice: users can now store the database inside the photo library folder (useful for external drives) instead of the default application data folder.
+- Added "Relocate" feature for libraries, allowing users to move a library from one location to another (e.g. USB drive to hard drive) while keeping the existing database and index.
+
 ## 0.56.0 — 2026-08-18
 
 - Fixed auto-ingest page layout so Browse buttons align inline with their Source/Destination folder input fields instead of wrapping below them.

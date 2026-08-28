@@ -854,6 +854,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.restore_published_metadata(body)
             if route == "/api/library/browse":
                 return self.browse_library(body)
+            if route == "/api/library/add":
+                return self.add_library(body)
+            if route == "/api/library/relocate":
+                return self.relocate_library(body)
             if route == "/api/library/open":
                 return self.open_library(body)
             if route == "/api/library/cancel":
@@ -927,9 +931,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Set up {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/onboarding.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token})}><main class="shell"><header class="brand"><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>{APP_NAME}</h1><p>{APP_TAGLINE}</p></div><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></header><section class="card">
-<div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></div>
+<div class="intro"><h2>Let’s find your photo library</h2><p>Choose a folder that contains photos or videos. LensLedger will build a private, searchable inventory without moving, renaming, uploading, or changing your files.</p><p class="data-location" id="dataLocationNote">Your photos stay exactly where they are. The searchable index lives separately at <code>{html.escape(str(data_root()))}</code> by default, or you can store it inside your photo folder.</p></div>
 <div class="steps"><div class="step"><strong>1 · Discover</strong><span>Record file locations, types, dates, and locally available metadata.</span></div><div class="step"><strong>2 · Review</strong><span>See exactly what was found, including cloud files that are not downloaded.</span></div><div class="step"><strong>3 · Enrich</strong><span>Add subjects, people, OCR, and approved metadata at your pace.</span></div></div>
-<section class="chooser"><h3>Choose your first library</h3><p>You can add and switch between more libraries later. Start with the folder that best represents one photo collection.</p><div class="suggestions" id="suggestions"></div><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="C:\\Users\\you\\Pictures"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="actions"><span class="privacy">🔒 The index stays on this computer. Cloud placeholders are counted without forcing a download.</span><span class="spacer"></span><button type="button" id="start">Build my library</button></div></section>
+<section class="chooser"><h3>Choose your first library</h3><p>You can add and switch between more libraries later. Start with the folder that best represents one photo collection.</p><div class="suggestions" id="suggestions"></div><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="C:\\Users\\you\\Pictures"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="db-location-row"><label for="dbLocation">Store the database in:</label><select id="dbLocation"><option value="appdata">Application data folder (default)</option><option value="library">Inside the photo library folder</option></select><span class="hint">Choose "Inside the photo library folder" if your photos are on an external or shared drive.</span></div><div class="actions"><span class="privacy">🔒 The index stays on this computer. Cloud placeholders are counted without forcing a download.</span><span class="spacer"></span><button type="button" id="start">Build my library</button></div></section>
 <section class="progress-panel" id="progressPanel" aria-live="polite"><div class="progress-head"><div><h3 id="progressTitle">Building your library</h3><p id="progressMessage">Preparing scan…</p></div><span class="spacer"></span><button type="button" class="danger" id="cancel">Pause scan</button></div><div class="bar"><span></span></div><div class="metrics"><div class="metric"><strong id="scanned">0</strong><span>discovered</span></div><div class="metric"><strong id="changed">0</strong><span>indexed</span></div><div class="metric"><strong id="unchanged">0</strong><span>unchanged</span></div><div class="metric"><strong id="placeholders">0</strong><span>cloud-only</span></div><div class="metric"><strong id="errors">0</strong><span>errors</span></div></div><div class="complete-grid" id="completeGrid"></div><div class="next-step" id="nextStep"><p>Want LensLedger to also read visible text in your photos (signs, screenshots, receipts) so it's searchable? This runs in the background on your computer — it keeps going even if you move on or close this tab — and you can pause it any time from the "Scan your photos" page.</p><button type="button" class="secondary" id="startOcr">Scan for text now</button></div><div class="completion-actions"><button type="button" id="enterLibrary">Open my library</button></div></section>
 </section></main><script src="{asset_url('js/onboarding.js')}" defer></script>
 </body></html>"""
@@ -3593,6 +3597,67 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     def browse_library(self, _body):
         self.send_json({"path": choose_library_folder()})
 
+    def add_library(self, body):
+        value = str(body.get("path", "")).strip()
+        if not value:
+            raise ValueError("choose a photo library folder")
+        root = Path(value).resolve()
+        if not root.is_dir():
+            raise ValueError("that folder does not exist")
+        db_location = str(body.get("db_location", "appdata")).strip()
+        if db_location == "library":
+            database = (root / "LensLedger.sqlite3").resolve()
+        else:
+            database = library_db_path(root).resolve()
+        database.parent.mkdir(parents=True, exist_ok=True)
+        associate_db_path(root, database)
+        save_library_state(root)
+        self.send_json({"ok": True, "path": str(root), "database": str(database)})
+
+    def relocate_library(self, body):
+        old_path = str(body.get("old_path", "")).strip()
+        new_path = str(body.get("new_path", "")).strip()
+        if not old_path or not new_path:
+            raise ValueError("both old and new paths are required")
+        new_root = Path(new_path).resolve()
+        if not new_root.is_dir():
+            raise ValueError("the new folder does not exist")
+        old_root = Path(old_path).resolve()
+        database = library_db_path(old_root)
+        if not database.is_file():
+            raise ValueError("no database found for the original library")
+        with type(self).library_lock:
+            if type(self).library_job.get("state") == "scanning":
+                raise ValueError("cannot relocate while a scan is running")
+        associate_db_path(new_root, database)
+        with connect(database) as con:
+            old_prefix = str(old_root)
+            new_prefix = str(new_root)
+            con.execute(
+                "UPDATE assets SET path = ? || SUBSTR(path, ?) WHERE path LIKE ? ESCAPE '\\'",
+                (new_prefix, len(old_prefix) + 1, old_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"),
+            )
+            try:
+                con.execute("UPDATE assets SET library_root = ? WHERE library_root = ?", (new_prefix, old_prefix))
+            except sqlite3.OperationalError:
+                pass
+        config = load_library_config()
+        libraries = config.get("libraries", [])
+        old_cf = str(old_root).casefold()
+        libraries = [new_prefix if str(Path(p).resolve()).casefold() == old_cf else p for p in libraries]
+        if new_prefix not in libraries:
+            libraries.insert(0, new_prefix)
+        current = config.get("current_root", "")
+        if current and str(Path(current).resolve()).casefold() == old_cf:
+            current = new_prefix
+        from library_config import LIBRARY_STATE_PATH
+        tmp = LIBRARY_STATE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"current_root": current, "libraries": libraries}, indent=2), encoding="utf-8")
+        tmp.replace(LIBRARY_STATE_PATH)
+        if str(self.library_root).casefold() == old_cf:
+            type(self).current_library = (new_root, database)
+        self.send_json({"ok": True, "path": str(new_root)})
+
     def open_library(self, body):
         value = str(body.get("path", "")).strip()
         if not value:
@@ -3600,7 +3665,12 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         root = Path(value).resolve()
         if not root.is_dir():
             raise ValueError("that photo library folder does not exist")
-        database = library_db_path(root).resolve()
+        db_location = str(body.get("db_location", "appdata")).strip()
+        if db_location == "library":
+            database = (root / "LensLedger.sqlite3").resolve()
+        else:
+            database = library_db_path(root).resolve()
+        database.parent.mkdir(parents=True, exist_ok=True)
         associate_db_path(root, database)
         with type(self).library_lock:
             if type(self).library_job.get("state") == "scanning":

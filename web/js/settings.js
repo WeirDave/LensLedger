@@ -25,11 +25,13 @@ function renderLibraries(){
     const isCurrent=lib.path.replace(/\\/g,'/').toLowerCase()===currentRoot.replace(/\\/g,'/').toLowerCase();
     item.innerHTML=`<span class="path">${esc(lib.path)}</span>`
       +(isCurrent?'<span class="current-badge">Current</span>':'<button type="button" class="secondary switch-btn">Switch</button>')
+      +`<button type="button" class="secondary relocate-btn">Relocate…</button>`
       +`<button type="button" class="secondary remove-btn" ${isCurrent?'disabled':''}>Remove</button>`;
     if(!isCurrent){
       item.querySelector('.switch-btn').onclick=()=>switchLibrary(lib.path);
       item.querySelector('.remove-btn').onclick=()=>removeLibrary(lib.path);
     }
+    item.querySelector('.relocate-btn').onclick=()=>relocateLibrary(lib.path);
     el.appendChild(item);
   });
 }
@@ -94,13 +96,33 @@ async function addLibrary(){
   const res=await post('/api/library/browse',{});
   if(res.error){toast(res.error,true);return}
   if(!res.path)return;
-  const openRes=await post('/api/library/open',{path:res.path});
-  if(openRes.error){toast(openRes.error,true);return}
-  currentRoot=res.path;
+  const dbChoice=prompt(
+    'Where should the database be stored?\n\n'
+    +'1) Application data folder (default — keeps photos folder clean)\n'
+    +'2) Inside the photo library folder (useful if photos are on an external drive)\n\n'
+    +'Enter 1 or 2:','1');
+  if(!dbChoice)return;
+  const dbLocation=dbChoice.trim()==='2'?'library':'appdata';
+  const addRes=await post('/api/library/add',{path:res.path,db_location:dbLocation});
+  if(addRes.error){toast(addRes.error,true);return}
   const exists=libraries.some(l=>l.path.replace(/\\/g,'/').toLowerCase()===res.path.replace(/\\/g,'/').toLowerCase());
   if(!exists)libraries.unshift({label:res.path.split(/[\\/]/).pop(),path:res.path});
   renderLibraries();
-  toast('Added and switched to '+res.path);
+  toast('Library added: '+res.path+'. Switch to it and scan when ready.');
+}
+
+async function relocateLibrary(oldPath){
+  const res=await post('/api/library/browse',{});
+  if(res.error){toast(res.error,true);return}
+  if(!res.path)return;
+  if(!confirm('Move library from:\n'+oldPath+'\n\nTo:\n'+res.path+'\n\nThis updates the database to point at the new location. Your photos must already be at the new path.'))return;
+  const result=await post('/api/library/relocate',{old_path:oldPath,new_path:res.path});
+  if(result.error){toast(result.error,true);return}
+  const oldNorm=oldPath.replace(/\\/g,'/').toLowerCase();
+  libraries=libraries.map(l=>l.path.replace(/\\/g,'/').toLowerCase()===oldNorm?{label:res.path.split(/[\\/]/).pop(),path:res.path}:l);
+  if(currentRoot.replace(/\\/g,'/').toLowerCase()===oldNorm)currentRoot=res.path;
+  renderLibraries();
+  toast('Library relocated to '+res.path);
 }
 
 async function removeLibrary(path){

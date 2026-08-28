@@ -154,13 +154,16 @@ def suggested_library_roots() -> list[dict[str, str]]:
 def choose_library_folder() -> str:
     script = """
 Add-Type -AssemblyName System.Windows.Forms
+$form = New-Object System.Windows.Forms.Form
+$form.TopMost = $true
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = 'Choose a photo library folder'
 $dialog.UseDescriptionForTitle = $true
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     Write-Output $dialog.SelectedPath
 }
+$form.Dispose()
 """
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
