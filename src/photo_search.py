@@ -1306,7 +1306,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Run now</strong> &mdash; trigger an immediate pipeline run</li>
 <li><strong>Activity log</strong> &mdash; shows every file processed</li>
 </ul>
-<p>Duplicates are detected by content hash and skipped automatically.</p>
+<p>If a file with the same name already exists at the destination, a numeric suffix is added automatically.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -1494,7 +1494,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 {nav_menu("auto-import", str(self.library_root))}
 <main>
 <section class="card"><h2>Status</h2>
-<div class="status-grid"><div><strong id="statusEnabled">—</strong><span>Pipeline</span></div><div><strong id="statIngested">0</strong><span>Ingested</span></div><div><strong id="statDuplicates">0</strong><span>Duplicates skipped</span></div><div><strong id="statErrors">0</strong><span>Errors</span></div></div></section>
+<div class="status-grid"><div><strong id="statusEnabled">—</strong><span>Pipeline</span></div><div><strong id="statIngested">0</strong><span>Ingested</span></div><div><strong id="statErrors">0</strong><span>Errors</span></div></div></section>
 <section class="card"><h2>Pipeline</h2><p>When enabled, the pipeline periodically checks the source folder for new photos and moves them into the destination folder, sorted by date.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-import pipeline</label></div>
 <div class="field"><label for="ingestSource">Source folder</label><input type="text" id="ingestSource" value="{html.escape(str(ingest.get('source_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Dropbox\\Camera Uploads"><button type="button" class="secondary field-browse" id="browseIngestSource">Browse…</button></div>

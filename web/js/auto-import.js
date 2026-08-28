@@ -67,7 +67,6 @@ async function runNow(){
     const d=res.delta||{};
     toast('Run complete — '+
       (d.ingested||0)+' ingested, '+
-      (d.duplicates||0)+' duplicates, '+
       (d.errors||0)+' errors');
     refreshStatus();loadLog();
   }catch(e){toast('Run failed: '+e.message,true);}
@@ -89,7 +88,6 @@ async function refreshStatus(){
     const data=await res.json();
     const stats=data.stats||{};
     $('statIngested').textContent=String(stats.ingested||0);
-    $('statDuplicates').textContent=String(stats.duplicates||0);
     $('statErrors').textContent=String(stats.errors||0);
     $('statusEnabled').textContent=data.enabled?'Running':'Stopped';
   }catch(e){}

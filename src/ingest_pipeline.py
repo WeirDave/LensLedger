@@ -6,8 +6,8 @@ into the organized collection folder using configurable rules.
 
 Safety principles:
 - Never deletes originals — files are moved, not copied-then-deleted
-- Handles duplicates by content hash comparison
 - Handles partial uploads by checking file stability (size unchanged after delay)
+- Handles filename collisions by appending a numeric suffix
 - Logs every action for auditability
 """
 
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import re
 import shutil
 import threading
 from pathlib import Path
@@ -25,8 +24,6 @@ from console_log import log as console_log
 from app_paths import data_root
 from photo_index import (
     MEDIA_EXTENSIONS,
-    content_hash,
-    extract_gps_coordinates,
     is_cloud_placeholder,
 )
 
@@ -129,8 +126,7 @@ class IngestPipeline:
         self._timer: threading.Timer | None = None
         self._running = False
         self._lock = threading.Lock()
-        self._stats: dict[str, int] = {"ingested": 0, "duplicates": 0, "errors": 0}
-        self._dest_hashes: set[str] | None = None
+        self._stats: dict[str, int] = {"ingested": 0, "errors": 0}
 
     @property
     def running(self) -> bool:
@@ -161,11 +157,8 @@ class IngestPipeline:
         interval_minutes: int | None = None,
     ) -> None:
         with self._lock:
-            new_dest = Path(destination_folder) if destination_folder else None
-            if new_dest != self._destination:
-                self._dest_hashes = None
             self._source = Path(source_folder) if source_folder else None
-            self._destination = new_dest
+            self._destination = Path(destination_folder) if destination_folder else None
             if rules is not None:
                 self._rules = rules
             self._default_template = default_template or DEFAULT_TEMPLATE
@@ -200,34 +193,14 @@ class IngestPipeline:
         except Exception as exc:
             console_log(f"Auto-import: error during processing — {exc}")
         ingested = self._stats["ingested"] - before.get("ingested", 0)
-        dupes = self._stats["duplicates"] - before.get("duplicates", 0)
         errors = self._stats["errors"] - before.get("errors", 0)
-        if ingested or dupes or errors:
-            console_log(f"Auto-import: {ingested} imported, {dupes} duplicates, {errors} errors")
+        if ingested or errors:
+            console_log(f"Auto-import: {ingested} imported, {errors} errors")
         else:
             console_log("Auto-import: no new photos found")
         with self._lock:
             if self._running:
                 self._schedule_next()
-
-    def _build_dest_hashes(self) -> set[str]:
-        """Build hash index of destination files, cached across cycles."""
-        if self._dest_hashes is not None:
-            return self._dest_hashes
-        console_log("Auto-import: building destination index (first run only)...")
-        hashes: set[str] = set()
-        count = 0
-        for existing in self._destination.rglob("*"):
-            if existing.is_file() and existing.suffix.lower() in MEDIA_EXTENSIONS:
-                h = content_hash(existing)
-                if h:
-                    hashes.add(h)
-                count += 1
-                if count % 5000 == 0:
-                    console_log(f"Auto-import: indexed {count} files...")
-        console_log(f"Auto-import: destination index ready ({count} files, {len(hashes)} unique hashes)")
-        self._dest_hashes = hashes
-        return hashes
 
     def _process_source(self) -> None:
         if not self._source or not self._source.is_dir():
@@ -235,8 +208,6 @@ class IngestPipeline:
         if not self._destination:
             return
         self._destination.mkdir(parents=True, exist_ok=True)
-
-        existing_hashes = self._build_dest_hashes()
 
         candidates = []
         placeholders = 0
@@ -271,24 +242,11 @@ class IngestPipeline:
                 console_log(f"Auto-import: skipped {path.name} (still uploading)")
                 continue
 
-            file_hash = content_hash(path)
-            if file_hash and file_hash in existing_hashes:
-                self._stats["duplicates"] += 1
-                console_log(f"Auto-import: skipped duplicate — {path.name}")
-                _log_action({
-                    "action": "skip_duplicate",
-                    "source": str(path),
-                    "hash": file_hash,
-                    "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
-                })
-                continue
-
             capture = _capture_date(path)
             subfolder = _apply_sorting_rules(path, capture, self._rules, self._default_template)
             dest_dir = self._destination / subfolder
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / path.name
-
             counter = 1
             while dest_path.exists():
                 stem = path.stem
@@ -299,13 +257,10 @@ class IngestPipeline:
                 shutil.move(str(path), str(dest_path))
                 self._stats["ingested"] += 1
                 console_log(f"Auto-import: imported {path.name} → {subfolder}")
-                if file_hash:
-                    existing_hashes.add(file_hash)
                 _log_action({
                     "action": "ingested",
                     "source": str(path),
                     "destination": str(dest_path),
-                    "hash": file_hash,
                     "capture_date": capture.isoformat() if capture else None,
                     "subfolder": subfolder,
                     "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
