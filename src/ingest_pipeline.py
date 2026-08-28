@@ -200,6 +200,8 @@ class IngestPipeline:
         errors = self._stats["errors"] - before.get("errors", 0)
         if ingested or dupes or errors:
             console_log(f"Auto-import: {ingested} imported, {dupes} duplicates, {errors} errors")
+        else:
+            console_log("Auto-import: no new photos found")
         with self._lock:
             if self._running:
                 self._schedule_next()
@@ -243,6 +245,7 @@ class IngestPipeline:
             file_hash = content_hash(path)
             if file_hash and file_hash in existing_hashes:
                 self._stats["duplicates"] += 1
+                console_log(f"Auto-import: skipped duplicate — {path.name}")
                 _log_action({
                     "action": "skip_duplicate",
                     "source": str(path),
@@ -266,6 +269,7 @@ class IngestPipeline:
             try:
                 shutil.move(str(path), str(dest_path))
                 self._stats["ingested"] += 1
+                console_log(f"Auto-import: imported {path.name} → {subfolder}")
                 if file_hash:
                     existing_hashes.add(file_hash)
                 _log_action({
@@ -281,6 +285,7 @@ class IngestPipeline:
                     self._on_file_ingested(str(path), str(dest_path))
             except (OSError, shutil.Error) as exc:
                 self._stats["errors"] += 1
+                console_log(f"Auto-import: error — {path.name}: {exc}")
                 _log_action({
                     "action": "error",
                     "source": str(path),
