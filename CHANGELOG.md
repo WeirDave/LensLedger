@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.63.1 — 2026-08-28
+
+- Settings TOC links now scroll sections to the correct position below the sticky header.
+
 ## 0.63.0 — 2026-08-28
 
 - Settings page now has a sticky left-hand table of contents with scroll-spy highlighting.

@@ -11,7 +11,7 @@ main{width:min(1060px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .settings-toc a:hover{color:var(--text);background:var(--menu-hover)}
 .settings-toc a.active{color:var(--accent);border-left-color:var(--accent);font-weight:700}
 .settings-content{display:grid;gap:7px;min-width:0}
-.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:10px;padding:11px 14px;position:relative}
+.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:10px;padding:11px 14px;position:relative;scroll-margin-top:80px}
 .card h2{margin:0 0 10px;font-size:13.5px;font-weight:750;letter-spacing:.1px;color:var(--text-heading)}
 .card h3{margin:12px 0 6px;font-size:12.5px;font-weight:700;color:var(--text)}
 .card p{margin:4px 0;font-size:12.5px;color:var(--text-secondary);line-height:1.5}
