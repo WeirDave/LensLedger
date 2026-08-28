@@ -6,8 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
-## 0.63.7 — 2026-08-28
+## 0.64.0 — 2026-08-28
 
+- Auto-import now triggers a library scan 5 seconds after importing new photos, so they get indexed immediately instead of waiting for the next folder watcher cycle.
+- "Run all scans" button now resets to its original text after the scan completes (was stuck on "Starting scan...").
+- "Run all scans" now logs start and completion to the console with "(manual)" label to distinguish from automatic background scans.
+- Overview stats on the Scan page now have tooltips explaining what each number means.
+- Face detection model loading no longer dumps raw debug output to the console (Applied providers, model ignore, find model, set det-size lines).
 - Renamed "Ingested" to "Imported" in auto-import stats, status page, and console output.
 
 ## 0.63.6 — 2026-08-28

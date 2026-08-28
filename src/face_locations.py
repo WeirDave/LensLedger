@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import array
+import contextlib
 import math
+import os
 import sqlite3
 from pathlib import Path
 from typing import Callable
@@ -94,8 +96,9 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
     }
     if model_root:
         options["root"] = str(model_root)
-    analyzer = FaceAnalysis(**options)
-    analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+        analyzer = FaceAnalysis(**options)
+        analyzer.prepare(ctx_id=-1, det_size=(640, 640))
     return cv2, np, analyzer
 
 

@@ -64,6 +64,15 @@ class FolderWatcher:
                 self._timer.cancel()
                 self._schedule_next()
 
+    def trigger_soon(self, delay: int = 5) -> None:
+        """Reschedule the next check to fire in `delay` seconds."""
+        with self._lock:
+            if not self._running:
+                return
+            if self._timer:
+                self._timer.cancel()
+            self._schedule_next(delay=delay)
+
     def _schedule_next(self, delay: int | None = None) -> None:
         self._timer = threading.Timer(delay if delay is not None else self._interval, self._on_tick)
         self._timer.daemon = True

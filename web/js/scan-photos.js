@@ -12,9 +12,10 @@ async function api(path, payload) {
   return data;
 }
 
-function metric(label, value, onClick) {
+function metric(label, value, onClick, tip) {
   const box = document.createElement(onClick ? 'button' : 'div');
   if (onClick) { box.type = 'button'; box.onclick = onClick; }
+  if (tip) box.title = tip;
   const strong = document.createElement('strong');
   strong.textContent = Number(value || 0).toLocaleString();
   const span = document.createElement('span');
@@ -173,6 +174,7 @@ async function refresh() {
       ? `Step ${scanAllStepIndex} of ${scanAllSteps.length}: running ${STEP_LABELS[scanAll.step] || '…'}…`
       : (scanAll.message || 'Not run yet — runs every scan below, back to back.');
     $('startScanAll').disabled = scanAllRunning;
+    if (!scanAllRunning) $('startScanAll').textContent = 'Run all scans';
     $('pauseScanAll').disabled = !scanAllRunning;
     setSpinner('scanAllSpinner', scanAllRunning);
     let scanAllStepFraction = 0;
@@ -187,13 +189,13 @@ async function refresh() {
     setBar('scanAllBar', scanAllRunning ? (scanAllStepIndex - 1 + scanAllStepFraction) : 0, scanAllRunning ? scanAllSteps.length : 0);
     const c = diagnostics.counts || {};
     $('healthSummary').replaceChildren(
-      metric('Library files', c.assets),
-      metric('Mapped photos', c.mapped, c.mapped ? () => { window.location.href = '/map'; } : null),
-      metric('People to review', c.people_pending, c.people_pending ? () => { window.location.href = '/people-review'; } : null),
-      metric('Faces to name', c.unidentified_faces, c.unidentified_faces ? () => { window.location.href = '/faces-review'; } : null),
-      metric('OCR complete', c.ocr_complete),
-      metric('Meaning indexed', c.semantic_indexed),
-      metric('Review Bin', c.review_bin),
+      metric('Library files', c.assets, null, 'Total photos and videos in your library'),
+      metric('Mapped photos', c.mapped, c.mapped ? () => { window.location.href = '/map'; } : null, 'Photos with GPS coordinates — click to view on the map'),
+      metric('People to review', c.people_pending, c.people_pending ? () => { window.location.href = '/people-review'; } : null, 'Groups of faces that may be the same person — click to confirm or separate them'),
+      metric('Faces to name', c.unidentified_faces, c.unidentified_faces ? () => { window.location.href = '/faces-review'; } : null, 'Detected faces that haven\'t been given a name yet'),
+      metric('OCR complete', c.ocr_complete, null, 'Photos scanned for visible text (signs, documents, screens, etc.)'),
+      metric('Meaning indexed', c.semantic_indexed, null, 'Photos indexed for meaning search — lets you search by describing what\'s in the photo'),
+      metric('Review Bin', c.review_bin, null, 'Photos you\'ve moved to the review bin for possible removal — not yet permanently deleted'),
     );
     $('cloudScope').textContent = c.cloud_only
       ? `Scans below only cover the ${Number(c.metadata_ready || 0).toLocaleString()} of ${Number(c.assets || 0).toLocaleString()} files already downloaded to this computer. The other ${Number(c.cloud_only).toLocaleString()} are cloud-only placeholders (OneDrive/Dropbox files not yet synced locally) — LensLedger never opens those automatically, since doing so would silently trigger a large download. "Complete" below means complete for the downloaded files, not your whole library.`

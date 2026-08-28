@@ -593,6 +593,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         if handler_class.scan_all_cancel.is_set() or job_dict.get("state") == "cancelled":
             raise _ScanAllStopped()
 
+    console_log("Run all scans: started (manual)")
     ran: list[str] = []
     skipped: list[str] = []
     try:
@@ -659,6 +660,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             message += f" {total_errors:,} error{'s' if total_errors != 1 else ''} — check each section below for details."
         if skipped:
             message += " Skipped (not set up yet): " + ", ".join(skipped) + " — set up below."
+        console_log(f"Run all scans: complete — {', '.join(ran)}, {total_errors} error(s)")
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {
                 "state": "complete", "step": None, "message": message,
@@ -4485,11 +4487,15 @@ def main():
     if watch_cfg.get("enabled"):
         watcher.start()
     ingest_cfg = settings.get("ingest", {})
+    def _after_import(count):
+        console_log(f"Auto-import: triggering scan for {count} new file(s)")
+        watcher.trigger_soon(delay=5)
     pipeline = IngestPipeline(
         source_folder=str(ingest_cfg.get("source_folder", "")),
         destination_folder=str(ingest_cfg.get("destination_folder", "")),
         rules=ingest_cfg.get("rules", []),
         default_template=str(ingest_cfg.get("default_template", "")),
+        on_batch_complete=_after_import,
     )
     SearchHandler.ingest_pipeline = pipeline
     if ingest_cfg.get("enabled"):

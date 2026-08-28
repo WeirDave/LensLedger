@@ -116,6 +116,7 @@ class IngestPipeline:
         default_template: str = "",
         interval_minutes: int = 10,
         on_file_ingested: Callable[[str, str], None] | None = None,
+        on_batch_complete: Callable[[int], None] | None = None,
     ):
         self._source = Path(source_folder) if source_folder else None
         self._destination = Path(destination_folder) if destination_folder else None
@@ -123,6 +124,7 @@ class IngestPipeline:
         self._default_template = default_template or DEFAULT_TEMPLATE
         self._interval = max(5, interval_minutes) * 60
         self._on_file_ingested = on_file_ingested
+        self._on_batch_complete = on_batch_complete
         self._timer: threading.Timer | None = None
         self._running = False
         self._lock = threading.Lock()
@@ -192,10 +194,12 @@ class IngestPipeline:
             self._process_source()
         except Exception as exc:
             console_log(f"Auto-import: error during processing — {exc}")
-        ingested = self._stats["imported"] - before.get("imported", 0)
+        imported = self._stats["imported"] - before.get("imported", 0)
         errors = self._stats["errors"] - before.get("errors", 0)
-        if ingested or errors:
-            console_log(f"Auto-import: {ingested} imported, {errors} errors")
+        if imported or errors:
+            console_log(f"Auto-import: {imported} imported, {errors} errors")
+            if imported and self._on_batch_complete:
+                self._on_batch_complete(imported)
         else:
             console_log("Auto-import: no new photos found")
         with self._lock:
