@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.63.2 — 2026-08-28
+
+- Meaning search errors now show the actual reason an image failed (e.g. "cannot identify image file", "truncated JPEG") instead of the generic "Image could not be encoded by the meaning-search model."
+- Unindexed images with no stored error now show "Not indexed — no error recorded. Try rebuilding the meaning index." instead of the same generic message.
+
 ## 0.63.1 — 2026-08-28
 
 - Settings TOC links now scroll sections to the correct position below the sticky header.

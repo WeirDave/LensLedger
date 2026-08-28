@@ -3797,7 +3797,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         (model_row["model"],),
                     ).fetchall()
                     self.send_json({
-                        "errors": [{"path": row["relative_path"], "error": "Image could not be encoded by the meaning-search model."} for row in rows],
+                        "errors": [{"path": row["relative_path"], "error": "Not indexed — no error recorded. Try rebuilding the meaning index."} for row in rows],
                     })
                     return
         self.send_json({

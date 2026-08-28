@@ -75,17 +75,18 @@ class OpenClipEncoder:
         self.tokenizer = open_clip.get_tokenizer(model_name)
         self.identity = f"{model_name}/{pretrained}"
 
-    def encode_images(self, paths: list[Path]) -> list[tuple[float, ...] | None]:
+    def encode_images(self, paths: list[Path]) -> list[tuple[float, ...] | str | None]:
+        """Return a vector per image, or a string error reason, or None."""
         tensors = []
         positions = []
-        result: list[tuple[float, ...] | None] = [None] * len(paths)
+        result: list[tuple[float, ...] | str | None] = [None] * len(paths)
         for index, path in enumerate(paths):
             try:
                 with Image.open(path) as image:
                     tensors.append(self.preprocess(image.convert("RGB")))
                     positions.append(index)
-            except (OSError, ValueError):
-                continue
+            except (OSError, ValueError) as exc:
+                result[index] = str(exc) or "Unreadable image file"
         if not tensors:
             return result
         with self.torch.no_grad():
@@ -203,11 +204,12 @@ def build_index(
         vectors = encoder.encode_images([Path(row["path"]) for row in batch])
         with connect(db_path) as con:
             for row, vector in zip(batch, vectors):
-                if not vector:
+                if not vector or isinstance(vector, str):
                     counts["errors"] += 1
+                    error_msg = vector if isinstance(vector, str) else "Image could not be encoded by the meaning-search model."
                     con.execute(
                         "UPDATE assets SET semantic_error=? WHERE id=?",
-                        ("Image could not be encoded by the meaning-search model.", int(row["id"])),
+                        (error_msg, int(row["id"])),
                     )
                     continue
                 con.execute(
