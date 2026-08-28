@@ -23,8 +23,8 @@ DEFAULTS: dict[str, object] = {
         "filmstrip_size": "medium",
     },
     "watch": {
-        "enabled": False,
-        "interval_minutes": 30,
+        "enabled": True,
+        "interval_minutes": 5,
     },
     "ingest": {
         "enabled": False,

@@ -72,6 +72,9 @@ function collectSettings(){
   s.watch=s.watch||{};
   s.watch.enabled=c('watchEnabled');
   s.watch.interval_minutes=n('watchInterval');
+  s.ingest=s.ingest||{};
+  s.ingest.enabled=c('ingestEnabled');
+  s.ingest.interval_minutes=Math.max(5,Math.min(1440,n('ingestInterval')||10));
   return s;
 }
 
@@ -265,6 +268,22 @@ renderLibraries();
 renderModels();
 loadExportStatus();
 checkSemanticStatus();
+
+const tocLinks=$$('.settings-toc a');
+if(tocLinks.length){
+  const sections=tocLinks.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function updateToc(){
+    let active=sections[0];
+    for(const s of sections){if(s.getBoundingClientRect().top<=100)active=s}
+    tocLinks.forEach(a=>{a.classList.toggle('active',a.getAttribute('href')==='#'+active.id)});
+  }
+  window.addEventListener('scroll',updateToc,{passive:true});
+  updateToc();
+  tocLinks.forEach(a=>a.addEventListener('click',e=>{
+    e.preventDefault();const t=document.querySelector(a.getAttribute('href'));
+    if(t)t.scrollIntoView({behavior:'smooth',block:'start'});
+  }));
+}
 
 function checkServerVersion(){
   fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(info=>{

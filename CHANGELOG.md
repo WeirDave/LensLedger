@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.63.0 — 2026-08-28
+
+- Settings page now has a sticky left-hand table of contents with scroll-spy highlighting.
+- Added auto-import toggle and check interval to the Settings page, with a link to the full auto-import configuration page.
+- Folder watching now defaults to enabled with a 5-minute interval (was disabled, 30 minutes).
+- Both folder watching and auto-import now fire their first check immediately on startup instead of waiting for the full interval.
+- Toast notifications are now readable in light mode (was white text on pale beige).
+- Nav menu now shows the full library path instead of just the folder name.
+
 ## 0.62.2 — 2026-08-28
 
 - Auto-import now logs each file individually as it's imported, skipped as duplicate, or errored — plus "no new photos found" when a check comes up empty.

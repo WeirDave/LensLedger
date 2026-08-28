@@ -20,7 +20,7 @@
 --menu-bg:#2a2520;--menu-hover:#3a322a;
 --popover-bg:#302920;--popover-border:#585048;--popover-text:#dcd2c0;
 --modal-backdrop:#0a0806c9;--modal-bg:#221e18;--modal-border:#4a4038;--modal-text:#c8bca8;
---toast-bg:#302920;--toast-border:#585048;
+--toast-bg:#302920;--toast-border:#585048;--toast-text:#dcd2c0;
 --batch-bg:#28221a;--batch-border:#7898b0;
 --card-bg:#201c16ed;--card-border:#3a322a;
 --progress-track:#302920;--progress-bar:linear-gradient(90deg,#c86040,#c89848);
@@ -64,7 +64,7 @@
 --menu-bg:#ede5d6;--menu-hover:#e0d8c8;
 --popover-bg:#ede5d6;--popover-border:#bab0a0;--popover-text:#3a3028;
 --modal-backdrop:#1810080a;--modal-bg:#f0e8da;--modal-border:#c4b8a0;--modal-text:#3a3028;
---toast-bg:#f0e8da;--toast-border:#c4b8a0;
+--toast-bg:#f0e8da;--toast-border:#c4b8a0;--toast-text:#3a3028;
 --batch-bg:#dce4e8;--batch-border:#48708a;
 --card-bg:#f0e8daed;--card-border:#c4b8a0;
 --progress-track:#d0c8b8;--progress-bar:linear-gradient(90deg,#a84828,#907030);
@@ -109,7 +109,7 @@
 --menu-bg:#ede5d6;--menu-hover:#e0d8c8;
 --popover-bg:#ede5d6;--popover-border:#bab0a0;--popover-text:#3a3028;
 --modal-backdrop:#1810080a;--modal-bg:#f0e8da;--modal-border:#c4b8a0;--modal-text:#3a3028;
---toast-bg:#f0e8da;--toast-border:#c4b8a0;
+--toast-bg:#f0e8da;--toast-border:#c4b8a0;--toast-text:#3a3028;
 --batch-bg:#dce4e8;--batch-border:#48708a;
 --card-bg:#f0e8daed;--card-border:#c4b8a0;
 --progress-track:#d0c8b8;--progress-bar:linear-gradient(90deg,#a84828,#907030);

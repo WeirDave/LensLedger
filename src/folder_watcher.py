@@ -48,7 +48,7 @@ class FolderWatcher:
             if self._running:
                 return
             self._running = True
-            self._schedule_next()
+            self._schedule_next(delay=10)
 
     def stop(self) -> None:
         with self._lock:
@@ -64,8 +64,8 @@ class FolderWatcher:
                 self._timer.cancel()
                 self._schedule_next()
 
-    def _schedule_next(self) -> None:
-        self._timer = threading.Timer(self._interval, self._on_tick)
+    def _schedule_next(self, delay: int | None = None) -> None:
+        self._timer = threading.Timer(delay if delay is not None else self._interval, self._on_tick)
         self._timer.daemon = True
         self._timer.start()
 

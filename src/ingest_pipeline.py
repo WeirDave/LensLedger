@@ -142,7 +142,7 @@ class IngestPipeline:
             if not self._source or not self._destination:
                 return
             self._running = True
-            self._schedule_next()
+            self._schedule_next(delay=15)
 
     def stop(self) -> None:
         with self._lock:
@@ -180,8 +180,8 @@ class IngestPipeline:
             for k in self._stats
         }
 
-    def _schedule_next(self) -> None:
-        self._timer = threading.Timer(self._interval, self._on_tick)
+    def _schedule_next(self, delay: int | None = None) -> None:
+        self._timer = threading.Timer(delay if delay is not None else self._interval, self._on_tick)
         self._timer.daemon = True
         self._timer.start()
 

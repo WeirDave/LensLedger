@@ -108,7 +108,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         active = " active" if current_page == page_key else ""
         return f'<a class="menu-item{active}" href="{href}">{label}</a>'
 
-    lib_display = html.escape(library_root.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]) if library_root else ""
+    lib_display = html.escape(library_root) if library_root else ""
     lib_footer = (
         '<div class="menu-library">'
         f'<span class="menu-library-label">Current library</span>'
@@ -1055,30 +1055,34 @@ class SearchHandler(BaseHTTPRequestHandler):
         scan = settings.get("scan", {})
         display = settings.get("display", {})
         watch = settings.get("watch", {})
+        ingest = settings.get("ingest", {})
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
 {nav_menu("settings", str(self.library_root))}
-<main>
-<section class="card"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div></section>
-<section class="card"><h2>Scan preferences</h2>
+<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#display-prefs">Display preferences</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
+<section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div></section>
+<section class="card" id="scan-prefs"><h2>Scan preferences</h2>
 <div class="field"><label for="ocrWorkers">OCR worker threads</label><input type="number" id="ocrWorkers" min="1" max="16" value="{int(scan.get('ocr_workers', 4))}"><span class="hint">More workers scan faster but use more CPU. Default: 4</span></div>
 <div class="field"><label for="ocrBatchSize">OCR batch size</label><input type="number" id="ocrBatchSize" min="10" max="500" value="{int(scan.get('ocr_batch_size', 50))}"><span class="hint">Photos processed per OCR commit. Default: 50</span></div>
 <div class="field"><label for="semanticBatchSize">Meaning search batch</label><input type="number" id="semanticBatchSize" min="1" max="128" value="{int(scan.get('semantic_batch_size', 16))}"><span class="hint">Images per CLIP encoding batch. Default: 16</span></div></section>
 <section class="card" id="meaning-search"><h2>Meaning search model</h2><div id="semanticSetupArea"><p id="semanticSetupMsg">Checking meaning search status…</p><div class="progress-bar" id="semanticInstallBarWrap" hidden><span id="semanticInstallBar"></span></div><div class="semantic-install-actions" id="semanticInstallActions"><button type="button" id="installSemantic">Set up meaning search</button></div></div><p class="model-intro" id="modelIntro" hidden>Choose the CLIP model for meaning search. Better models produce higher quality results but are larger and slower. Changing the model will re-index your photos on the next meaning search run.</p><div class="model-list" id="modelList"></div></section>
-<section class="card"><h2>Display preferences</h2>
+<section class="card" id="display-prefs"><h2>Display preferences</h2>
 <div class="field"><label for="photosPerPage">Photos per page</label><input type="number" id="photosPerPage" min="50" max="1000" value="{int(display.get('photos_per_page', 250))}"><span class="hint">Number of photos loaded per filmstrip page. Default: 250</span></div>
 <div class="field"><label for="defaultSort">Default sort order</label><select id="defaultSort"><option value="newest" {"selected" if display.get("default_sort", "newest") == "newest" else ""}>Newest first</option><option value="oldest" {"selected" if display.get("default_sort") == "oldest" else ""}>Oldest first</option><option value="name" {"selected" if display.get("default_sort") == "name" else ""}>By name</option></select></div>
 <div class="field"><label for="filmstripSize">Filmstrip thumbnail size</label><select id="filmstripSize"><option value="small" {"selected" if display.get("filmstrip_size") == "small" else ""}>Small</option><option value="medium" {"selected" if display.get("filmstrip_size", "medium") == "medium" else ""}>Medium</option><option value="large" {"selected" if display.get("filmstrip_size") == "large" else ""}>Large</option></select></div></section>
-<section class="card"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
+<section class="card" id="folder-watching"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
-<div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 30))}"><span class="hint">How often to check for new files when watching is enabled. Default: 30</span></div></section>
-<section class="card"><h2>Database</h2><p>Export creates a portable copy of your tags, people, and scan results — useful for backups or moving to a new machine. Import restores from a previous export. Your photos are not included; only the LensLedger index is transferred.</p>
+<div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
+<section class="card" id="auto-import"><h2>Auto-import photos</h2><p>Automatically import new photos from a source folder and sort them into your library. <a href="/auto-import">Configure source, destination, and sorting rules →</a></p>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable automatic photo import</label></div>
+<div class="field"><label for="ingestInterval">Check interval (minutes)</label><input type="number" id="ingestInterval" min="5" max="1440" value="{int(ingest.get('interval_minutes', 10))}"><span class="hint">How often to check for new photos when import is enabled. Default: 10</span></div></section>
+<section class="card" id="database"><h2>Database</h2><p>Export creates a portable copy of your tags, people, and scan results — useful for backups or moving to a new machine. Import restores from a previous export. Your photos are not included; only the LensLedger index is transferred.</p>
 <div class="library-actions"><button type="button" class="secondary" id="exportDatabase">Export database</button><button type="button" class="secondary" id="importDatabase">Import database</button><span class="export-status" id="exportStatus"></span></div>
 <p class="data-location">Database: <code>{html.escape(str(library_db_path(Path(self.library_root))))}</code></p>
 <p class="data-location">Application data: <code>{html.escape(str(data_root()))}</code></p></section>
 <div class="actions-bar"><button type="button" id="saveSettings">Save settings</button></div>
-</main>
+</div></main>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/settings.js')}" defer></script>
 </body></html>"""
@@ -1556,10 +1560,24 @@ class SearchHandler(BaseHTTPRequestHandler):
         watcher = type(self).folder_watcher
         if watcher:
             if watch_cfg.get("enabled"):
-                watcher.update_interval(int(watch_cfg.get("interval_minutes", 30)))
+                watcher.update_interval(int(watch_cfg.get("interval_minutes", 5)))
                 watcher.start()
             else:
                 watcher.stop()
+        ingest_cfg = values.get("ingest", {})
+        pipeline = type(self).ingest_pipeline
+        if pipeline:
+            pipeline.update_config(
+                source_folder=str(ingest_cfg.get("source_folder", "") or pipeline._source or ""),
+                destination_folder=str(ingest_cfg.get("destination_folder", "") or pipeline._destination or ""),
+                rules=ingest_cfg.get("rules") if ingest_cfg.get("rules") is not None else pipeline._rules,
+                default_template=str(ingest_cfg.get("default_template", "") or pipeline._default_template),
+                interval_minutes=int(ingest_cfg.get("interval_minutes", 10)),
+            )
+            if ingest_cfg.get("enabled"):
+                pipeline.start()
+            else:
+                pipeline.stop()
         self.send_json({"ok": True})
 
     def watcher_status(self):
