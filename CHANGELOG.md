@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.57.2 — 2026-08-28
+
+- Added comprehensive user manual at `docs/user-manual.md` covering all features: library management, scanning, search, metadata editing, people and faces, photo map, auto-ingest, publishing, review bin, batch editing, database operations, settings, keyboard shortcuts, supported formats, and advanced configuration.
+
 ## 0.57.1 — 2026-08-28
 
 - Added library management section to the Quick guide covering adding libraries, switching, relocating, and database location choices.
