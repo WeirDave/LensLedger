@@ -29,6 +29,7 @@ try:
 except ImportError:
     pass
 
+from console_log import log as console_log
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
@@ -349,6 +350,7 @@ def create_verified_database_backup(db_path: Path) -> Path:
 
 def _run_library_scan_job(handler_class, root, database, started_at):
     """Run one location/library scan pass, updating handler_class.library_job as it goes."""
+    console_log(f"Scan started: {root}")
     try:
         def update_progress(counts):
             job_counts = {k: v for k, v in counts.items() if k != "error_details"}
@@ -396,7 +398,18 @@ def _run_library_scan_job(handler_class, root, database, started_at):
                 "target_root": str(root), "error_details": error_details,
                 **progress_counts, "summary": summary,
             }
+        changed = int(progress_counts.get("changed", 0))
+        removed = int(progress_counts.get("removed", 0))
+        errors = int(progress_counts.get("errors", 0))
+        total = summary.get("assets", 0)
+        if state == "cancelled":
+            console_log(f"Scan paused — {changed:,} changed, {total:,} total assets")
+        elif errors:
+            console_log(f"Scan complete with {errors:,} error(s) — {changed:,} changed, {removed:,} removed, {total:,} total assets")
+        else:
+            console_log(f"Scan complete — {changed:,} changed, {removed:,} removed, {total:,} total assets")
     except Exception as exc:
+        console_log(f"Scan failed: {exc}")
         with handler_class.library_lock:
             handler_class.library_job = {
                 "state": "error", "message": str(exc), "target_root": str(root),
@@ -405,6 +418,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
 
 def _run_ocr_job(handler_class, database, since, workers, started_at):
     """Run one OCR pass, updating handler_class.ocr_job as it goes."""
+    console_log("OCR started")
     try:
         def update_progress(counts):
             with handler_class.ocr_lock:
@@ -431,13 +445,22 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
                 message = "OCR pass complete."
             current.update({"state": state, "message": message})
             handler_class.ocr_job = current
+        attempted = int(current.get("attempted", 0))
+        if state == "cancelled":
+            console_log(f"OCR paused after {attempted:,} images")
+        elif error_count:
+            console_log(f"OCR complete — {attempted:,} images, {error_count:,} error(s)")
+        else:
+            console_log(f"OCR complete — {attempted:,} images processed")
     except Exception as exc:
+        console_log(f"OCR failed: {exc}")
         with handler_class.ocr_lock:
             handler_class.ocr_job = {"state": "error", "message": str(exc)}
 
 
 def _run_semantic_index_job(handler_class, database, batch_size, started_at):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
+    console_log("Meaning search indexing started")
     try:
         def update_progress(counts):
             with handler_class.semantic_lock:
@@ -469,12 +492,21 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
                 "indexed_this_pass": int(result["indexed"]),
                 "errors": int(result["errors"]),
             }
+        indexed = int(result["indexed"])
+        if result["cancelled"]:
+            console_log(f"Meaning search paused after {indexed:,} images")
+        elif error_count:
+            console_log(f"Meaning search complete — {indexed:,} indexed, {error_count:,} error(s)")
+        else:
+            console_log(f"Meaning search complete — {indexed:,} images indexed")
     except Exception as exc:
+        console_log(f"Meaning search failed: {exc}")
         with handler_class.semantic_lock:
             handler_class.semantic_job = {"state": "error", "message": str(exc)}
 
 
 def _run_face_scan_job(handler_class, database, library_root, started_at):
+    console_log("Face detection started")
     """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
     try:
         def update_progress(counts):
@@ -510,7 +542,16 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
                 )
             current.update({"state": state, "message": face_message})
             handler_class.face_scan_job = current
+        faces = int(result.get("faces_found", 0))
+        processed = int(result.get("processed", 0))
+        if result["cancelled"]:
+            console_log(f"Face detection paused after {processed:,} photos, {faces:,} faces found")
+        elif face_error_count:
+            console_log(f"Face detection complete — {faces:,} faces in {processed:,} photos, {face_error_count:,} error(s)")
+        else:
+            console_log(f"Face detection complete — {faces:,} faces found in {processed:,} photos")
     except Exception as exc:
+        console_log(f"Face detection failed: {exc}")
         with handler_class.face_scan_lock:
             handler_class.face_scan_job = {"state": "error", "message": str(exc)}
 
@@ -4440,6 +4481,12 @@ def main():
         print(f"  {APP_NAME} v{APP_VERSION}\n  {APP_TAGLINE}\n", flush=True)
     print(f"  Local library: {url}\n  Press Ctrl+C in this window to stop LensLedger.", flush=True)
     print("=" * 62 + "\n", flush=True)
+    console_log(f"Library: {root}")
+    console_log(f"Database: {database}")
+    if watch_cfg.get("enabled"):
+        console_log(f"Folder watcher: enabled (every {int(watch_cfg.get('interval_minutes', 30))} min)")
+    if ingest_cfg.get("enabled"):
+        console_log(f"Auto-import: enabled (every {int(ingest_cfg.get('interval_minutes', 10))} min)")
     if not args.restarted and not args.no_open:
         browser_timer = threading.Timer(1.0, webbrowser.open, args=(url,))
         browser_timer.daemon = True

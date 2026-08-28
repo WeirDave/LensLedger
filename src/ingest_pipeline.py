@@ -21,6 +21,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from console_log import log as console_log
 from app_paths import data_root
 from photo_index import (
     MEDIA_EXTENSIONS,
@@ -188,10 +189,17 @@ class IngestPipeline:
         with self._lock:
             if not self._running:
                 return
+        console_log("Auto-import: checking for new photos")
+        before = dict(self._stats)
         try:
             self._process_source()
         except Exception:
             pass
+        ingested = self._stats["ingested"] - before.get("ingested", 0)
+        dupes = self._stats["duplicates"] - before.get("duplicates", 0)
+        errors = self._stats["errors"] - before.get("errors", 0)
+        if ingested or dupes or errors:
+            console_log(f"Auto-import: {ingested} imported, {dupes} duplicates, {errors} errors")
         with self._lock:
             if self._running:
                 self._schedule_next()

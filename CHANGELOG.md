@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.62.0 — 2026-08-28
+
+- Console window now shows timestamped activity: scan progress, OCR, face detection, meaning search, folder watcher checks, and auto-import results.
+- Startup banner now shows current library, database path, and active background services.
+
 ## 0.61.0 — 2026-08-28
 
 - Renamed "Auto-ingest" to "Auto-import photos" across the entire application (nav menu, page title, manual, docs).

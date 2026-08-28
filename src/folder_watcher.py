@@ -16,6 +16,8 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from console_log import log as console_log
+
 
 class FolderWatcher:
     """Periodically triggers an incremental library scan."""
@@ -73,6 +75,7 @@ class FolderWatcher:
                 return
         try:
             if self._scan_fn:
+                console_log("Folder watcher: checking for changes")
                 self._scan_fn()
         except Exception:
             pass
