@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.62.1 — 2026-08-28
+
+- Console timestamps now use 12-hour format with date (e.g. `[2026-08-28 01:14:08 PM]`) instead of 24-hour time only.
+
 ## 0.62.0 — 2026-08-28
 
 - Console window now shows timestamped activity: scan progress, OCR, face detection, meaning search, folder watcher checks, and auto-import results.

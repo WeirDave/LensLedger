@@ -6,5 +6,5 @@ import datetime as dt
 
 
 def log(message: str) -> None:
-    ts = dt.datetime.now().strftime("%H:%M:%S")
+    ts = dt.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     print(f"  [{ts}] {message}", flush=True)
