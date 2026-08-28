@@ -539,8 +539,8 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             else:
                 face_message = (
                     f"Face detection complete: {result['faces_found']:,} faces found. "
-                    f"Use \"Name faces\" above to put names on them, then \"Find more matches\" "
-                    f"on People review to find the rest."
+                    f"Name a few people in \"Name faces\" above, then go to \"Review people\" "
+                    f"where LensLedger will suggest matches across your whole library."
                 )
             current.update({"state": state, "message": face_message})
             handler_class.face_scan_job = current
@@ -1240,17 +1240,17 @@ class SearchHandler(BaseHTTPRequestHandler):
 
 <section class="manual-section" id="people">
 <h2>6. People and Faces</h2>
-<p>LensLedger has a two-stage workflow for identifying people in your photos.</p>
-<h3>Stage 1: Name faces</h3>
-<p>Go to <a href="/faces-review">Name faces</a>. A grid of unidentified face crops is shown, diversity-sampled for variety. For each face:</p>
+<p>LensLedger has a two-stage workflow for identifying people in your photos. You don&rsquo;t need to name every face by hand &mdash; name a few, then let LensLedger find the rest.</p>
+<h3>Stage 1: Name faces (seed the system)</h3>
+<p>Go to <a href="/faces-review">Name faces</a>. A grid of unidentified face crops is shown, diversity-sampled for variety. Name a handful of different people (5&ndash;10 is plenty) &mdash; you don&rsquo;t need to work through the entire queue. For each face:</p>
 <ul>
-<li><strong>Name it</strong> &mdash; type a name (with autocomplete). Similar unidentified faces are then grouped for one-click confirmation.</li>
+<li><strong>Name it</strong> &mdash; type a name (with autocomplete). Similar unidentified faces appear as &ldquo;Also looks like&rdquo; matches for one-click confirmation.</li>
 <li><strong>Not a person</strong> &mdash; mark false detections (statues, posters, etc.)</li>
 <li><strong>Unknown person</strong> &mdash; mark as a real person you don&rsquo;t want to name yet</li>
 </ul>
-<p>Click any face crop to see the full photo for context.</p>
-<h3>Stage 2: Review people</h3>
-<p>Go to <a href="/people-review">Review people</a>. Batches of face-match suggestions are shown per person. For each photo:</p>
+<p>Use &ldquo;Enlarge&rdquo; or double-click any face crop to see the full photo for context. Once you&rsquo;ve named a few people, move on to Stage 2.</p>
+<h3>Stage 2: Review people (the fast part)</h3>
+<p>Go to <a href="/people-review">Review people</a>. LensLedger uses the faces you named in Stage 1 to find matches across your entire library &mdash; this is where the bulk of identification happens. Batches of face-match suggestions are shown per person. For each photo:</p>
 <ul>
 <li><strong>Confirm</strong> &mdash; this is the right person</li>
 <li><strong>Wrong</strong> &mdash; this is not the right person</li>
@@ -2143,7 +2143,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("faces-review", str(self.library_root))}
-<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><p class="intro" hidden>Faces LensLedger has detected but nobody has named yet. Choose a name and it confirms immediately. Double-click a portrait to see the full photo for context -- helpful for a profile, blurry, or dark face that's hard to place cropped down this small. If it's not a real face, use "Not a person"; if it's a real face you just can't identify (a stranger in a crowd shot, for example), use "Unknown person" so it stops resurfacing. Naming a few photos of the same person here teaches LensLedger to find the rest automatically — once you finish, it will suggest matches for you to review.</p><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><p class="intro" hidden>Faces LensLedger has detected but nobody has named yet. You don&#x27;t need to name every face here — just name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Then head to <a href="/people-review">Review people</a>, where LensLedger uses what you taught it to suggest matches across your entire library. That&#x27;s much faster than naming thousands of faces one by one. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>

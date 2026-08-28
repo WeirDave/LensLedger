@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.64.3 — 2026-08-28
+
+- Updated the Name faces intro text, user manual, and Quick guide to explain the recommended two-stage workflow: name a handful of people (5–10), then go to Review people where LensLedger suggests matches across the whole library.
+- Face detection completion message now directs users to "Name a few people" then "Review people" instead of the unclear "Find more matches" phrasing.
+
 ## 0.64.2 — 2026-08-28
 
 - "Also looks like" match thumbnails now have an Enlarge button below each photo, so you can view the full image in the lightbox before deciding whether to confirm or reject a blurry or ambiguous match.
