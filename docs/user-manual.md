@@ -121,7 +121,7 @@ Changing the model re-indexes your photos on the next meaning search run.
 
 ### Face detection (optional)
 
-Finds faces in your photos so they can be identified in the **Name faces** and **People review** pages. This is optional and a separate download (~500 MB) because the face-detection model's license does not allow LensLedger to bundle it.
+Finds faces in your photos so they can be identified in **People review**. This is optional and a separate download (~500 MB) because the face-detection model's license does not allow LensLedger to bundle it.
 
 To set up face detection, go to **Scan your photos** and click **Set up face detection**.
 
@@ -204,11 +204,9 @@ You can hide specific tags for individual photos (e.g. if an auto-generated tag 
 
 ## People and Faces
 
-LensLedger has a two-stage workflow for identifying people in your photos.
+Go to **People review** from the navigation menu. You don't need to name every face by hand — name a few, then let LensLedger find the rest.
 
-### Stage 1: Name faces
-
-Go to **Name faces** from the navigation menu. This page shows a grid of unidentified face crops, diversity-sampled to show variety. For each face, you can:
+The page shows a grid of unidentified face crops, diversity-sampled to show variety. For each face, you can:
 
 - **Name it** — type a name (with autocomplete) to identify the person. After naming, LensLedger shows similar unidentified faces that likely match, so you can confirm them in one click.
 - **Not a person** — mark false detections (statues, posters, etc.)
@@ -216,17 +214,15 @@ Go to **Name faces** from the navigation menu. This page shows a grid of unident
 
 Click any face crop to see the full photo for context.
 
-### Stage 2: Review people
+### When to stop
 
-Go to **Review people** from the navigation menu. This page shows batches of face-match suggestions for each person. For each suggested photo, you can:
+Match group headers show progress toward automatic confirmation:
 
-- **Confirm** — yes, this is the right person
-- **Wrong** — this is not the right person
-- **Correct** — this is a different person (reassign)
+- **"5/10 confirmed — keep going"** — keep naming to build up the system's knowledge
+- **"ready to confirm all"** — 10+ confirmed with 100% accuracy; you can let the system handle the rest
+- **"87% accuracy — review more to improve"** — accuracy below 100%, keep reviewing
 
-Use **Save & publish this group** to confirm all decisions and write people names into the JPEG metadata. **Undo last batch** rolls back decisions including any metadata changes.
-
-You can **defer** a person's suggestions for 1–30 days if you're unsure.
+When a person reaches 10 confirmed faces with 100% accuracy, a **Confirm all remaining** button appears to let LensLedger handle the rest automatically.
 
 ### Managing people
 

@@ -41,7 +41,7 @@ function showDoneState() {
     $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2>'
       + '<p>' + faces.toLocaleString() + ' unidentified face' + (faces === 1 ? ' remains' : 's remain')
       + ' — name a few more to generate new suggestions.</p>'
-      + '<a class="button primary-action" href="/faces-review">Name faces (' + faces.toLocaleString() + ')</a></div></div>';
+      + '<a class="button primary-action" href="/faces-review">People review (' + faces.toLocaleString() + ')</a></div></div>';
   } else {
     $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
   }

@@ -2154,7 +2154,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         requested = params.get("person", [""])[0]
         initial_person_id = int(requested) if requested.isdigit() else None
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Review people — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
+<title>People review — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "initialPersonId": initial_person_id, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people-review", str(self.library_root))}
@@ -3306,7 +3306,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
         """Other still-unidentified faces that likely show the same person as
-        the one just named -- lets the Name-faces page group repeats of one
+        the one just named -- lets the People-review page group repeats of one
         person behind a single "confirm all" instead of one dropdown pick
         each. Direct face-to-face similarity (not a person profile centroid)
         so it works from the very first photo named, before enough confirmed

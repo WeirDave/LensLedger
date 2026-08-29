@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.76.2 — 2026-08-28
+
+- Updated all user-facing references from "Name faces" and "Review people" to "People review" — Quick guide, Scan photos metrics, user manual, page titles, and button labels.
+- "People to review" metric on Scan photos now links to the consolidated People review page instead of the old Review people page.
+
 ## 0.76.1 — 2026-08-28
 
 - Fixed accuracy tracking for People Review confirmations — naming a face via the single-face endpoint now correctly records a review action, so accuracy percentages display properly instead of showing -1%.
