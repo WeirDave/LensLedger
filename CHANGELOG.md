@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.79.1 — 2026-08-29
+
+- Fixed path comparison in reconnection detection that failed on CI when library paths were resolved differently across environments.
+
 ## 0.79.0 — 2026-08-29
 
 - Added "Welcome back" reconnection screen when a library's folder can't be found (drive unplugged, folder moved) — replaces the scary first-run setup screen that made users think they'd lost their data.

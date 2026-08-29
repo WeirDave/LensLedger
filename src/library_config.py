@@ -78,7 +78,11 @@ def load_all_known_libraries() -> list[dict[str, object]]:
     try:
         value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
         if isinstance(value, dict):
-            current = str(value.get("current_root") or value.get("root") or "")
+            current_raw = str(value.get("current_root") or value.get("root") or "")
+            try:
+                current = str(Path(current_raw).resolve()).casefold() if current_raw else ""
+            except OSError:
+                current = current_raw.casefold() if current_raw else ""
             libraries = value.get("libraries", [])
             if not isinstance(libraries, list):
                 libraries = []
@@ -100,7 +104,7 @@ def load_all_known_libraries() -> list[dict[str, object]]:
                     "path": resolved,
                     "label": Path(resolved).name or resolved,
                     "accessible": accessible,
-                    "is_current": resolved.casefold() == current.casefold() if current else False,
+                    "is_current": key == current if current else False,
                 })
             return result
     except (OSError, ValueError, json.JSONDecodeError):
