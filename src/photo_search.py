@@ -179,6 +179,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<button type="button" class="menu-item" data-panel="guide">\U0001f4d6 Quick guide</button>'
         + '<a class="menu-item" href="/manual" target="_blank" rel="noopener">\U0001f4d3 User manual</a>'
         + '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a>'
+        '<button type="button" class="menu-item" onclick="reportIssue()">🐛 Report an issue</button>'
         '<button type="button" class="menu-item" onclick="copyDiagnostics()">\U0001f4cb Copy diagnostics</button>'
         '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'
         '</details>'
@@ -793,6 +794,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.map_points()
         if url.path == "/api/diagnostics":
             return self.diagnostics()
+        if url.path == "/api/log/recent":
+            return self.recent_log()
         if url.path == "/api/ocr/status":
             return self.ocr_status()
         if url.path == "/api/ocr/errors":
@@ -4148,6 +4151,18 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             "counts": counts,
             "last_scan": dict(latest) if latest else None,
         })
+
+    def recent_log(self):
+        from app_paths import log_dir
+        log_file = log_dir() / "LensLedger.log"
+        lines: list[str] = []
+        if log_file.is_file():
+            try:
+                raw = log_file.read_text(encoding="utf-8", errors="replace")
+                lines = raw.splitlines()[-200:]
+            except Exception:
+                pass
+        self.send_json({"lines": lines})
 
     @classmethod
     def _begin_update_check(cls, force: bool = False) -> bool:

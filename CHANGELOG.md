@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.6 — 2026-08-29
+
+- Added "Report an issue" button to the Help & Support menu that opens a GitHub issue pre-filled with diagnostics and recent log lines for easier troubleshooting.
+
 ## 0.81.5 — 2026-08-29
 
 - Enlarged photo lightbox now shows the photo's file path and a "Show in folder" button to reveal it in Explorer/Finder.

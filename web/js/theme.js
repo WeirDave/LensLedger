@@ -68,3 +68,55 @@ function copyDiagnostics() {
       if (t) { t.textContent = 'Could not fetch diagnostics'; t.style.display = 'block'; setTimeout(function() { t.style.display = 'none'; }, 3000); }
     });
 }
+
+function reportIssue() {
+  var toast = document.getElementById('toast');
+  function showToast(msg) {
+    if (toast) { toast.textContent = msg; toast.style.display = 'block'; setTimeout(function() { toast.style.display = 'none'; }, 3000); }
+  }
+  Promise.all([
+    fetch('/api/diagnostics').then(function(r) { return r.json(); }),
+    fetch('/api/log/recent').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var d = results[0];
+    var logData = results[1];
+    var diag = [];
+    diag.push('LensLedger v' + d.app_version);
+    diag.push('Browser    : ' + navigator.userAgent);
+    diag.push('Platform   : ' + (navigator.platform || 'unknown'));
+    diag.push('Database   : schema v' + d.schema_version + ' (current: v' + d.current_schema + ')');
+    diag.push('Integrity  : ' + d.integrity);
+    diag.push('DB size    : ' + (d.database_bytes / 1048576).toFixed(1) + ' MB');
+    var c = d.counts;
+    diag.push('Assets     : ' + c.assets + ' (' + c.metadata_ready + ' scanned, ' + c.cloud_only + ' cloud-only)');
+    diag.push('OCR        : ' + c.ocr_complete + ' scanned, ' + c.ocr_with_text + ' with text, ' + c.ocr_errors + ' errors');
+    diag.push('Faces      : ' + c.unidentified_faces + ' unidentified, ' + c.face_scan_errors + ' scan errors');
+    diag.push('Semantic   : ' + c.semantic_indexed + ' indexed, ' + c.semantic_remaining + ' remaining');
+    if (d.last_scan) {
+      diag.push('Last scan  : ' + d.last_scan.finished_at + ' (' + d.last_scan.scanned + ' scanned, ' + d.last_scan.errors + ' errors)');
+    }
+    var body = '## What happened?\n\nDescribe what you were doing and what went wrong.\n\n';
+    body += '## Steps to reproduce\n\n1. \n2. \n3. \n\n';
+    body += '## Diagnostics\n\n```\n' + diag.join('\n') + '\n```\n\n';
+    if (logData.lines && logData.lines.length > 0) {
+      var recent = logData.lines.slice(-50);
+      body += '## Recent log\n\n```\n' + recent.join('\n') + '\n```\n';
+    }
+    var url = 'https://github.com/WeirDave/LensLedger/issues/new?'
+      + 'title=' + encodeURIComponent('Bug: ')
+      + '&body=' + encodeURIComponent(body);
+    if (url.length > 8000) {
+      var trimmed = logData.lines.slice(-20);
+      body = '## What happened?\n\nDescribe what you were doing and what went wrong.\n\n';
+      body += '## Steps to reproduce\n\n1. \n2. \n3. \n\n';
+      body += '## Diagnostics\n\n```\n' + diag.join('\n') + '\n```\n\n';
+      body += '## Recent log\n\n```\n' + trimmed.join('\n') + '\n```\n';
+      url = 'https://github.com/WeirDave/LensLedger/issues/new?'
+        + 'title=' + encodeURIComponent('Bug: ')
+        + '&body=' + encodeURIComponent(body);
+    }
+    window.open(url, '_blank', 'noopener');
+  }).catch(function() {
+    showToast('Could not gather diagnostics');
+  });
+}
