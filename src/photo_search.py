@@ -3148,28 +3148,41 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     def publish_person_metadata(self, body):
         """Publish metadata to JPEG files for all confirmed faces of a person.
         Called once after the matching chain is exhausted so metadata writes
-        don't slow down the interactive confirm-and-find-more loop."""
+        don't slow down the interactive confirm-and-find-more loop.
+
+        Opens and closes the DB connection per photo so other requests (like
+        naming a new person) aren't blocked for the entire publish run."""
         person_id = int(body["person_id"])
-        published = []
         with self.db() as con:
             person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
             if not person:
                 raise ValueError("person not found")
-            assets = con.execute(
+            asset_ids = [int(row["asset_id"]) for row in con.execute(
                 """SELECT DISTINCT ap.asset_id FROM asset_people ap
                    JOIN assets a ON a.id=ap.asset_id
                    WHERE ap.person_id=? AND ap.state='confirmed' AND a.in_review_bin=0""",
                 (person_id,),
-            ).fetchall()
-            for row in assets:
-                try:
-                    result = self._publish_people_metadata(con, int(row["asset_id"]))
+            ).fetchall()]
+        name = person["name"]
+        total = len(asset_ids)
+        if not total:
+            print(f'[Name faces] No photos to publish for "{name}"', flush=True)
+            self.send_json({"ok": True, "published": 0})
+            return
+        print(f'[Name faces] Publishing "{name}" to {total} photos…', flush=True)
+        published = 0
+        for i, asset_id in enumerate(asset_ids):
+            try:
+                with self.db() as con:
+                    result = self._publish_people_metadata(con, asset_id)
                     if result:
-                        published.append(result)
-                except Exception:
-                    pass
-        print(f'[Name faces] Published metadata for "{person["name"]}" across {len(published)} photos', flush=True)
-        self.send_json({"ok": True, "published": len(published)})
+                        published += 1
+            except Exception:
+                pass
+            done = i + 1
+            if done % 25 == 0 or done == total:
+                print(f'[Name faces] Published "{name}" — {done}/{total}', flush=True)
+        self.send_json({"ok": True, "published": published})
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
         """Other still-unidentified faces that likely show the same person as

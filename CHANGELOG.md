@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.72.1 — 2026-08-28
+
+- Metadata publishing now logs progress every 25 photos (e.g. "Published 'Name' — 25/199") instead of staying silent until all photos are done.
+- Publishing no longer holds the database connection for the entire run — each photo opens and closes its own connection, so naming a new person or other operations aren't blocked while a large batch publishes.
+
 ## 0.72.0 — 2026-08-28
 
 - High-confidence matches (similarity ≥0.75) are now auto-confirmed without review; only borderline matches (0.65–0.75) are shown for manual review. The match group header shows how many were auto-confirmed alongside the review count.
