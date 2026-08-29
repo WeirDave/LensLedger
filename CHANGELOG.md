@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.18 — 2026-08-29
+
+- On startup, previously stuck "broken data stream" scan errors are automatically cleared so those photos get retried with the tolerant JPEG decoder from v0.81.17.
+
 ## 0.81.17 — 2026-08-29
 
 - Face detection, meaning search, and image serving now tolerate damaged JPEG streams (e.g. panoramas with invalid SOS parameters) instead of failing with "broken data stream" errors.
