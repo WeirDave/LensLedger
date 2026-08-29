@@ -869,6 +869,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.mark_face_unknown(body)
             if route == "/api/faces/find-more":
                 return self.find_more_faces(body)
+            if route == "/api/faces/name-batch":
+                return self.name_face_batch(body)
             if route == "/api/person/state":
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
@@ -3099,7 +3101,54 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         print(f'[Name faces] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}', flush=True)
         self.send_json({"ok": True, "published": 1, "person_id": person_id, "matches": matches})
 
-    def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=50):
+    def name_face_batch(self, body):
+        """Confirm multiple faces as the same person in one request.  Used by
+        the 'Confirm all' button in match groups so the client doesn't have to
+        make hundreds of sequential HTTP round-trips."""
+        person_id = int(body["person_id"])
+        face_ids = body.get("face_ids", [])
+        if not isinstance(face_ids, list) or not face_ids:
+            raise ValueError("face_ids must be a non-empty list")
+        face_ids = [int(fid) for fid in face_ids]
+        published = []
+        confirmed = 0
+        try:
+            with self.db() as con:
+                person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+                if not person:
+                    raise ValueError("person not found")
+                name = person["name"]
+                now = utc_now()
+                for face_id in face_ids:
+                    face = con.execute(
+                        "SELECT asset_id FROM face_embeddings WHERE id=?", (face_id,)
+                    ).fetchone()
+                    if not face or face["asset_id"] is None:
+                        continue
+                    asset_id = int(face["asset_id"])
+                    try:
+                        self.get_active_asset(con, asset_id)
+                    except Exception:
+                        continue
+                    con.execute(
+                        """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                           VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
+                           ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                               state='confirmed',face_id=excluded.face_id,source='manual_face',
+                               updated_at=excluded.updated_at""",
+                        (asset_id, person_id, face_id, now),
+                    )
+                    sync_person_tags(con, asset_id)
+                    rebuild_search_row(con, asset_id)
+                    published.append(self._publish_people_metadata(con, asset_id))
+                    confirmed += 1
+        except Exception:
+            self._restore_people_batch(published)
+            raise
+        print(f'[Name faces] Batch confirmed {confirmed} as "{name}"', flush=True)
+        self.send_json({"ok": True, "confirmed": confirmed})
+
+    def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
         """Other still-unidentified faces that likely show the same person as
         the one just named -- lets the Name-faces page group repeats of one
         person behind a single "confirm all" instead of one dropdown pick
@@ -3195,7 +3244,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                  "box_right": row["box_right"], "box_bottom": row["box_bottom"],
                  "filename": row["filename"], "folder": row["folder"],
                  "capture_date": row["capture_date"]}
-                for score, row in scored[:50]
+                for score, row in scored[:200]
             ]
         n = len(vectors)
         print(f'[Name faces] Found {len(matches)} more for "{person["name"]}" (centroid from {n} confirmed)', flush=True)

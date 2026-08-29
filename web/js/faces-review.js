@@ -160,29 +160,17 @@ function addMatchGroup(name, personId, matches) {
     const checked = allItems.filter(t => t.querySelector('input').checked && !t.classList.contains('failed'));
     const skipped = allItems.filter(t => !t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
     if (!checked.length) { group.remove(); releasePending(skipped); return; }
+    const checkedIds = checked.map(t => Number(t.dataset.faceId));
     group.querySelectorAll('button').forEach(b => b.disabled = true);
-    let done = 0, failed = 0;
-    for (let i = 0; i < checked.length; i++) {
-      const thumb = checked[i];
-      thumb.classList.remove('failed');
-      status.textContent = `Confirming ${i + 1} of ${checked.length}…`;
-      try {
-        await apiRetry('/api/faces/name', { face_id: Number(thumb.dataset.faceId), name },
-          message => status.textContent = message);
-        remaining = Math.max(0, remaining - 1);
-        pending.delete(Number(thumb.dataset.faceId));
-        thumb.remove();
-        done += 1;
-      } catch (error) {
-        failed += 1;
-        thumb.classList.add('failed');
-        thumb.title = error.message;
-      }
-    }
-    updateProgress();
-    if (!failed) {
-      status.textContent = `All ${done} confirmed. Looking for more…`;
-      group.querySelectorAll('button').forEach(b => b.disabled = true);
+    status.textContent = `Confirming ${checkedIds.length} faces…`;
+    try {
+      const result = await apiRetry('/api/faces/name-batch',
+        { person_id: personId, face_ids: checkedIds },
+        message => status.textContent = message);
+      remaining = Math.max(0, remaining - (result.confirmed || 0));
+      checkedIds.forEach(id => pending.delete(id));
+      updateProgress();
+      status.textContent = `${result.confirmed || checkedIds.length} confirmed. Looking for more…`;
       try {
         const more = await api('/api/faces/find-more', { person_id: personId });
         group.remove();
@@ -192,8 +180,8 @@ function addMatchGroup(name, personId, matches) {
         group.remove();
         releasePending(skipped);
       }
-    } else {
-      status.textContent = `${done} confirmed, ${failed} failed -- the failed ones are outlined below; click "Confirm all" again to retry just those.`;
+    } catch (error) {
+      status.textContent = error.message;
       group.querySelectorAll('button').forEach(b => b.disabled = false);
     }
   };

@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.71.0 — 2026-08-28
+
+- Match groups now show up to 200 faces per round instead of 50, and confirm the entire batch in a single server request instead of one HTTP call per face. Combined with continuous replenishing, this makes it practical to clear thousands of photos of one person in minutes.
+
 ## 0.70.1 — 2026-08-28
 
 - Name Faces log messages now show the full relative path instead of just the filename, making it easier to locate photos in the library.
