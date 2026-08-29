@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.17 — 2026-08-29
+
+- Face detection, meaning search, and image serving now tolerate damaged JPEG streams (e.g. panoramas with invalid SOS parameters) instead of failing with "broken data stream" errors.
+
 ## 0.81.16 — 2026-08-29
 
 - Error paths in the scan page error modal now display as full Windows paths and are clickable links that open the file location.

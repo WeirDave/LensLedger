@@ -15,6 +15,9 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 from face_learning import encode_vector
 from face_locations import is_available, load_insightface_runtime
 from photo_index import connect, utc_now

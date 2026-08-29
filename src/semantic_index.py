@@ -10,7 +10,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable
 
-from PIL import Image
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
