@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.69.0 — 2026-08-28
+
+- Added "Trash photo" button to the enlarged photo lightbox on Name Faces, so photos can be trashed directly while reviewing them full-size.
+
 ## 0.68.1 — 2026-08-28
 
 - Name Faces now randomly samples from all unidentified faces instead of always showing the most recently scanned ones, so each visit surfaces different people from across the entire library.

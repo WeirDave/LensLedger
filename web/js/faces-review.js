@@ -397,6 +397,18 @@ function showTrashUndo(reviewId, name) {
 $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => actOnOpenFace('/api/faces/ignore');
 $('lightboxUnknownPerson').onclick = () => actOnOpenFace('/api/faces/unknown');
+$('lightboxTrash').onclick = async () => {
+  if (!openFace) return;
+  const face = openFace, card = openCard;
+  if (!confirm('Move "' + face.filename + '" to Trash?\n\nIt will leave the photo library and disappear from search.')) return;
+  closeLarge();
+  try {
+    const result = await api('/api/review-bin', { id: face.asset_id });
+    if (card) card.remove();
+    showTrashUndo(result.review_id, face.filename);
+    checkEmpty();
+  } catch (error) { alert(error.message); }
+};
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
 function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}
 document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{closeMenu();if(b.dataset.panel==='about'){const o=document.getElementById('aboutOverlay');if(o)o.classList.add('open')}else if(b.dataset.panel==='guide'||b.dataset.panel==='update')window.location='/?panel='+b.dataset.panel});
