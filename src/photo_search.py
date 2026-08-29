@@ -2954,7 +2954,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             total = int(con.execute(
                 f"SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE {where}"
             ).fetchone()[0])
-            pool_limit = min(total, 500)
+            pool_limit = min(total, 2000)
             rows = con.execute(
                 f"""WITH ranked AS (
                         SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date,
@@ -2965,7 +2965,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     )
                     SELECT face_id, asset_id, filename, folder, capture_date,
                            box_left, box_top, box_right, box_bottom, embedding_f32
-                    FROM ranked WHERE rn=1 ORDER BY face_id DESC LIMIT ?""",
+                    FROM ranked WHERE rn=1 ORDER BY RANDOM() LIMIT ?""",
                 (pool_limit,),
             ).fetchall()
             people_names = [row[0] for row in con.execute(

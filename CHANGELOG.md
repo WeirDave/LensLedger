@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.68.1 — 2026-08-28
+
+- Name Faces now randomly samples from all unidentified faces instead of always showing the most recently scanned ones, so each visit surfaces different people from across the entire library.
+- Increased the diversity sampling pool from 500 to 2,000 faces for better variety in large libraries (small libraries still load everything).
+
 ## 0.68.0 — 2026-08-28
 
 - Added scroll-wheel zoom and drag-to-pan to the enlarged photo lightbox on both the Name Faces and People Review pages, making it possible to zoom in on background faces before deciding who they are.
