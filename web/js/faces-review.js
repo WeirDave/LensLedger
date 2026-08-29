@@ -350,8 +350,15 @@ function openLarge(face, card) {
   photo.src = '/media?id=' + face.asset_id;
   if (lbZoom) lbZoom.attach(photo);
   markFace($('largePhotoBox'), photo, face);
+  const fullPath = (face.folder ? face.folder + '/' : '') + face.filename;
+  $('lightboxPathText').textContent = fullPath;
+  $('lightboxPathText').title = fullPath;
   $('lightbox').classList.add('open');
 }
+
+$('lightboxReveal').onclick = () => {
+  if (openFace) api('/api/reveal-file', { id: openFace.asset_id });
+};
 
 function closeLarge() {
   openFace = null;

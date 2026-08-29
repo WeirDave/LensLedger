@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.5 — 2026-08-29
+
+- Enlarged photo lightbox now shows the photo's file path and a "Show in folder" button to reveal it in Explorer/Finder.
+
 ## 0.81.4 — 2026-08-29
 
 - Publish page now shows which photos failed and why, instead of just a count mismatch.
