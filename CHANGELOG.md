@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.76.1 — 2026-08-28
+
+- Fixed accuracy tracking for People Review confirmations — naming a face via the single-face endpoint now correctly records a review action, so accuracy percentages display properly instead of showing -1%.
+
 ## 0.76.0 — 2026-08-28
 
 - Renamed "Name faces" to "People review" throughout the app — nav, page title, header, manual, log messages.
