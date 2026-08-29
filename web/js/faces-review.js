@@ -120,7 +120,7 @@ function releasePending(ids) {
 // with that name pre-filled, so confirming a repeat is one click instead of
 // picking the same name from the dropdown over and over -- the behavior the
 // user asked for, modeled on Google Photos' "is this also X?" grouping.
-function addMatchGroup(name, matches) {
+function addMatchGroup(name, personId, matches) {
   const ids = matches.map(match => match.face_id);
   ids.forEach(id => pending.add(id));
   ids.forEach(id => {
@@ -181,9 +181,17 @@ function addMatchGroup(name, matches) {
     }
     updateProgress();
     if (!failed) {
-      status.textContent = `All ${done} confirmed.`;
-      group.remove();
-      releasePending(skipped);
+      status.textContent = `All ${done} confirmed. Looking for more…`;
+      group.querySelectorAll('button').forEach(b => b.disabled = true);
+      try {
+        const more = await api('/api/faces/find-more', { person_id: personId });
+        group.remove();
+        releasePending(skipped);
+        if (more.matches && more.matches.length) addMatchGroup(name, personId, more.matches);
+      } catch (_) {
+        group.remove();
+        releasePending(skipped);
+      }
     } else {
       status.textContent = `${done} confirmed, ${failed} failed -- the failed ones are outlined below; click "Confirm all" again to retry just those.`;
       group.querySelectorAll('button').forEach(b => b.disabled = false);
@@ -316,7 +324,7 @@ function buildCard(face) {
         const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name },
           message => status.textContent = message);
         removeCard(card);
-        if (result.matches && result.matches.length) addMatchGroup(name, result.matches);
+        if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches);
       } catch (error) {
         status.textContent = error.message;
         notPersonButton.disabled = false; unknownButton.disabled = false;

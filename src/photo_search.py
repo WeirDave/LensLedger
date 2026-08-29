@@ -33,7 +33,7 @@ from console_log import log as console_log
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
-from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as learn_faces
+from face_learning import SUGGESTION_THRESHOLD, centroid, decode_vector, dot, learn as learn_faces
 from face_locations import is_available as face_is_available
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
@@ -867,6 +867,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.ignore_face(body)
             if route == "/api/faces/unknown":
                 return self.mark_face_unknown(body)
+            if route == "/api/faces/find-more":
+                return self.find_more_faces(body)
             if route == "/api/person/state":
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
@@ -3139,6 +3141,65 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
              "filename": row["filename"], "folder": row["folder"], "capture_date": row["capture_date"]}
             for score, row in scored[:limit]
         ]
+
+    def find_more_faces(self, body):
+        """After confirming a batch of 'Also looks like' matches, search for
+        more unidentified faces similar to this person.  Uses a centroid of all
+        confirmed embeddings so the search stays fast regardless of count."""
+        person_id = int(body["person_id"])
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person not found")
+            refs = con.execute(
+                """SELECT f.embedding_f32 FROM face_embeddings f
+                   JOIN asset_people ap ON ap.face_id=f.id
+                   WHERE ap.person_id=? AND ap.state='confirmed' AND f.embedding_f32 IS NOT NULL""",
+                (person_id,),
+            ).fetchall()
+            vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
+            if not vectors:
+                self.send_json({"ok": True, "matches": [], "name": person["name"]})
+                return
+            center = centroid(vectors)
+            if not center:
+                self.send_json({"ok": True, "matches": [], "name": person["name"]})
+                return
+            rows = con.execute(
+                """SELECT f.id AS face_id, f.asset_id, f.embedding_f32,
+                          f.box_left, f.box_top, f.box_right, f.box_bottom,
+                          a.filename, a.folder, a.capture_date
+                   FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                         AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                         )
+                   ORDER BY f.id DESC LIMIT 50000""",
+            ).fetchall()
+            SIMILAR_FACE_THRESHOLD = 0.65
+            scored = []
+            for row in rows:
+                candidate = decode_vector(row["embedding_f32"])
+                if not candidate:
+                    continue
+                score = dot(center, candidate)
+                if score >= SIMILAR_FACE_THRESHOLD:
+                    scored.append((score, row))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            matches = [
+                {"face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
+                 "score": round(score, 4),
+                 "box_left": row["box_left"], "box_top": row["box_top"],
+                 "box_right": row["box_right"], "box_bottom": row["box_bottom"],
+                 "filename": row["filename"], "folder": row["folder"],
+                 "capture_date": row["capture_date"]}
+                for score, row in scored[:50]
+            ]
+        n = len(vectors)
+        print(f'[Name faces] Found {len(matches)} more for "{person["name"]}" (centroid from {n} confirmed)', flush=True)
+        self.send_json({"ok": True, "matches": matches, "name": person["name"]})
 
     def ignore_face(self, body):
         face_id = int(body["face_id"])

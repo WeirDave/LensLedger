@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.70.0 — 2026-08-28
+
+- "Also looks like" match groups on Name Faces now continuously replenish: after confirming a batch, the system searches for more matches using a centroid built from all confirmed faces for that person, and keeps going until no more are found. This lets you clear out hundreds of photos of one person in a single flow without leaving the page.
+
 ## 0.69.0 — 2026-08-28
 
 - Added "Trash photo" button to the enlarged photo lightbox on Name Faces, so photos can be trashed directly while reviewing them full-size.
