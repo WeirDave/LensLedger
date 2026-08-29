@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.9 — 2026-08-29
+
+- Fixed faces resurfacing as unidentified when the same person appears multiple times in one photo (e.g. composite/collage photos). Identification is now tracked per face embedding, not per person-per-photo.
+- Added `person_id` column to `face_embeddings` so each detected face independently tracks its identification, eliminating the structural limitation where only one face per person per photo could be linked.
+- Existing confirmed and suggested face links are automatically backfilled on database upgrade (schema v13).
+
 ## 0.81.8 — 2026-08-29
 
 - Added live progress bar to the Publish photos page that updates in real time as each photo is processed, showing count and percentage instead of a static "Starting publish" message.

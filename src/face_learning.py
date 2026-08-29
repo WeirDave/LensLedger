@@ -244,7 +244,12 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
                     (profile.person_id, len(profile.centroid), encode_vector(profile.centroid),
                      json.dumps(profile.face_ids), profile.asset_count, profile.cohesion, utc_now()),
                 )
+            old_suggestions = con.execute(
+                "SELECT face_id FROM asset_people WHERE state='suggested' AND source='learned_face' AND face_id IS NOT NULL"
+            ).fetchall()
             con.execute("DELETE FROM asset_people WHERE state='suggested' AND source='learned_face'")
+            for row in old_suggestions:
+                con.execute("UPDATE face_embeddings SET person_id=NULL WHERE id=? AND person_id IS NOT NULL", (row["face_id"],))
             for (asset_id, person_id), (score, face_id) in proposals.items():
                 con.execute(
                     """INSERT INTO asset_people(
@@ -252,9 +257,7 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
                        ) VALUES (?,?,'suggested',?,?,'learned_face',?)""",
                     (asset_id, person_id, score, face_id, utc_now()),
                 )
-            # Auto-confirmed matches are durable state, like any human
-            # confirmation, so (unlike suggestions) they are never bulk
-            # -deleted and re-inserted on the next learn() pass.
+                con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
             for (asset_id, person_id), (score, face_id) in auto_confirms.items():
                 con.execute(
                     """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
@@ -264,6 +267,7 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
                            source='learned_face_auto',updated_at=excluded.updated_at""",
                     (asset_id, person_id, score, face_id, utc_now()),
                 )
+                con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
                 sync_person_tags(con, asset_id)
                 rebuild_search_row(con, asset_id)
                 auto_confirmed_details.append({

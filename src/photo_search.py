@@ -2047,13 +2047,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ).fetchone()[0])
                 unidentified_faces_count = int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                         AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
-                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                         AND NOT EXISTS (
-                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
-                             AND ap.state IN ('confirmed','suggested')
-                         )"""
+                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
                 ).fetchone()[0])
                 if scope == "people" and not person_id:
                     people_query = like_pattern(query)
@@ -2848,13 +2845,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             )]
             unidentified_faces = int(con.execute(
                 """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                   AND a.in_review_bin=0
                    AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
-                   AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                   AND NOT EXISTS (
-                       SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
-                       AND ap.state IN ('confirmed','suggested')
-                   )"""
+                   AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
             ).fetchone()[0])
         self.send_json({
             "person": dict(person) if person else None,
@@ -2963,6 +2957,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             "UPDATE asset_people SET state=?,updated_at=? WHERE asset_id=? AND person_id=?",
             (new_state, utc_now(), asset_id, person_id),
         )
+        if original["face_id"] is not None:
+            if final_action == "confirmed":
+                con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, original["face_id"]))
+            elif final_action == "rejected" and not face_disposition:
+                con.execute("UPDATE face_embeddings SET person_id=NULL WHERE id=?", (original["face_id"],))
         if corrected_person_id:
             con.execute(
                 """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
@@ -2972,6 +2971,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                        source='manual-correction',updated_at=excluded.updated_at""",
                 (asset_id, corrected_person_id, original["face_id"], utc_now()),
             )
+            if original["face_id"] is not None:
+                con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (corrected_person_id, original["face_id"]))
         cursor = con.execute(
             """INSERT INTO people_review_actions(
                    asset_id,person_id,action,previous_json,corrected_person_id,
@@ -3086,6 +3087,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 (previous["state"], previous["confidence"], previous["face_id"], previous["source"],
                  previous["updated_at"], action["asset_id"], action["person_id"]),
         )
+        if previous.get("face_id") is not None:
+            restore_pid = int(action["person_id"]) if previous["state"] in ("confirmed", "suggested") else None
+            con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (restore_pid, previous["face_id"]))
         disposition_column = self.FACE_DISPOSITION_COLUMNS.get(action["face_disposition"])
         if disposition_column and previous["face_id"] is not None:
             con.execute(
@@ -3166,11 +3170,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 person_id = self.resolve_or_create_person(con, name)
                 face_row = con.execute(
                     """SELECT f.id FROM face_embeddings f
-                       WHERE f.asset_id=? AND f.ignored_at IS NULL
-                         AND NOT EXISTS (
-                             SELECT 1 FROM asset_people ap
-                             WHERE ap.face_id=f.id AND ap.state IN ('confirmed','suggested')
-                         )
+                       WHERE f.asset_id=? AND f.ignored_at IS NULL AND f.person_id IS NULL
                        ORDER BY (f.box_right-f.box_left)*(f.box_bottom-f.box_top) DESC
                        LIMIT 1""",
                     (asset_id,),
@@ -3185,6 +3185,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                            source='manual',updated_at=excluded.updated_at""",
                     (asset_id, person_id, face_id, utc_now()),
                 )
+                if face_id is not None:
+                    con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
                 sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
                 published.append(self._publish_people_metadata(con, asset_id))
         except Exception:
@@ -3209,13 +3211,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             limit = max(1, min(100, int(params.get("limit", ["30"])[0])))
         except ValueError:
             limit = 30
-        where = """f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+        where = """f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                    AND a.in_review_bin=0
                     AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
-                    AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                    AND NOT EXISTS (
-                        SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
-                        AND ap.state IN ('confirmed','suggested')
-                    )"""
+                    AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
         with self.db() as con:
             total = int(con.execute(
                 f"SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE {where}"
@@ -3352,6 +3351,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                        updated_at=excluded.updated_at""",
                 (asset_id, person_id, face_id, now),
             )
+            con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
             con.execute(
                 """INSERT INTO people_review_actions(
                        asset_id,person_id,action,previous_json,created_at
@@ -3400,6 +3400,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                            updated_at=excluded.updated_at""",
                     (asset_id, person_id, face_id, now),
                 )
+                con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
                 con.execute(
                     """INSERT INTO people_review_actions(
                            asset_id,person_id,action,previous_json,created_at
@@ -3477,12 +3478,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                       f.box_left, f.box_top, f.box_right, f.box_bottom,
                       a.filename, a.folder, a.capture_date
                FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-               WHERE f.id!=? AND f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+               WHERE f.id!=? AND f.ignored_at IS NULL AND f.unknown_at IS NULL
+                     AND f.person_id IS NULL AND a.in_review_bin=0
                      AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                      AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                     AND NOT EXISTS (
-                         SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
-                     )
                ORDER BY f.id DESC LIMIT 50000""",
             (face_id,),
         ).fetchall()
@@ -3520,8 +3519,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 raise ValueError("person not found")
             refs = con.execute(
                 """SELECT f.embedding_f32 FROM face_embeddings f
-                   JOIN asset_people ap ON ap.face_id=f.id
-                   WHERE ap.person_id=? AND ap.state='confirmed' AND f.embedding_f32 IS NOT NULL""",
+                   WHERE f.person_id=? AND f.embedding_f32 IS NOT NULL""",
                 (person_id,),
             ).fetchall()
             vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
@@ -3537,12 +3535,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                           f.box_left, f.box_top, f.box_right, f.box_bottom,
                           a.filename, a.folder, a.capture_date
                    FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                         AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                         AND NOT EXISTS (
-                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
-                         )
                    ORDER BY f.id DESC LIMIT 50000""",
             ).fetchall()
             high = []
@@ -3575,6 +3571,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                            updated_at=excluded.updated_at""",
                     (asset_id, person_id, face_id, now),
                 )
+                con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
                 sync_person_tags(con, asset_id)
                 rebuild_search_row(con, asset_id)
                 auto_confirmed += 1
@@ -3642,8 +3639,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             while True:
                 refs = con.execute(
                     """SELECT f.embedding_f32 FROM face_embeddings f
-                       JOIN asset_people ap ON ap.face_id=f.id
-                       WHERE ap.person_id=? AND ap.state='confirmed' AND f.embedding_f32 IS NOT NULL""",
+                       WHERE f.person_id=? AND f.embedding_f32 IS NOT NULL""",
                     (person_id,),
                 ).fetchall()
                 vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
@@ -3655,12 +3651,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 rows = con.execute(
                     """SELECT f.id AS face_id, f.asset_id, f.embedding_f32
                        FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                             AND a.in_review_bin=0
                              AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                              AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                             AND NOT EXISTS (
-                                 SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
-                             )
                        ORDER BY f.id DESC LIMIT 50000""",
                 ).fetchall()
                 matched = []
@@ -3689,6 +3683,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                updated_at=excluded.updated_at""",
                         (asset_id, person_id, face_id, now),
                     )
+                    con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
                     sync_person_tags(con, asset_id)
                     rebuild_search_row(con, asset_id)
                     round_confirmed += 1
@@ -4145,13 +4140,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
                 "unidentified_faces": int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                         AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
-                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
-                         AND NOT EXISTS (
-                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
-                             AND ap.state IN ('confirmed','suggested')
-                         )"""
+                         AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
                 ).fetchone()[0]),
                 "publications": int(con.execute("SELECT COUNT(*) FROM metadata_publications").fetchone()[0]),
                 "review_bin": int(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0]),
