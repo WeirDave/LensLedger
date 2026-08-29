@@ -115,12 +115,29 @@ function releasePending(ids) {
   checkEmpty();
 }
 
-// After naming a face, other unidentified faces the backend judged similar
-// (see _find_similar_unidentified_faces in photo_search.py) get grouped here
-// with that name pre-filled, so confirming a repeat is one click instead of
-// picking the same name from the dropdown over and over -- the behavior the
-// user asked for, modeled on Google Photos' "is this also X?" grouping.
-function addMatchGroup(name, personId, matches) {
+async function publishPerson(personId, name) {
+  $('globalProgress').textContent = `Writing "${name}" to photo metadata…`;
+  try {
+    const result = await api('/api/faces/publish-person', { person_id: personId });
+    $('globalProgress').textContent = `Published "${name}" to ${result.published} photo${result.published === 1 ? '' : 's'}. ` + remaining.toLocaleString() + ' unidentified face' + (remaining === 1 ? '' : 's');
+  } catch (_) {
+    updateProgress();
+  }
+}
+
+function showPublishStatus(name, personId, autoCount) {
+  const banner = document.createElement('div');
+  banner.className = 'match-group';
+  banner.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span></div>'
+    + '<div class="match-status"></div>';
+  banner.querySelector('strong').textContent = name;
+  banner.querySelector('.match-count').textContent = autoCount + ' auto-confirmed (high confidence)';
+  banner.querySelector('.match-status').textContent = 'No borderline matches remain.';
+  $('matchGroups').prepend(banner);
+  publishPerson(personId, name).then(() => setTimeout(() => banner.remove(), 4000));
+}
+
+function addMatchGroup(name, personId, matches, autoCount) {
   const ids = matches.map(match => match.face_id);
   ids.forEach(id => pending.add(id));
   ids.forEach(id => {
@@ -135,7 +152,9 @@ function addMatchGroup(name, personId, matches) {
     + '<button type="button" class="confirm-all">Confirm all</button></div>'
     + '<div class="match-thumbs"></div><div class="match-status"></div>';
   group.querySelector('strong').textContent = 'Also looks like ' + name;
-  group.querySelector('.match-count').textContent = matches.length + (matches.length === 1 ? ' photo' : ' photos');
+  const countParts = [matches.length + ' to review'];
+  if (autoCount) countParts.unshift(autoCount + ' auto-confirmed');
+  group.querySelector('.match-count').textContent = countParts.join(', ');
   const thumbs = group.querySelector('.match-thumbs');
   matches.forEach(match => {
     const wrap = document.createElement('div');
@@ -173,12 +192,22 @@ function addMatchGroup(name, personId, matches) {
       status.textContent = `${result.confirmed || checkedIds.length} confirmed. Looking for more…`;
       try {
         const more = await api('/api/faces/find-more', { person_id: personId });
+        const auto = more.auto_confirmed || 0;
+        remaining = Math.max(0, remaining - auto);
+        updateProgress();
         group.remove();
         releasePending(skipped);
-        if (more.matches && more.matches.length) addMatchGroup(name, personId, more.matches);
+        if (more.matches && more.matches.length) {
+          if (auto) addMatchGroup(name, personId, more.matches, auto);
+          else addMatchGroup(name, personId, more.matches);
+        } else {
+          if (auto) showPublishStatus(name, personId, auto);
+          else publishPerson(personId, name);
+        }
       } catch (_) {
         group.remove();
         releasePending(skipped);
+        publishPerson(personId, name);
       }
     } catch (error) {
       status.textContent = error.message;

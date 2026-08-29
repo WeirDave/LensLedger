@@ -871,6 +871,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.find_more_faces(body)
             if route == "/api/faces/name-batch":
                 return self.name_face_batch(body)
+            if route == "/api/faces/publish-person":
+                return self.publish_person_metadata(body)
             if route == "/api/person/state":
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
@@ -3102,51 +3104,72 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         self.send_json({"ok": True, "published": 1, "person_id": person_id, "matches": matches})
 
     def name_face_batch(self, body):
-        """Confirm multiple faces as the same person in one request.  Used by
-        the 'Confirm all' button in match groups so the client doesn't have to
-        make hundreds of sequential HTTP round-trips."""
+        """Confirm multiple faces as the same person in one request.  Metadata
+        publishing is deferred -- only database records are written here so the
+        confirm+find-more loop stays fast.  The client calls
+        /api/faces/publish-person once the loop is exhausted."""
         person_id = int(body["person_id"])
         face_ids = body.get("face_ids", [])
         if not isinstance(face_ids, list) or not face_ids:
             raise ValueError("face_ids must be a non-empty list")
         face_ids = [int(fid) for fid in face_ids]
-        published = []
         confirmed = 0
-        try:
-            with self.db() as con:
-                person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
-                if not person:
-                    raise ValueError("person not found")
-                name = person["name"]
-                now = utc_now()
-                for face_id in face_ids:
-                    face = con.execute(
-                        "SELECT asset_id FROM face_embeddings WHERE id=?", (face_id,)
-                    ).fetchone()
-                    if not face or face["asset_id"] is None:
-                        continue
-                    asset_id = int(face["asset_id"])
-                    try:
-                        self.get_active_asset(con, asset_id)
-                    except Exception:
-                        continue
-                    con.execute(
-                        """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
-                           VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
-                           ON CONFLICT(asset_id,person_id) DO UPDATE SET
-                               state='confirmed',face_id=excluded.face_id,source='manual_face',
-                               updated_at=excluded.updated_at""",
-                        (asset_id, person_id, face_id, now),
-                    )
-                    sync_person_tags(con, asset_id)
-                    rebuild_search_row(con, asset_id)
-                    published.append(self._publish_people_metadata(con, asset_id))
-                    confirmed += 1
-        except Exception:
-            self._restore_people_batch(published)
-            raise
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person not found")
+            name = person["name"]
+            now = utc_now()
+            for face_id in face_ids:
+                face = con.execute(
+                    "SELECT asset_id FROM face_embeddings WHERE id=?", (face_id,)
+                ).fetchone()
+                if not face or face["asset_id"] is None:
+                    continue
+                asset_id = int(face["asset_id"])
+                try:
+                    self.get_active_asset(con, asset_id)
+                except Exception:
+                    continue
+                con.execute(
+                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                       VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
+                       ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                           state='confirmed',face_id=excluded.face_id,source='manual_face',
+                           updated_at=excluded.updated_at""",
+                    (asset_id, person_id, face_id, now),
+                )
+                sync_person_tags(con, asset_id)
+                rebuild_search_row(con, asset_id)
+                confirmed += 1
         print(f'[Name faces] Batch confirmed {confirmed} as "{name}"', flush=True)
         self.send_json({"ok": True, "confirmed": confirmed})
+
+    def publish_person_metadata(self, body):
+        """Publish metadata to JPEG files for all confirmed faces of a person.
+        Called once after the matching chain is exhausted so metadata writes
+        don't slow down the interactive confirm-and-find-more loop."""
+        person_id = int(body["person_id"])
+        published = []
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person not found")
+            assets = con.execute(
+                """SELECT DISTINCT ap.asset_id FROM asset_people ap
+                   JOIN assets a ON a.id=ap.asset_id
+                   WHERE ap.person_id=? AND ap.state='confirmed' AND a.in_review_bin=0""",
+                (person_id,),
+            ).fetchall()
+            for row in assets:
+                try:
+                    result = self._publish_people_metadata(con, int(row["asset_id"]))
+                    if result:
+                        published.append(result)
+                except Exception:
+                    pass
+        print(f'[Name faces] Published metadata for "{person["name"]}" across {len(published)} photos', flush=True)
+        self.send_json({"ok": True, "published": len(published)})
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
         """Other still-unidentified faces that likely show the same person as
@@ -3193,9 +3216,12 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
     def find_more_faces(self, body):
         """After confirming a batch of 'Also looks like' matches, search for
-        more unidentified faces similar to this person.  Uses a centroid of all
-        confirmed embeddings so the search stays fast regardless of count."""
+        more unidentified faces similar to this person.  High-confidence matches
+        (>=0.75) are auto-confirmed in the database without metadata publishing;
+        only borderline matches (0.65-0.75) are returned for manual review."""
         person_id = int(body["person_id"])
+        AUTO_CONFIRM_THRESHOLD = 0.75
+        SIMILAR_FACE_THRESHOLD = 0.65
         with self.db() as con:
             person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
             if not person:
@@ -3208,11 +3234,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             ).fetchall()
             vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
             if not vectors:
-                self.send_json({"ok": True, "matches": [], "name": person["name"]})
+                self.send_json({"ok": True, "matches": [], "auto_confirmed": 0, "name": person["name"]})
                 return
             center = centroid(vectors)
             if not center:
-                self.send_json({"ok": True, "matches": [], "name": person["name"]})
+                self.send_json({"ok": True, "matches": [], "auto_confirmed": 0, "name": person["name"]})
                 return
             rows = con.execute(
                 """SELECT f.id AS face_id, f.asset_id, f.embedding_f32,
@@ -3227,16 +3253,38 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                          )
                    ORDER BY f.id DESC LIMIT 50000""",
             ).fetchall()
-            SIMILAR_FACE_THRESHOLD = 0.65
-            scored = []
+            high = []
+            borderline = []
             for row in rows:
                 candidate = decode_vector(row["embedding_f32"])
                 if not candidate:
                     continue
                 score = dot(center, candidate)
-                if score >= SIMILAR_FACE_THRESHOLD:
-                    scored.append((score, row))
-            scored.sort(key=lambda item: item[0], reverse=True)
+                if score >= AUTO_CONFIRM_THRESHOLD:
+                    high.append((score, row))
+                elif score >= SIMILAR_FACE_THRESHOLD:
+                    borderline.append((score, row))
+            now = utc_now()
+            auto_confirmed = 0
+            for _score, row in high:
+                face_id = int(row["face_id"])
+                asset_id = int(row["asset_id"])
+                try:
+                    self.get_active_asset(con, asset_id)
+                except Exception:
+                    continue
+                con.execute(
+                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                       VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
+                       ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                           state='confirmed',face_id=excluded.face_id,source='manual_face',
+                           updated_at=excluded.updated_at""",
+                    (asset_id, person_id, face_id, now),
+                )
+                sync_person_tags(con, asset_id)
+                rebuild_search_row(con, asset_id)
+                auto_confirmed += 1
+            borderline.sort(key=lambda item: item[0], reverse=True)
             matches = [
                 {"face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
                  "score": round(score, 4),
@@ -3244,11 +3292,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                  "box_right": row["box_right"], "box_bottom": row["box_bottom"],
                  "filename": row["filename"], "folder": row["folder"],
                  "capture_date": row["capture_date"]}
-                for score, row in scored[:200]
+                for score, row in borderline[:200]
             ]
         n = len(vectors)
-        print(f'[Name faces] Found {len(matches)} more for "{person["name"]}" (centroid from {n} confirmed)', flush=True)
-        self.send_json({"ok": True, "matches": matches, "name": person["name"]})
+        print(f'[Name faces] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed)', flush=True)
+        self.send_json({"ok": True, "matches": matches, "auto_confirmed": auto_confirmed, "name": person["name"]})
 
     def ignore_face(self, body):
         face_id = int(body["face_id"])

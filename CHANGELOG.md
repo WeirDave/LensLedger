@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.72.0 — 2026-08-28
+
+- High-confidence matches (similarity ≥0.75) are now auto-confirmed without review; only borderline matches (0.65–0.75) are shown for manual review. The match group header shows how many were auto-confirmed alongside the review count.
+- Metadata publishing (ExifTool JPEG writes) is now deferred until the matching chain is exhausted, so the interactive confirm-and-find-more loop runs at database speed instead of waiting for file I/O on every batch.
+
 ## 0.71.0 — 2026-08-28
 
 - Match groups now show up to 200 faces per round instead of 50, and confirm the entire batch in a single server request instead of one HTTP call per face. Combined with continuous replenishing, this makes it practical to clear thousands of photos of one person in minutes.
