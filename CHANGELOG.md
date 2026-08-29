@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.77.1 — 2026-08-28
+
+- Added a "Retry" button when naming a face fails due to catalog busy, so users don't have to re-type the person's name.
+
 ## 0.77.0 — 2026-08-28
 
 - Added persistent log file (`LensLedger.log`) that captures all activity to disk — scans, imports, people review, publishes, and renames — so troubleshooting is possible even after the terminal is closed.

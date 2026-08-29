@@ -372,18 +372,28 @@ function buildCard(face) {
     getNames: () => knownPeople,
     placeholder: 'Who is this?',
     onChoose: async name => {
-      notPersonButton.disabled = true; unknownButton.disabled = true;
-      status.textContent = 'Saving…';
-      try {
-        registerKnownPerson(name);
-        const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name },
-          message => status.textContent = message);
-        removeCard(card);
-        if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches);
-      } catch (error) {
-        status.textContent = error.message;
-        notPersonButton.disabled = false; unknownButton.disabled = false;
-      }
+      const tryName = async () => {
+        notPersonButton.disabled = true; unknownButton.disabled = true;
+        status.textContent = 'Saving…';
+        status.querySelectorAll('button').forEach(b => b.remove());
+        try {
+          registerKnownPerson(name);
+          const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name },
+            message => status.textContent = message);
+          removeCard(card);
+          if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches, result);
+        } catch (error) {
+          status.textContent = error.message + ' ';
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.className = 'retry';
+          retry.textContent = 'Retry "' + name + '"';
+          retry.onclick = tryName;
+          status.append(retry);
+          notPersonButton.disabled = false; unknownButton.disabled = false;
+        }
+      };
+      tryName();
     },
   });
   notPersonButton.onclick = async () => {
