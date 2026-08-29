@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.4 — 2026-08-29
+
+- Publish page now shows which photos failed and why, instead of just a count mismatch.
+- Server log now records every photo written with the names tagged, plus explicit messages for skipped and failed photos.
+
 ## 0.81.3 — 2026-08-29
 
 - Made the "Current library" path in the hamburger menu clickable, linking to the Photo libraries section in Settings.

@@ -2356,19 +2356,39 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             return
         console_log(f"[Publish] Writing metadata to {total} photos…")
         published = 0
+        failed: list[dict] = []
+        skipped = 0
         for i, asset_id in enumerate(asset_ids):
             try:
                 with self.db() as con:
                     result = self._publish_people_metadata(con, asset_id)
                     if result:
                         published += 1
-            except Exception:
-                pass
+                        names = ", ".join(result["people"]) if result.get("people") else "(no names)"
+                        console_log(f"[Publish] Wrote: {result['relative_path']} — {names}")
+                    else:
+                        skipped += 1
+                        asset = self.get_active_asset(con, asset_id)
+                        path = asset["relative_path"]
+                        console_log(f"[Publish] Skipped (not publishable): {path}")
+                        failed.append({"path": path, "reason": "Not a publishable file type"})
+            except Exception as exc:
+                reason = str(exc) or type(exc).__name__
+                try:
+                    with self.db() as con:
+                        asset = self.get_active_asset(con, asset_id)
+                        path = asset["relative_path"]
+                except Exception:
+                    path = f"(asset id {asset_id})"
+                console_log(f"[Publish] Failed: {path} — {reason}")
+                failed.append({"path": path, "reason": reason})
             done = i + 1
             if done % 25 == 0 or done == total:
                 console_log(f"[Publish] {done}/{total} photos")
         console_log(f"[Publish] Done — {published}/{total} photos updated.")
-        self.send_json({"ok": True, "published": published, "total": total})
+        if failed:
+            console_log(f"[Publish] {len(failed)} photo(s) failed or skipped.")
+        self.send_json({"ok": True, "published": published, "total": total, "failed": failed})
 
     def asset_detail(self, params):
         try:
@@ -2615,7 +2635,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             "UPDATE asset_people SET published_at=? WHERE asset_id=? AND state='confirmed'",
             (utc_now(), asset_id),
         )
-        return {"path": path, "backup": backup, "filename": asset["filename"]}
+        return {"path": path, "backup": backup, "filename": asset["filename"],
+                "relative_path": asset["relative_path"], "people": people}
 
     @staticmethod
     def _restore_people_batch(published):
@@ -3398,8 +3419,19 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     result = self._publish_people_metadata(con, asset_id)
                     if result:
                         published += 1
-            except Exception:
-                pass
+                        console_log(f'[People review] Wrote: {result["relative_path"]} — {", ".join(result["people"])}')
+                    else:
+                        with self.db() as con:
+                            asset = self.get_active_asset(con, asset_id)
+                        console_log(f'[People review] Skipped (not publishable): {asset["relative_path"]}')
+            except Exception as exc:
+                try:
+                    with self.db() as con:
+                        asset = self.get_active_asset(con, asset_id)
+                        path = asset["relative_path"]
+                except Exception:
+                    path = f"(asset id {asset_id})"
+                console_log(f'[People review] Failed: {path} — {exc}')
             done = i + 1
             if done % 25 == 0 or done == total:
                 console_log(f'[People review] Published "{name}" — {done}/{total}')

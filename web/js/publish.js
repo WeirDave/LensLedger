@@ -77,11 +77,32 @@ $('publishAll').onclick = async () => {
     $('progressText').textContent = '';
     progress.hidden = true;
     const done = $('publishDone');
-    done.textContent = 'Published metadata to ' + result.published.toLocaleString()
-      + ' of ' + result.total.toLocaleString() + ' photo' + (result.total === 1 ? '' : 's') + '.';
     done.hidden = false;
     $('publishSummary').innerHTML = '';
-    $('globalProgress').textContent = 'Up to date';
+    const failed = result.failed || [];
+    if (failed.length === 0) {
+      done.textContent = 'Published metadata to ' + result.published.toLocaleString()
+        + ' of ' + result.total.toLocaleString() + ' photo' + (result.total === 1 ? '' : 's') + '.';
+      $('globalProgress').textContent = 'Up to date';
+    } else {
+      let html = '<p>Published metadata to ' + result.published.toLocaleString()
+        + ' of ' + result.total.toLocaleString() + ' photo' + (result.total === 1 ? '' : 's') + '.</p>'
+        + '<details class="publish-failures"><summary>' + failed.length
+        + ' photo' + (failed.length === 1 ? '' : 's') + ' failed</summary>'
+        + '<table class="publish-table"><thead><tr><th>File</th><th>Reason</th></tr></thead><tbody>';
+      failed.forEach(f => {
+        const pathEl = document.createElement('td');
+        pathEl.textContent = f.path;
+        const reasonEl = document.createElement('td');
+        reasonEl.textContent = f.reason;
+        const tr = document.createElement('tr');
+        tr.append(pathEl, reasonEl);
+        html += tr.outerHTML;
+      });
+      html += '</tbody></table></details>';
+      done.innerHTML = html;
+      $('globalProgress').textContent = failed.length + ' failed';
+    }
   } catch (e) {
     $('progressText').textContent = 'Error: ' + e.message;
     $('publishAll').disabled = false;
