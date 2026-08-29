@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.78.0 — 2026-08-29
+
+- Added live progress indicator for "Confirm all remaining" in People review — a spinning animation and round-by-round count replace the old static "this may take a moment" text.
+
 ## 0.77.1 — 2026-08-28
 
 - Added a "Retry" button when naming a face fails due to catalog busy, so users don't have to re-type the person's name.

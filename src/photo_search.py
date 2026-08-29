@@ -37,13 +37,14 @@ from face_learning import SUGGESTION_THRESHOLD, centroid, decode_vector, dot, le
 from face_locations import is_available as face_is_available
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
-    associate_db_path, choose_library_folder, library_db_path, library_db_path_appdata, load_library_config,
-    load_library_state, save_library_state, suggested_library_roots,
+    associate_db_path, choose_library_folder, library_db_path, library_db_path_appdata,
+    load_all_known_libraries, load_library_config, load_library_state, save_library_state,
+    suggested_library_roots,
 )
 from folder_watcher import FolderWatcher
 from ingest_pipeline import IngestPipeline
 from settings_config import (
-    AVAILABLE_MODELS, load_settings, save_settings,
+    AVAILABLE_MODELS, get_setting, load_settings, save_settings,
 )
 from lensledger_updater import check_for_update, is_managed_install, managed_install_root, updates_root
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
@@ -778,6 +779,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.library_errors()
         if url.path == "/api/library/options":
             return self.library_options()
+        if url.path == "/api/library/reconnect-options":
+            return self.reconnect_options()
         if url.path == "/api/library/items":
             return self.library_items_api(params)
         if url.path == "/api/map/points":
@@ -1005,6 +1008,37 @@ class SearchHandler(BaseHTTPRequestHandler):
 </body></html>"""
         self.send_html(page)
 
+    def reconnection_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome back — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/reconnect.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token})}><main class="shell"><header class="brand"><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>{APP_NAME}</h1><p>{APP_TAGLINE}</p></div><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></header><section class="card">
+<div class="reconnect-intro"><h2>Welcome back</h2><p>Your library couldn't be found at its previous location. This usually means the drive was disconnected or the folder was moved — <strong>your data is safe</strong>.</p><p>Pick a library below to reconnect, or browse to a new location.</p></div>
+<div class="library-list" id="libraryList"></div>
+<div class="reconnect-actions"><div class="path-row"><input id="libraryPath" aria-label="Photo library folder" placeholder="Browse to a different folder…"><button type="button" class="secondary" id="browse">Browse…</button></div><div class="actions"><button type="button" class="secondary" id="startFresh">Set up a new library instead</button><span class="spacer"></span><button type="button" id="reconnect" disabled>Reconnect</button></div></div>
+<section class="progress-panel" id="progressPanel" aria-live="polite"><div class="progress-head"><div><h3 id="progressTitle">Reconnecting</h3><p id="progressMessage">Opening library…</p></div><span class="spacer"></span><button type="button" class="danger" id="cancel">Pause scan</button></div><div class="bar"><span></span></div><div class="metrics"><div class="metric"><strong id="scanned">0</strong><span>discovered</span></div><div class="metric"><strong id="changed">0</strong><span>indexed</span></div><div class="metric"><strong id="unchanged">0</strong><span>unchanged</span></div><div class="metric"><strong id="placeholders">0</strong><span>cloud-only</span></div><div class="metric"><strong id="errors">0</strong><span>errors</span></div></div><div class="completion-actions"><button type="button" id="enterLibrary">Open my library</button></div></section>
+</section></main><script src="{asset_url('js/reconnect.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def library_picker_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Choose a library — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/reconnect.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "mode": "picker", "currentRoot": str(self.library_root)})}><main class="shell"><header class="brand"><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>{APP_NAME}</h1><p>{APP_TAGLINE}</p></div><span class="version">v{APP_VERSION}</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></header><section class="card">
+<div class="reconnect-intro"><h2>Choose a library</h2><p>Select which photo library to open. You can change this any time from Settings.</p></div>
+<div class="library-list" id="libraryList"></div>
+<div class="reconnect-actions"><div class="picker-prefs"><label class="toggle-row"><input type="checkbox" id="alwaysAsk" checked> Ask which library to open at startup</label></div><div class="actions"><span class="spacer"></span><button type="button" id="openSelected">Open library</button></div></div>
+</section></main><script src="{asset_url('js/reconnect.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def reconnect_options(self):
+        known = load_all_known_libraries()
+        for lib in known:
+            root = Path(lib["path"])
+            db = library_db_path(root)
+            lib["has_database"] = db.is_file()
+        self.send_json({"libraries": known})
+
     def map_points(self):
         with self.db() as con:
             located = int(con.execute(
@@ -1078,7 +1112,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
 {nav_menu("settings", str(self.library_root))}
 <main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#display-prefs">Display preferences</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
-<section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div></section>
+<section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div>
+<div class="toggle-row" style="margin-top:14px"><label class="toggle-switch"><input type="checkbox" id="showLibraryPicker" {"checked" if settings.get("startup", {{}}).get("show_library_picker") else ""}><span class="slider"></span></label><label for="showLibraryPicker">Ask which library to open at startup</label></div></section>
 <section class="card" id="scan-prefs"><h2>Scan preferences</h2>
 <div class="field"><label for="ocrWorkers">OCR worker threads</label><input type="number" id="ocrWorkers" min="1" max="16" value="{int(scan.get('ocr_workers', 4))}"><span class="hint">More workers scan faster but use more CPU. Default: 4</span></div>
 <div class="field"><label for="ocrBatchSize">OCR batch size</label><input type="number" id="ocrBatchSize" min="10" max="500" value="{int(scan.get('ocr_batch_size', 50))}"><span class="hint">Photos processed per OCR commit. Default: 50</span></div>
@@ -1916,9 +1951,21 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         self.send_json({"items": items, "total": total, "page": page_number, "has_more": has_more})
 
     def viewer_page(self, params):
+        if params.get("fresh"):
+            return self.onboarding_page()
         with self.db() as con:
-            if int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]) == 0:
-                return self.onboarding_page()
+            asset_count = int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0])
+        if asset_count == 0:
+            known = load_all_known_libraries()
+            if known:
+                return self.reconnection_page()
+            return self.onboarding_page()
+        has_params = any(params.get(k) for k in ("q", "scope", "sort", "person", "date"))
+        if not has_params and get_setting("startup", "show_library_picker", default=False):
+            known = load_all_known_libraries()
+            accessible = [lib for lib in known if lib["accessible"]]
+            if len(accessible) > 1:
+                return self.library_picker_page()
         query, selected_date, scope, person_id, sort, page_number, near_point = self.parse_photo_query(params)
 
         error = ""
@@ -3454,15 +3501,30 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     def confirm_remaining_faces(self, body):
         """Confirm all remaining borderline matches for a person in one shot.
         Loops server-side: compute centroid → find all matches ≥0.65 → confirm
-        → recompute centroid → repeat until no new matches found."""
+        → recompute centroid → repeat until no new matches found.
+        Streams SSE progress events so the UI can show a live progress bar."""
         person_id = int(body["person_id"])
         SIMILAR_FACE_THRESHOLD = 0.65
         total_confirmed = 0
         rounds = 0
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+
+        def send_event(data):
+            payload = json.dumps(data)
+            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
         with self.db() as con:
             person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
             if not person:
-                raise ValueError("person not found")
+                send_event({"error": "person not found"})
+                return
             name = person["name"]
             while True:
                 refs = con.execute(
@@ -3520,10 +3582,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 rounds += 1
                 total_confirmed += round_confirmed
                 console_log(f'[People review] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)')
+                send_event({"round": rounds, "round_confirmed": round_confirmed, "total_confirmed": total_confirmed})
                 if round_confirmed == 0:
                     break
         console_log(f'[People review] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)')
-        self.send_json({"ok": True, "confirmed": total_confirmed, "rounds": rounds})
+        send_event({"done": True, "confirmed": total_confirmed, "rounds": rounds})
 
     def ignore_face(self, body):
         face_id = int(body["face_id"])

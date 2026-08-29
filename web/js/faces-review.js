@@ -181,13 +181,40 @@ function addMatchGroup(name, personId, matches, moreData) {
             message => status.textContent = message);
           remaining = Math.max(0, remaining - checkedIds.length);
         }
-        status.textContent = `Confirming remaining matches for ${name}… (this may take a moment)`;
-        const result = await api('/api/faces/confirm-remaining', { person_id: personId });
-        remaining = Math.max(0, remaining - (result.confirmed || 0));
+        status.innerHTML = '<span class="confirm-progress-spinner"></span>'
+          + `<span class="confirm-progress-text">Confirming remaining matches for ${name}…</span>`;
+        const response = await fetch('/api/faces/confirm-remaining', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ person_id: personId, csrf }),
+        });
+        if (response.status === 403) { location.reload(); return; }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let lastEvent = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const event = JSON.parse(line.slice(6));
+            if (event.error) throw new Error(event.error);
+            if (event.round) {
+              const txt = status.querySelector('.confirm-progress-text');
+              txt.textContent = `Round ${event.round}: ${event.total_confirmed.toLocaleString()} confirmed so far…`;
+            }
+            lastEvent = event;
+          }
+        }
+        const totalConfirmed = (lastEvent && lastEvent.confirmed) || 0;
+        remaining = Math.max(0, remaining - totalConfirmed);
         updateProgress();
         ids.forEach(id => pending.delete(id));
         group.remove();
-        showDoneStatus(name, { auto_confirmed: (result.confirmed || 0) + checkedIds.length });
+        showDoneStatus(name, { auto_confirmed: totalConfirmed + checkedIds.length });
       } catch (error) {
         status.textContent = error.message;
         group.querySelectorAll('button').forEach(b => b.disabled = false);
