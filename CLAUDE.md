@@ -71,6 +71,9 @@ Keep bullets concise. See existing entries for tone and detail level.
 
 Create `docs/releases/vX.Y.Z.md` with detailed release notes:
 
+- Do NOT start with an H1 title like `# LensLedger vX.Y.Z — ...` — GitHub
+  already shows the release title (`LensLedger vX.Y.Z`), so a leading H1
+  just duplicates it. Start directly with the first content section.
 - Start with the motivation/context (what problem, what was wrong before)
 - Describe what changed and how it works now
 - If you found and fixed a bug during testing, add a `## Fixed during testing`
@@ -79,7 +82,7 @@ Create `docs/releases/vX.Y.Z.md` with detailed release notes:
   - Test suite result (count and status)
   - Any manual/browser verification you performed
 
-See `docs/releases/v0.33.0.md` for a good example of all sections.
+See `docs/releases/v0.80.0.md` for a good example of all sections.
 
 ### Step 4 — Commit
 

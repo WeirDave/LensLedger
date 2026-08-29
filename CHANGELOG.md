@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.80.1 — 2026-08-29
+
+- Removed duplicate title from GitHub release notes — release notes files no longer start with an H1 heading that duplicated the release title GitHub already displays.
+- Updated release workflow to extract release title cleanly from the tag.
+- Updated CLAUDE.md release notes instructions to match WaxFrame Pro's convention.
+
 ## 0.80.0 — 2026-08-29
 
 - Added dev tools page with password-protected screen overrides for testing first-run, reconnection, and library picker flows without changing real library state.
