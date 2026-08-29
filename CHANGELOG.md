@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.80.0 — 2026-08-29
+
+- Added dev tools page with password-protected screen overrides for testing first-run, reconnection, and library picker flows without changing real library state.
+- Added dev tools link to the hamburger navigation menu.
+
 ## 0.79.1 — 2026-08-29
 
 - Fixed path comparison in reconnection detection that failed on CI when library paths were resolved differently across environments.

@@ -172,6 +172,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
         + _link("/settings", "⚙ Settings", "settings")
+        + _link("/dev-tools", "🔧 Dev tools", "dev-tools")
         + '</details>'
         '<div class="menu-divider"></div>'
         '<details class="menu-section">'
@@ -723,6 +724,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
+    dev_override: str = ""
     folder_watcher: FolderWatcher | None = None
     ingest_pipeline: IngestPipeline | None = None
 
@@ -830,6 +832,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/settings":
             return self.settings_page()
+        if url.path == "/dev-tools":
+            return self.dev_tools_page()
+        if url.path == "/api/dev/status":
+            return self.send_json({"override": type(self).dev_override})
         if url.path == "/manual":
             return self.manual_page()
         if url.path == "/api/settings":
@@ -961,6 +967,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.restart_source(body)
             if route == "/api/reveal-file":
                 return self.reveal_file(body)
+            if route == "/api/dev/set":
+                return self.set_dev_override(body)
             if route == "/api/settings/save":
                 return self.save_settings_api(body)
             if route == "/api/settings/remove-library":
@@ -1141,6 +1149,39 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/settings.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
+
+    def dev_tools_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dev Tools — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/dev-tools.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Dev Tools</h1><p>Testing and development aids</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
+{nav_menu("dev-tools", str(self.library_root))}
+<main>
+<section class="card" id="devLocked"><h2>Dev Tools</h2><p>Enter the developer password to access testing and development aids.</p>
+<div class="pw-row"><input type="password" id="devPwInput" placeholder="Password" autocomplete="off"><button type="button" id="devPwSubmit">Unlock</button></div>
+</section>
+<div id="devUnlocked" hidden>
+<section class="card"><h2>Screen overrides</h2><p>Force the home page to show a specific screen without changing your real library state. The override stays active until you reset it or restart the server.</p>
+<div class="override-grid" id="overrideGrid">
+<button type="button" class="override-btn" data-mode="onboarding"><span class="override-icon">🆕</span><span class="override-label">First-run setup</span><span class="override-desc">Show the onboarding screen as if no library has been configured yet.</span></button>
+<button type="button" class="override-btn" data-mode="reconnection"><span class="override-icon">🔌</span><span class="override-label">Reconnection</span><span class="override-desc">Show the reconnection screen as if the library drive was disconnected.</span></button>
+<button type="button" class="override-btn" data-mode="picker"><span class="override-icon">📚</span><span class="override-label">Library picker</span><span class="override-desc">Show the multi-library startup picker screen.</span></button>
+</div>
+<div class="override-status" id="overrideStatus"></div>
+<div class="override-actions"><button type="button" class="secondary" id="resetOverride">Reset to normal</button><a href="/" class="secondary visit-home" id="visitHome">Visit home page →</a></div>
+</section>
+<section class="card lock-section"><button type="button" class="secondary" id="lockDevTools">Lock dev tools</button></section>
+</div></main>
+<div class="toast" id="toast"></div>
+<script src="{asset_url('js/dev-tools.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def set_dev_override(self, body):
+        mode = str(body.get("mode", ""))
+        if mode not in ("", "onboarding", "reconnection", "picker"):
+            return self.send_json({"error": "unknown mode"}, 400)
+        type(self).dev_override = mode
+        self.send_json({"override": mode})
 
     def manual_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1954,6 +1995,13 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     def viewer_page(self, params):
         if params.get("fresh"):
             return self.onboarding_page()
+        override = type(self).dev_override
+        if override == "onboarding":
+            return self.onboarding_page()
+        if override == "reconnection":
+            return self.reconnection_page()
+        if override == "picker":
+            return self.library_picker_page()
         with self.db() as con:
             asset_count = int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0])
         if asset_count == 0:

@@ -1079,5 +1079,47 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Best match", html_page)
 
 
+    def test_dev_tools_page_and_overrides(self):
+        with self.get("/dev-tools") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Dev Tools", page)
+        self.assertIn("override-btn", page)
+
+        status = self.json_response(self.get("/api/dev/status"))
+        self.assertEqual(status["override"], "")
+
+        result = self.json_response(self.post("/api/dev/set", {"mode": "onboarding"}))
+        self.assertEqual(result["override"], "onboarding")
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Set up LensLedger", page)
+
+        result = self.json_response(self.post("/api/dev/set", {"mode": "reconnection"}))
+        self.assertEqual(result["override"], "reconnection")
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Welcome back", page)
+
+        result = self.json_response(self.post("/api/dev/set", {"mode": "picker"}))
+        self.assertEqual(result["override"], "picker")
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Choose a library", page)
+
+        result = self.json_response(self.post("/api/dev/set", {"mode": ""}))
+        self.assertEqual(result["override"], "")
+        with self.get("/") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Search scope", page)
+
+        try:
+            self.post("/api/dev/set", {"mode": "bogus"})
+            self.fail("expected 400")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 400)
+
+        self.photo_search.SearchHandler.dev_override = ""
+
+
 if __name__ == "__main__":
     unittest.main()
