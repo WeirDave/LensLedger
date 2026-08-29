@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.3 — 2026-08-29
+
+- Made the "Current library" path in the hamburger menu clickable, linking to the Photo libraries section in Settings.
+
 ## 0.81.2 — 2026-08-29
 
 - Moved Dev tools link from the Navigation section to its own "Advanced" section in the hamburger menu, matching the WaxFrame Professional menu layout.

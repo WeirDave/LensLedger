@@ -113,7 +113,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
     lib_footer = (
         '<div class="menu-library">'
         f'<span class="menu-library-label">Current library</span>'
-        f'<span class="menu-library-path" title="{html.escape(library_root)}">{lib_display}</span>'
+        f'<a href="/settings#libraries" class="menu-library-path" title="{html.escape(library_root)}">{lib_display}</a>'
         '</div>'
     ) if library_root else ""
 

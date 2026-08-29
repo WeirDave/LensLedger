@@ -53,7 +53,7 @@ main{width:min(820px,calc(100% - 32px));margin:10px auto 40px;display:grid;gap:7
 .menu-panel .menu-item.active{background:var(--menu-hover);color:var(--accent);font-weight:700;border-left:3px solid var(--accent);padding-left:13px}
 .menu-library{padding:12px 16px;border-top:1px solid var(--border);margin-top:auto}
 .menu-library-label{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary);margin-bottom:3px}
-.menu-library-path{display:block;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu-library-path{display:block;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;cursor:pointer}.menu-library-path:hover{color:var(--accent)}
 .about-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:30;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
 .about-overlay.open{opacity:1;pointer-events:all}
 .about-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:90%;max-width:520px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)}
