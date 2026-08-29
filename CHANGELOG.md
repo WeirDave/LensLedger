@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.11 — 2026-08-29
+
+- Removed unnecessary text truncation from the lightbox file path display; the full path is now always visible.
+
 ## 0.81.10 — 2026-08-29
 
 - Fixed garbled file path display in the faces review lightbox caused by CSS `direction: rtl` reordering slashes and dashes via the Unicode bidirectional algorithm.
