@@ -23,11 +23,11 @@ from photo_index import connect, utc_now
 def status(db_path: Path) -> dict[str, object]:
     with connect(db_path) as con:
         eligible = int(con.execute(
-            "SELECT COUNT(*) FROM assets WHERE media_type='image' AND metadata_scanned=1 AND in_review_bin=0"
+            "SELECT COUNT(*) FROM assets WHERE media_type='image' AND metadata_scanned=1 AND in_review_bin=0 AND extension != '.gif'"
         ).fetchone()[0])
         scanned = int(con.execute(
             """SELECT COUNT(*) FROM assets
-               WHERE media_type='image' AND metadata_scanned=1 AND in_review_bin=0 AND face_scanned=1"""
+               WHERE media_type='image' AND metadata_scanned=1 AND in_review_bin=0 AND face_scanned=1 AND extension != '.gif'"""
         ).fetchone()[0])
         faces_found = int(con.execute(
             "SELECT COUNT(*) FROM face_embeddings WHERE source='lensledger_scan'"
@@ -73,7 +73,7 @@ def scan_for_faces(
         rows = con.execute(
             """SELECT a.id,a.relative_path FROM assets a
                WHERE a.in_review_bin=0 AND a.media_type='image' AND a.metadata_scanned=1
-                 AND a.face_scanned=0
+                 AND a.face_scanned=0 AND a.extension != '.gif'
                ORDER BY a.capture_date,a.relative_path"""
         ).fetchall()
         if limit is not None:
