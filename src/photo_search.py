@@ -172,7 +172,6 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
         + _link("/settings", "⚙ Settings", "settings")
-        + _link("/dev-tools", "🔧 Dev tools", "dev-tools")
         + '</details>'
         '<div class="menu-divider"></div>'
         '<details class="menu-section">'
@@ -183,6 +182,11 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<button type="button" class="menu-item" onclick="copyDiagnostics()">\U0001f4cb Copy diagnostics</button>'
         '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'
         '</details>'
+        '<div class="menu-divider"></div>'
+        '<details class="menu-section">'
+        '<summary class="menu-section-label">Advanced</summary>'
+        + _link("/dev-tools", "🛠 Dev tools", "dev-tools")
+        + '</details>'
         + lib_footer
         + '</div></nav>'
         + about_modal

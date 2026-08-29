@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.2 — 2026-08-29
+
+- Moved Dev tools link from the Navigation section to its own "Advanced" section in the hamburger menu, matching the WaxFrame Professional menu layout.
+
 ## 0.81.1 — 2026-08-29
 
 - Fixed test suite corrupting the user's library-state.json by writing test library paths to the real config file instead of a temp copy.
