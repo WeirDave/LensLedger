@@ -48,3 +48,7 @@ def face_data_root() -> Path:
 
 def database_backup_root() -> Path:
     return data_root() / "Database Backups"
+
+
+def log_dir() -> Path:
+    return data_root() / "Logs"

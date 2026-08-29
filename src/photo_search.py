@@ -1097,7 +1097,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card" id="database"><h2>Database</h2><p>Export creates a portable copy of your tags, people, and scan results — useful for backups or moving to a new machine. Import restores from a previous export. Your photos are not included; only the LensLedger index is transferred.</p>
 <div class="library-actions"><button type="button" class="secondary" id="exportDatabase">Export database</button><button type="button" class="secondary" id="importDatabase">Import database</button><span class="export-status" id="exportStatus"></span></div>
 <p class="data-location">Database: <code>{html.escape(str(library_db_path(Path(self.library_root))))}</code></p>
-<p class="data-location">Application data: <code>{html.escape(str(data_root()))}</code></p></section>
+<p class="data-location">Application data: <code>{html.escape(str(data_root()))}</code></p>
+<p class="data-location">Log file: <code>{html.escape(str(data_root() / "Logs" / "LensLedger.log"))}</code></p></section>
 <div class="actions-bar"><button type="button" id="saveSettings">Save settings</button></div>
 </div></main>
 <div class="toast" id="toast"></div>
@@ -2250,10 +2251,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ).fetchall()]
         total = len(asset_ids)
         if not total:
-            print("[Publish] Nothing to publish.", flush=True)
+            console_log("[Publish] Nothing to publish.")
             self.send_json({"ok": True, "published": 0, "total": 0})
             return
-        print(f"[Publish] Writing metadata to {total} photos…", flush=True)
+        console_log(f"[Publish] Writing metadata to {total} photos…")
         published = 0
         for i, asset_id in enumerate(asset_ids):
             try:
@@ -2265,8 +2266,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 pass
             done = i + 1
             if done % 25 == 0 or done == total:
-                print(f"[Publish] {done}/{total} photos", flush=True)
-        print(f"[Publish] Done — {published}/{total} photos updated.", flush=True)
+                console_log(f"[Publish] {done}/{total} photos")
+        console_log(f"[Publish] Done — {published}/{total} photos updated.")
         self.send_json({"ok": True, "published": published, "total": total})
 
     def asset_detail(self, params):
@@ -2758,12 +2759,12 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         })
 
     def learn_people(self, body):
-        print("[People review] Learning from confirmed faces…", flush=True)
+        console_log("[People review] Learning from confirmed faces…")
         result = learn_faces(self.db_path, apply=True)
         auto_count = len(result["auto_confirmed"])
         sug_count = result["suggestions"]
-        print(f"[People review] Built {result['profiles']} profile(s), "
-              f"{sug_count} suggestion(s), {auto_count} auto-confirmed", flush=True)
+        console_log(f"[People review] Built {result['profiles']} profile(s), "
+                    f"{sug_count} suggestion(s), {auto_count} auto-confirmed")
         published = []
         try:
             with self.db() as con:
@@ -2876,14 +2877,14 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         person_name = str(person["name"])
         corrected = body.get("corrected_name", "").strip()
         if action == "confirmed":
-            print(f'[People review] Confirmed "{person_name}" in {log_fname}', flush=True)
+            console_log(f'[People review] Confirmed "{person_name}" in {log_fname}')
         elif action == "corrected" and corrected:
-            print(f'[People review] Corrected "{person_name}" → "{corrected}" in {log_fname}', flush=True)
+            console_log(f'[People review] Corrected "{person_name}" → "{corrected}" in {log_fname}')
         elif action == "rejected":
-            print(f'[People review] Rejected "{person_name}" in {log_fname}', flush=True)
+            console_log(f'[People review] Rejected "{person_name}" in {log_fname}')
         elif action in self.FACE_DISPOSITION_COLUMNS:
             label = "not a person" if action == "not_a_person" else "unknown person"
-            print(f'[People review] Marked {label} in {log_fname}', flush=True)
+            console_log(f'[People review] Marked {label} in {log_fname}')
         self.send_json({"ok": True, "action_id": action_id, "published": 1})
 
     def people_review_batch_decision(self, body):
@@ -2927,14 +2928,14 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     action = item.get("action", "")
                     corrected = item.get("corrected_name", "").strip()
                     if action == "confirmed":
-                        print(f'[People review] Confirmed "{person_name}" in {fname}', flush=True)
+                        console_log(f'[People review] Confirmed "{person_name}" in {fname}')
                     elif action == "corrected" and corrected:
-                        print(f'[People review] Corrected "{person_name}" → "{corrected}" in {fname}', flush=True)
+                        console_log(f'[People review] Corrected "{person_name}" → "{corrected}" in {fname}')
                     elif action == "rejected":
-                        print(f'[People review] Rejected "{person_name}" in {fname}', flush=True)
+                        console_log(f'[People review] Rejected "{person_name}" in {fname}')
                     elif action in self.FACE_DISPOSITION_COLUMNS:
                         label = "not a person" if action == "not_a_person" else "unknown person"
-                        print(f'[People review] Marked {label} in {fname}', flush=True)
+                        console_log(f'[People review] Marked {label} in {fname}')
         except Exception:
             self._restore_people_batch(published)
             raise
@@ -3214,7 +3215,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
             fname = con.execute("SELECT filename, relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
             matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
-        print(f'[People review] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}', flush=True)
+        console_log(f'[People review] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}')
         self.send_json({"ok": True, "person_id": person_id, "matches": matches})
 
     def name_face_batch(self, body):
@@ -3262,7 +3263,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 sync_person_tags(con, asset_id)
                 rebuild_search_row(con, asset_id)
                 confirmed += 1
-        print(f'[People review] Batch confirmed {confirmed} as "{name}"', flush=True)
+        console_log(f'[People review] Batch confirmed {confirmed} as "{name}"')
         self.send_json({"ok": True, "confirmed": confirmed})
 
     def publish_person_metadata(self, body):
@@ -3286,10 +3287,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         name = person["name"]
         total = len(asset_ids)
         if not total:
-            print(f'[People review] No photos to publish for "{name}"', flush=True)
+            console_log(f'[People review] No photos to publish for "{name}"')
             self.send_json({"ok": True, "published": 0})
             return
-        print(f'[People review] Publishing "{name}" to {total} photos…', flush=True)
+        console_log(f'[People review] Publishing "{name}" to {total} photos…')
         published = 0
         for i, asset_id in enumerate(asset_ids):
             try:
@@ -3301,7 +3302,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 pass
             done = i + 1
             if done % 25 == 0 or done == total:
-                print(f'[People review] Published "{name}" — {done}/{total}', flush=True)
+                console_log(f'[People review] Published "{name}" — {done}/{total}')
         self.send_json({"ok": True, "published": published})
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
@@ -3442,7 +3443,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         reviewed = int(review_stats["total"]) if review_stats["total"] else 0
         correct = int(review_stats["correct"]) if review_stats["correct"] else 0
         accuracy_pct = round(correct * 100 / reviewed) if reviewed else -1
-        print(f'[People review] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {reviewed} reviewed, {accuracy_pct}% accuracy)', flush=True)
+        console_log(f'[People review] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {reviewed} reviewed, {accuracy_pct}% accuracy)')
         self.send_json({
             "ok": True, "matches": matches, "auto_confirmed": auto_confirmed,
             "name": person["name"], "confirmed_count": n,
@@ -3518,10 +3519,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     round_confirmed += 1
                 rounds += 1
                 total_confirmed += round_confirmed
-                print(f'[People review] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)', flush=True)
+                console_log(f'[People review] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)')
                 if round_confirmed == 0:
                     break
-        print(f'[People review] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)', flush=True)
+        console_log(f'[People review] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)')
         self.send_json({"ok": True, "confirmed": total_confirmed, "rounds": rounds})
 
     def ignore_face(self, body):
@@ -3680,6 +3681,12 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         except Exception:
             self._restore_people_batch(published)
             raise
+        if old_name != primary_name:
+            console_log(f'[People review] Renamed "{old_name}" → "{primary_name}", updated {len(affected)} photo(s), published {len(published)}')
+        if aliases:
+            console_log(f'[People review] Aliases for "{primary_name}": {", ".join(aliases)}')
+        elif old_name == primary_name:
+            console_log(f'[People review] Updated aliases for "{primary_name}"')
         self.send_json({
             "ok": True, "name": primary_name, "aliases": aliases,
             "updated_photos": len(affected), "published": len(published),
@@ -4947,6 +4954,7 @@ def main():
         print(f"  {APP_NAME} v{APP_VERSION}\n  {APP_TAGLINE}\n", flush=True)
     print(f"  Local library: {url}\n  Press Ctrl+C in this window to stop LensLedger.", flush=True)
     print("=" * 62 + "\n", flush=True)
+    console_log(f"{APP_NAME} v{APP_VERSION} started")
     console_log(f"Library: {root}")
     console_log(f"Database: {database}")
     if watch_cfg.get("enabled"):

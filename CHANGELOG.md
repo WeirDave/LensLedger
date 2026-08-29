@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.77.0 — 2026-08-28
+
+- Added persistent log file (`LensLedger.log`) that captures all activity to disk — scans, imports, people review, publishes, and renames — so troubleshooting is possible even after the terminal is closed.
+- Added console logging for person rename operations, showing name changes, alias updates, and how many photos were updated.
+- Converted all People review and Publish console output to use the unified logger with timestamps.
+- Log file location is now shown on the Settings page.
+- Log file rotates automatically at 5 MB with one backup kept.
+
 ## 0.76.3 — 2026-08-28
 
 - Hidden the redundant "Confirm all" button when "Confirm all remaining" is available — only one confirmation action shows at a time to avoid confusion.

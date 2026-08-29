@@ -66,6 +66,8 @@ class ServerWorkflowTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
+        import console_log
+        console_log.shutdown()
         self.environment.stop()
         self.temporary.cleanup()
 
