@@ -357,14 +357,21 @@ def create_verified_database_backup(db_path: Path) -> Path:
 
 def _run_library_scan_job(handler_class, root, database, started_at):
     """Run one location/library scan pass, updating handler_class.library_job as it goes."""
-    console_log(f"Scan started: {root}")
+    console_log(f"Photo locations: scanning {root}")
     try:
+        _lib_started_logged = False
+
         def update_progress(counts):
+            nonlocal _lib_started_logged
             scanned = int(counts["scanned"])
             changed = int(counts["changed"])
             errors = int(counts["errors"])
-            if scanned > 0 and scanned % 500 == 0:
-                parts = [f"Scan progress: {scanned:,} files discovered, {changed:,} changed"]
+            total_estimate = int(counts.get("total_estimate", 0))
+            if not _lib_started_logged and total_estimate > 0:
+                console_log(f"Photo locations: ~{total_estimate:,} files to check")
+                _lib_started_logged = True
+            if scanned > 0 and scanned % 2000 == 0:
+                parts = [f"Photo locations: {scanned:,} files checked, {changed:,} changed"]
                 if errors:
                     parts.append(f"{errors:,} errors")
                 console_log(" — ".join(parts))
@@ -419,13 +426,13 @@ def _run_library_scan_job(handler_class, root, database, started_at):
         errors = int(progress_counts.get("errors", 0))
         total = summary.get("assets", 0)
         if state == "cancelled":
-            console_log(f"Scan paused — {changed:,} changed, {total:,} total assets")
+            console_log(f"Photo locations: paused — {changed:,} changed, {total:,} total assets")
         elif errors:
-            console_log(f"Scan complete with {errors:,} error(s) — {changed:,} changed, {removed:,} removed, {total:,} total assets")
+            console_log(f"Photo locations: done with {errors:,} error(s) — {changed:,} changed, {removed:,} removed, {total:,} total assets")
         else:
-            console_log(f"Scan complete — {changed:,} changed, {removed:,} removed, {total:,} total assets")
+            console_log(f"Photo locations: done — {changed:,} changed, {removed:,} removed, {total:,} total assets")
     except Exception as exc:
-        console_log(f"Scan failed: {exc}")
+        console_log(f"Photo locations: failed — {exc}")
         with handler_class.library_lock:
             handler_class.library_job = {
                 "state": "error", "message": str(exc), "target_root": str(root),
@@ -434,14 +441,20 @@ def _run_library_scan_job(handler_class, root, database, started_at):
 
 def _run_ocr_job(handler_class, database, since, workers, started_at):
     """Run one OCR pass, updating handler_class.ocr_job as it goes."""
-    console_log("OCR started")
+    console_log("Text recognition (OCR): starting")
     try:
+        _ocr_started_logged = False
+
         def update_progress(counts):
+            nonlocal _ocr_started_logged
             attempted = int(counts["attempted"])
             total = int(counts["total"])
             errors = int(counts["errors"])
-            if attempted > 0 and attempted % 100 == 0:
-                parts = [f"OCR progress: {attempted:,} / {total:,} images"]
+            if not _ocr_started_logged and total > 0:
+                console_log(f"Text recognition (OCR): {total:,} images to process")
+                _ocr_started_logged = True
+            if attempted > 0 and attempted % 25 == 0:
+                parts = [f"Text recognition (OCR): {attempted:,} / {total:,} images"]
                 if errors:
                     parts.append(f"{errors:,} errors")
                 console_log(" — ".join(parts))
@@ -472,27 +485,33 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
             handler_class.ocr_job = current
         attempted = int(current.get("attempted", 0))
         if state == "cancelled":
-            console_log(f"OCR paused after {attempted:,} images")
+            console_log(f"Text recognition (OCR): paused after {attempted:,} images")
         elif error_count:
-            console_log(f"OCR complete — {attempted:,} images, {error_count:,} error(s)")
+            console_log(f"Text recognition (OCR): done — {attempted:,} images, {error_count:,} error(s)")
         else:
-            console_log(f"OCR complete — {attempted:,} images processed")
+            console_log(f"Text recognition (OCR): done — {attempted:,} images processed")
     except Exception as exc:
-        console_log(f"OCR failed: {exc}")
+        console_log(f"Text recognition (OCR): failed — {exc}")
         with handler_class.ocr_lock:
             handler_class.ocr_job = {"state": "error", "message": str(exc)}
 
 
 def _run_semantic_index_job(handler_class, database, batch_size, started_at):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
-    console_log("Meaning search indexing started")
+    console_log("Meaning search: starting")
     try:
+        _sem_started_logged = False
+
         def update_progress(counts):
+            nonlocal _sem_started_logged
             indexed = int(counts["indexed"])
             total = int(counts["total"])
             errors = int(counts["errors"])
-            if indexed > 0 and indexed % 100 == 0:
-                parts = [f"Meaning search progress: {indexed:,} / {total:,} images indexed"]
+            if not _sem_started_logged and total > 0:
+                console_log(f"Meaning search: {total:,} images to index")
+                _sem_started_logged = True
+            if indexed > 0 and indexed % 50 == 0:
+                parts = [f"Meaning search: {indexed:,} / {total:,} images indexed"]
                 if errors:
                     parts.append(f"{errors:,} errors")
                 console_log(" — ".join(parts))
@@ -527,28 +546,34 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
             }
         indexed = int(result["indexed"])
         if result["cancelled"]:
-            console_log(f"Meaning search paused after {indexed:,} images")
+            console_log(f"Meaning search: paused after {indexed:,} images")
         elif error_count:
-            console_log(f"Meaning search complete — {indexed:,} indexed, {error_count:,} error(s)")
+            console_log(f"Meaning search: done — {indexed:,} indexed, {error_count:,} error(s)")
         else:
-            console_log(f"Meaning search complete — {indexed:,} images indexed")
+            console_log(f"Meaning search: done — {indexed:,} images indexed")
     except Exception as exc:
-        console_log(f"Meaning search failed: {exc}")
+        console_log(f"Meaning search: failed — {exc}")
         with handler_class.semantic_lock:
             handler_class.semantic_job = {"state": "error", "message": str(exc)}
 
 
 def _run_face_scan_job(handler_class, database, library_root, started_at):
-    console_log("Face detection started")
     """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
+    console_log("Face detection: starting")
     try:
+        _face_started_logged = False
+
         def update_progress(counts):
+            nonlocal _face_started_logged
             processed = int(counts["processed"])
             total = int(counts["total"])
             faces = int(counts["faces_found"])
             errors = int(counts["errors"])
-            if processed > 0 and processed % 100 == 0:
-                parts = [f"Face detection progress: {processed:,} / {total:,} photos, {faces:,} faces found"]
+            if not _face_started_logged and total > 0:
+                console_log(f"Face detection: {total:,} photos to scan")
+                _face_started_logged = True
+            if processed > 0 and processed % 50 == 0:
+                parts = [f"Face detection: {processed:,} / {total:,} photos, {faces:,} faces found"]
                 if errors:
                     parts.append(f"{errors:,} errors")
                 console_log(" — ".join(parts))
@@ -586,13 +611,13 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
         faces = int(result.get("faces_found", 0))
         processed = int(result.get("processed", 0))
         if result["cancelled"]:
-            console_log(f"Face detection paused after {processed:,} photos, {faces:,} faces found")
+            console_log(f"Face detection: paused after {processed:,} photos, {faces:,} faces found")
         elif face_error_count:
-            console_log(f"Face detection complete — {faces:,} faces in {processed:,} photos, {face_error_count:,} error(s)")
+            console_log(f"Face detection: done — {faces:,} faces in {processed:,} photos, {face_error_count:,} error(s)")
         else:
-            console_log(f"Face detection complete — {faces:,} faces found in {processed:,} photos")
+            console_log(f"Face detection: done — {faces:,} faces found in {processed:,} photos")
     except Exception as exc:
-        console_log(f"Face detection failed: {exc}")
+        console_log(f"Face detection: failed — {exc}")
         with handler_class.face_scan_lock:
             handler_class.face_scan_job = {"state": "error", "message": str(exc)}
 

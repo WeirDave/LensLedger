@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.14 — 2026-08-29
+
+- Each scan phase now identifies itself in the terminal log (e.g., "Photo locations:", "Text recognition (OCR):", "Meaning search:", "Face detection:") instead of generic "Scan started" / "OCR started".
+- Each phase logs its total item count at the start so you can see work is happening even for small batches.
+- Lowered progress intervals so updates appear more frequently during scans.
+
 ## 0.81.13 — 2026-08-29
 
 - Excluded GIF files from face detection to prevent OpenCV 5.0.0 stderr spam from undecodable GIF color tables.
