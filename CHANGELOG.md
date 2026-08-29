@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.8 — 2026-08-29
+
+- Added live progress bar to the Publish photos page that updates in real time as each photo is processed, showing count and percentage instead of a static "Starting publish" message.
+
 ## 0.81.7 — 2026-08-29
 
 - Fixed confirmed faces resurfacing as unidentified when a person was added from the photo viewer instead of the faces-review page.

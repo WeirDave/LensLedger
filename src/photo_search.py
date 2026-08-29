@@ -726,6 +726,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     scan_all_lock = threading.Lock()
     scan_all_job: dict[str, object] = {"state": "idle", "message": ""}
     scan_all_cancel = threading.Event()
+    publish_progress: dict[str, object] = {"state": "idle", "done": 0, "total": 0, "current": ""}
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
@@ -826,6 +827,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.publish_page()
         if url.path == "/api/publish/pending":
             return self.publish_pending()
+        if url.path == "/api/publish/progress":
+            return self.send_json(SearchHandler.publish_progress)
         if url.path == "/map":
             return self.map_page()
         if url.path == "/scan-photos":
@@ -2358,36 +2361,41 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             self.send_json({"ok": True, "published": 0, "total": 0})
             return
         console_log(f"[Publish] Writing metadata to {total} photos…")
+        SearchHandler.publish_progress = {"state": "running", "done": 0, "total": total, "current": ""}
         published = 0
         failed: list[dict] = []
         skipped = 0
         for i, asset_id in enumerate(asset_ids):
+            current_path = ""
             try:
                 with self.db() as con:
                     result = self._publish_people_metadata(con, asset_id)
                     if result:
                         published += 1
+                        current_path = result['relative_path']
                         names = ", ".join(result["people"]) if result.get("people") else "(no names)"
-                        console_log(f"[Publish] Wrote: {result['relative_path']} — {names}")
+                        console_log(f"[Publish] Wrote: {current_path} — {names}")
                     else:
                         skipped += 1
                         asset = self.get_active_asset(con, asset_id)
-                        path = asset["relative_path"]
-                        console_log(f"[Publish] Skipped (not publishable): {path}")
-                        failed.append({"path": path, "reason": "Not a publishable file type"})
+                        current_path = asset["relative_path"]
+                        console_log(f"[Publish] Skipped (not publishable): {current_path}")
+                        failed.append({"path": current_path, "reason": "Not a publishable file type"})
             except Exception as exc:
                 reason = str(exc) or type(exc).__name__
                 try:
                     with self.db() as con:
                         asset = self.get_active_asset(con, asset_id)
-                        path = asset["relative_path"]
+                        current_path = asset["relative_path"]
                 except Exception:
-                    path = f"(asset id {asset_id})"
-                console_log(f"[Publish] Failed: {path} — {reason}")
-                failed.append({"path": path, "reason": reason})
+                    current_path = f"(asset id {asset_id})"
+                console_log(f"[Publish] Failed: {current_path} — {reason}")
+                failed.append({"path": current_path, "reason": reason})
             done = i + 1
+            SearchHandler.publish_progress = {"state": "running", "done": done, "total": total, "current": current_path}
             if done % 25 == 0 or done == total:
                 console_log(f"[Publish] {done}/{total} photos")
+        SearchHandler.publish_progress = {"state": "idle", "done": 0, "total": 0, "current": ""}
         console_log(f"[Publish] Done — {published}/{total} photos updated.")
         if failed:
             console_log(f"[Publish] {len(failed)} photo(s) failed or skipped.")

@@ -71,8 +71,21 @@ $('publishAll').onclick = async () => {
   $('progressText').textContent = 'Starting publish…';
   $('progressFill').style.width = '0%';
   $('globalProgress').textContent = 'Publishing…';
+  const pollId = setInterval(async () => {
+    try {
+      const r = await fetch('/api/publish/progress');
+      const p = await r.json();
+      if (p.state === 'running' && p.total > 0) {
+        const pct = Math.round((p.done / p.total) * 100);
+        $('progressFill').style.width = pct + '%';
+        $('progressText').textContent = p.done + ' of ' + p.total + ' photos';
+        $('globalProgress').textContent = p.done + '/' + p.total;
+      }
+    } catch {}
+  }, 500);
   try {
     const result = await api('/api/publish/run', {});
+    clearInterval(pollId);
     $('progressFill').style.width = '100%';
     $('progressText').textContent = '';
     progress.hidden = true;
@@ -104,6 +117,7 @@ $('publishAll').onclick = async () => {
       $('globalProgress').textContent = failed.length + ' failed';
     }
   } catch (e) {
+    clearInterval(pollId);
     $('progressText').textContent = 'Error: ' + e.message;
     $('publishAll').disabled = false;
     $('publishActions').hidden = false;
