@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -360,9 +361,10 @@ def _run_library_scan_job(handler_class, root, database, started_at):
     console_log(f"Photo locations: scanning {root}")
     try:
         _lib_started_logged = False
+        _lib_last_log_time = time.monotonic()
 
         def update_progress(counts):
-            nonlocal _lib_started_logged
+            nonlocal _lib_started_logged, _lib_last_log_time
             scanned = int(counts["scanned"])
             changed = int(counts["changed"])
             errors = int(counts["errors"])
@@ -370,8 +372,10 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             if not _lib_started_logged and total_estimate > 0:
                 console_log(f"Photo locations: ~{total_estimate:,} files to check")
                 _lib_started_logged = True
-            if scanned > 0 and scanned % 2000 == 0:
-                parts = [f"Photo locations: {scanned:,} files checked, {changed:,} changed"]
+            now = time.monotonic()
+            if scanned > 0 and now - _lib_last_log_time >= 10:
+                _lib_last_log_time = now
+                parts = [f"Photo locations: {scanned:,} / ~{total_estimate:,} files checked, {changed:,} changed"]
                 if errors:
                     parts.append(f"{errors:,} errors")
                 console_log(" — ".join(parts))
@@ -443,17 +447,21 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
     """Run one OCR pass, updating handler_class.ocr_job as it goes."""
     console_log("Text recognition (OCR): starting")
     try:
+
         _ocr_started_logged = False
+        _ocr_last_log_time = time.monotonic()
 
         def update_progress(counts):
-            nonlocal _ocr_started_logged
+            nonlocal _ocr_started_logged, _ocr_last_log_time
             attempted = int(counts["attempted"])
             total = int(counts["total"])
             errors = int(counts["errors"])
             if not _ocr_started_logged and total > 0:
                 console_log(f"Text recognition (OCR): {total:,} images to process")
                 _ocr_started_logged = True
-            if attempted > 0 and attempted % 25 == 0:
+            now = time.monotonic()
+            if attempted > 0 and now - _ocr_last_log_time >= 10:
+                _ocr_last_log_time = now
                 parts = [f"Text recognition (OCR): {attempted:,} / {total:,} images"]
                 if errors:
                     parts.append(f"{errors:,} errors")
@@ -500,17 +508,21 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
     console_log("Meaning search: starting")
     try:
+
         _sem_started_logged = False
+        _sem_last_log_time = time.monotonic()
 
         def update_progress(counts):
-            nonlocal _sem_started_logged
+            nonlocal _sem_started_logged, _sem_last_log_time
             indexed = int(counts["indexed"])
             total = int(counts["total"])
             errors = int(counts["errors"])
             if not _sem_started_logged and total > 0:
                 console_log(f"Meaning search: {total:,} images to index")
                 _sem_started_logged = True
-            if indexed > 0 and indexed % 50 == 0:
+            now = time.monotonic()
+            if indexed > 0 and now - _sem_last_log_time >= 10:
+                _sem_last_log_time = now
                 parts = [f"Meaning search: {indexed:,} / {total:,} images indexed"]
                 if errors:
                     parts.append(f"{errors:,} errors")
@@ -561,10 +573,12 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
     """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
     console_log("Face detection: starting")
     try:
+
         _face_started_logged = False
+        _face_last_log_time = time.monotonic()
 
         def update_progress(counts):
-            nonlocal _face_started_logged
+            nonlocal _face_started_logged, _face_last_log_time
             processed = int(counts["processed"])
             total = int(counts["total"])
             faces = int(counts["faces_found"])
@@ -572,7 +586,9 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             if not _face_started_logged and total > 0:
                 console_log(f"Face detection: {total:,} photos to scan")
                 _face_started_logged = True
-            if processed > 0 and processed % 50 == 0:
+            now = time.monotonic()
+            if processed > 0 and now - _face_last_log_time >= 10:
+                _face_last_log_time = now
                 parts = [f"Face detection: {processed:,} / {total:,} photos, {faces:,} faces found"]
                 if errors:
                     parts.append(f"{errors:,} errors")

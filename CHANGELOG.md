@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.15 — 2026-08-29
+
+- Switched scan progress logging from count-based intervals to time-based (every 10 seconds) so progress always appears during long-running scans regardless of batch size.
+
 ## 0.81.14 — 2026-08-29
 
 - Each scan phase now identifies itself in the terminal log (e.g., "Photo locations:", "Text recognition (OCR):", "Meaning search:", "Face detection:") instead of generic "Scan started" / "OCR started".
