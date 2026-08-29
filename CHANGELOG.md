@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.70.1 — 2026-08-28
+
+- Name Faces log messages now show the full relative path instead of just the filename, making it easier to locate photos in the library.
+
 ## 0.70.0 — 2026-08-28
 
 - "Also looks like" match groups on Name Faces now continuously replenish: after confirming a batch, the system searches for more matches using a centroid built from all confirmed faces for that person, and keeps going until no more are found. This lets you clear out hundreds of photos of one person in a single flow without leaving the page.

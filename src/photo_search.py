@@ -3091,12 +3091,12 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 )
                 sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
                 published.append(self._publish_people_metadata(con, asset_id))
-                fname = con.execute("SELECT filename FROM assets WHERE id=?", (asset_id,)).fetchone()
+                fname = con.execute("SELECT filename, relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
                 matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
         except Exception:
             self._restore_people_batch(published)
             raise
-        print(f'[Name faces] Named "{name}" in {fname["filename"] if fname else f"asset #{asset_id}"}', flush=True)
+        print(f'[Name faces] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}', flush=True)
         self.send_json({"ok": True, "published": 1, "person_id": person_id, "matches": matches})
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=50):
