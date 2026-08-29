@@ -2742,14 +2742,14 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         person_name = str(person["name"])
         corrected = body.get("corrected_name", "").strip()
         if action == "confirmed":
-            print(f'[Name faces] Confirmed "{person_name}" in {log_fname}', flush=True)
+            print(f'[People review] Confirmed "{person_name}" in {log_fname}', flush=True)
         elif action == "corrected" and corrected:
-            print(f'[Name faces] Corrected "{person_name}" → "{corrected}" in {log_fname}', flush=True)
+            print(f'[People review] Corrected "{person_name}" → "{corrected}" in {log_fname}', flush=True)
         elif action == "rejected":
-            print(f'[Name faces] Rejected "{person_name}" in {log_fname}', flush=True)
+            print(f'[People review] Rejected "{person_name}" in {log_fname}', flush=True)
         elif action in self.FACE_DISPOSITION_COLUMNS:
             label = "not a person" if action == "not_a_person" else "unknown person"
-            print(f'[Name faces] Marked {label} in {log_fname}', flush=True)
+            print(f'[People review] Marked {label} in {log_fname}', flush=True)
         self.send_json({"ok": True, "action_id": action_id, "published": 1})
 
     def people_review_batch_decision(self, body):
@@ -2793,14 +2793,14 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     action = item.get("action", "")
                     corrected = item.get("corrected_name", "").strip()
                     if action == "confirmed":
-                        print(f'[Name faces] Confirmed "{person_name}" in {fname}', flush=True)
+                        print(f'[People review] Confirmed "{person_name}" in {fname}', flush=True)
                     elif action == "corrected" and corrected:
-                        print(f'[Name faces] Corrected "{person_name}" → "{corrected}" in {fname}', flush=True)
+                        print(f'[People review] Corrected "{person_name}" → "{corrected}" in {fname}', flush=True)
                     elif action == "rejected":
-                        print(f'[Name faces] Rejected "{person_name}" in {fname}', flush=True)
+                        print(f'[People review] Rejected "{person_name}" in {fname}', flush=True)
                     elif action in self.FACE_DISPOSITION_COLUMNS:
                         label = "not a person" if action == "not_a_person" else "unknown person"
-                        print(f'[Name faces] Marked {label} in {fname}', flush=True)
+                        print(f'[People review] Marked {label} in {fname}', flush=True)
         except Exception:
             self._restore_people_batch(published)
             raise
