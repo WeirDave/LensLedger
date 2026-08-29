@@ -360,6 +360,14 @@ def _run_library_scan_job(handler_class, root, database, started_at):
     console_log(f"Scan started: {root}")
     try:
         def update_progress(counts):
+            scanned = int(counts["scanned"])
+            changed = int(counts["changed"])
+            errors = int(counts["errors"])
+            if scanned > 0 and scanned % 500 == 0:
+                parts = [f"Scan progress: {scanned:,} files discovered, {changed:,} changed"]
+                if errors:
+                    parts.append(f"{errors:,} errors")
+                console_log(" — ".join(parts))
             job_counts = {k: v for k, v in counts.items() if k != "error_details"}
             with handler_class.library_lock:
                 handler_class.library_job = {
@@ -429,6 +437,14 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
     console_log("OCR started")
     try:
         def update_progress(counts):
+            attempted = int(counts["attempted"])
+            total = int(counts["total"])
+            errors = int(counts["errors"])
+            if attempted > 0 and attempted % 100 == 0:
+                parts = [f"OCR progress: {attempted:,} / {total:,} images"]
+                if errors:
+                    parts.append(f"{errors:,} errors")
+                console_log(" — ".join(parts))
             with handler_class.ocr_lock:
                 handler_class.ocr_job = {
                     "state": "running",
@@ -472,6 +488,14 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
     console_log("Meaning search indexing started")
     try:
         def update_progress(counts):
+            indexed = int(counts["indexed"])
+            total = int(counts["total"])
+            errors = int(counts["errors"])
+            if indexed > 0 and indexed % 100 == 0:
+                parts = [f"Meaning search progress: {indexed:,} / {total:,} images indexed"]
+                if errors:
+                    parts.append(f"{errors:,} errors")
+                console_log(" — ".join(parts))
             with handler_class.semantic_lock:
                 handler_class.semantic_job = {
                     "state": "running",
@@ -519,6 +543,15 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
     """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
     try:
         def update_progress(counts):
+            processed = int(counts["processed"])
+            total = int(counts["total"])
+            faces = int(counts["faces_found"])
+            errors = int(counts["errors"])
+            if processed > 0 and processed % 100 == 0:
+                parts = [f"Face detection progress: {processed:,} / {total:,} photos, {faces:,} faces found"]
+                if errors:
+                    parts.append(f"{errors:,} errors")
+                console_log(" — ".join(parts))
             with handler_class.face_scan_lock:
                 handler_class.face_scan_job = {
                     "state": "running",

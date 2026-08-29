@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.12 — 2026-08-29
+
+- Added periodic progress logging to the terminal for all scan types (library scan, OCR, meaning search, face detection) so the console shows what each scanner is doing, not just "started" and "complete".
+
 ## 0.81.11 — 2026-08-29
 
 - Removed unnecessary text truncation from the lightbox file path display; the full path is now always visible.
