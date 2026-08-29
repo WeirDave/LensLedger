@@ -166,13 +166,15 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("function createPersonPicker", script)
         self.assertIn("+ New person", script)
 
-    def test_onboarding_page_discloses_where_data_lives_and_offers_ocr(self):
-        from app_paths import data_root
+    def test_onboarding_page_shown_for_true_first_run(self):
         from photo_index import connect
+        from library_config import LIBRARY_STATE_PATH
 
         empty_database = self.root / "empty.sqlite3"
         connect(empty_database).close()
         self.photo_search.SearchHandler.current_library = (self.library.resolve(), empty_database)
+        if LIBRARY_STATE_PATH.is_file():
+            LIBRARY_STATE_PATH.unlink()
         try:
             with self.get("/") as response:
                 page = response.read().decode("utf-8")
@@ -181,6 +183,23 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("Let’s find your photo library", page)
         self.assertIn(".LensLedger", page)
         self.assertIn("startOcr", page)
+
+    def test_reconnection_page_shown_when_library_known_but_database_empty(self):
+        from library_config import save_library_state
+        from photo_index import connect
+
+        save_library_state(self.library.resolve())
+        empty_database = self.root / "empty.sqlite3"
+        connect(empty_database).close()
+        self.photo_search.SearchHandler.current_library = (self.library.resolve(), empty_database)
+        try:
+            with self.get("/") as response:
+                page = response.read().decode("utf-8")
+        finally:
+            self.photo_search.SearchHandler.current_library = (self.library.resolve(), self.database)
+        self.assertIn("Welcome back", page)
+        self.assertIn("Your library couldn", page)
+        self.assertIn("reconnect.js", page)
 
     def test_update_status_runs_in_background_and_reports_current_release(self):
         release = {

@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.79.0 — 2026-08-29
+
+- Added "Welcome back" reconnection screen when a library's folder can't be found (drive unplugged, folder moved) — replaces the scary first-run setup screen that made users think they'd lost their data.
+- Added library picker page shown at startup when multiple libraries exist and the "Ask which library to open at startup" setting is enabled.
+- Added "Ask which library to open at startup" toggle to the Photo libraries section of Settings.
+
 ## 0.78.0 — 2026-08-29
 
 - Added live progress indicator for "Confirm all remaining" in People review — a spinning animation and round-by-round count replace the old static "this may take a moment" text.

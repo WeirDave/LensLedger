@@ -73,6 +73,41 @@ def _save_db_mappings(mappings: dict[str, str]) -> None:
     tmp.replace(LIBRARY_STATE_PATH)
 
 
+def load_all_known_libraries() -> list[dict[str, object]]:
+    """Return every library ever recorded, including ones whose folders no longer exist."""
+    try:
+        value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        if isinstance(value, dict):
+            current = str(value.get("current_root") or value.get("root") or "")
+            libraries = value.get("libraries", [])
+            if not isinstance(libraries, list):
+                libraries = []
+            seen: set[str] = set()
+            result: list[dict[str, object]] = []
+            for item in libraries:
+                if not isinstance(item, str) or not item.strip():
+                    continue
+                try:
+                    resolved = str(Path(item).resolve())
+                except OSError:
+                    resolved = item
+                key = resolved.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                accessible = Path(item).is_dir()
+                result.append({
+                    "path": resolved,
+                    "label": Path(resolved).name or resolved,
+                    "accessible": accessible,
+                    "is_current": resolved.casefold() == current.casefold() if current else False,
+                })
+            return result
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return []
+
+
 def load_library_config() -> dict[str, object]:
     try:
         value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))

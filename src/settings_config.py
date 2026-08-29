@@ -32,6 +32,9 @@ DEFAULTS: dict[str, object] = {
         "destination_folder": "",
         "rules": [],
     },
+    "startup": {
+        "show_library_picker": False,
+    },
 }
 
 AVAILABLE_MODELS: list[dict[str, str]] = [
