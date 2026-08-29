@@ -131,9 +131,10 @@ function showDoneStatus(name, moreData) {
 
 function addMatchGroup(name, personId, matches, moreData) {
   const autoCount = moreData ? moreData.auto_confirmed : 0;
-  const confidencePct = moreData ? moreData.confidence_pct : 0;
   const confirmedCount = moreData ? moreData.confirmed_count : 0;
   const totalRemaining = moreData ? moreData.total_remaining : 0;
+  const accuracyPct = moreData ? moreData.accuracy_pct : -1;
+  const reviewedCount = moreData ? moreData.reviewed_count : 0;
   const ids = matches.map(match => match.face_id);
   ids.forEach(id => pending.add(id));
   ids.forEach(id => {
@@ -150,8 +151,15 @@ function addMatchGroup(name, personId, matches, moreData) {
   group.querySelector('strong').textContent = 'Also looks like ' + name;
   const countParts = [matches.length + ' to review'];
   if (autoCount) countParts.unshift(autoCount + ' auto-confirmed');
+  if (confirmedCount >= 10 && accuracyPct === 100) {
+    countParts.push('ready to confirm all');
+  } else if (confirmedCount > 0) {
+    const needed = Math.max(0, 10 - confirmedCount);
+    if (needed > 0) countParts.push(confirmedCount + '/10 confirmed — keep going');
+    else if (accuracyPct < 100) countParts.push(accuracyPct + '% accuracy — review more to improve');
+  }
   group.querySelector('.match-count').textContent = countParts.join(' · ');
-  if (confirmedCount >= 25 && confidencePct >= 75 && totalRemaining > 0) {
+  if (confirmedCount >= 10 && accuracyPct === 100 && totalRemaining > 0) {
     const confirmRemBtn = document.createElement('button');
     confirmRemBtn.type = 'button';
     confirmRemBtn.className = 'confirm-remaining';
@@ -176,7 +184,7 @@ function addMatchGroup(name, personId, matches, moreData) {
         updateProgress();
         ids.forEach(id => pending.delete(id));
         group.remove();
-        showDoneStatus(name, { auto_confirmed: (result.confirmed || 0) + checkedIds.length, confidence_pct: confidencePct });
+        showDoneStatus(name, { auto_confirmed: (result.confirmed || 0) + checkedIds.length });
       } catch (error) {
         status.textContent = error.message;
         group.querySelectorAll('button').forEach(b => b.disabled = false);

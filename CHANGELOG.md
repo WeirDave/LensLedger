@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.76.0 — 2026-08-28
+
+- Renamed "Name faces" to "People review" throughout the app — nav, page title, header, manual, log messages.
+- Removed "Review people" from the navigation menu (page still accessible by URL).
+- Changed "Confirm all remaining" threshold from 25 confirmed + 75% cohesion to 10+ confirmed with 100% accuracy — based on analysis of real review data showing the system is correct from the very first suggestion for 55 out of 58 people.
+- Added progress feedback in match group headers: "5/10 confirmed — keep going" → "ready to confirm all" so users know when to stop reviewing and let the system take over.
+- Updated user manual: consolidated two-stage workflow into a single "People review" section with "When to stop" guidance.
+
 ## 0.75.0 — 2026-08-28
 
 - Added recognition accuracy percentage to People gallery cards on the search page, calculated from review history (confirmed vs. rejected/corrected suggestions).

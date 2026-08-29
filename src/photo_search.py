@@ -166,8 +166,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<summary class="menu-section-label">Navigation</summary>'
         + _link("/", "⌂ Home", "home")
         + _link("/scan-photos", "\U0001f50e Scan photos", "scan-photos")
-        + _link("/faces-review", "\U0001f642 Name faces", "faces-review")
-        + _link("/people-review", "\U0001f465 Review people", "people-review")
+        + _link("/faces-review", "\U0001f465 People review", "faces-review")
         + _link("/publish", "\U0001f4e4 Publish photos", "publish")
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
@@ -540,8 +539,7 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             else:
                 face_message = (
                     f"Face detection complete: {result['faces_found']:,} faces found. "
-                    f"Name a few people in \"Name faces\" above, then go to \"Review people\" "
-                    f"where LensLedger will suggest matches across your whole library."
+                    f"Go to \"People review\" to name a few faces — LensLedger will find the rest across your whole library."
                 )
             current.update({"state": state, "message": face_message})
             handler_class.face_scan_job = current
@@ -1199,7 +1197,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </table>
 <p>Set up meaning search from <a href="/settings#meaning-search">Settings</a>. Changing the model re-indexes on the next run.</p>
 <h3>Face detection (optional)</h3>
-<p>Finds faces in your photos so they can be identified in <a href="/faces-review">Name faces</a> and <a href="/people-review">Review people</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
+<p>Finds faces in your photos so they can be identified in <a href="/faces-review">People review</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
 <h3>Backups</h3>
 <p>Click <strong>Create verified database backup</strong> to make a verified copy of your database with an integrity check.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
@@ -1255,23 +1253,22 @@ class SearchHandler(BaseHTTPRequestHandler):
 
 <section class="manual-section" id="people">
 <h2>6. People and Faces</h2>
-<p>LensLedger has a two-stage workflow for identifying people in your photos. You don&rsquo;t need to name every face by hand &mdash; name a few, then let LensLedger find the rest.</p>
-<h3>Stage 1: Name faces (seed the system)</h3>
-<p>Go to <a href="/faces-review">Name faces</a>. A grid of unidentified face crops is shown, diversity-sampled for variety. Name a handful of different people (5&ndash;10 is plenty) &mdash; you don&rsquo;t need to work through the entire queue. For each face:</p>
+<p>Go to <a href="/faces-review">People review</a>. You don&rsquo;t need to name every face by hand &mdash; name a few, then let LensLedger find the rest.</p>
+<h3>How it works</h3>
+<p>A grid of unidentified face crops is shown, diversity-sampled for variety. For each face:</p>
 <ul>
 <li><strong>Name it</strong> &mdash; type a name (with autocomplete). Similar unidentified faces appear as &ldquo;Also looks like&rdquo; matches for one-click confirmation.</li>
 <li><strong>Not a person</strong> &mdash; mark false detections (statues, posters, etc.)</li>
 <li><strong>Unknown person</strong> &mdash; mark as a real person you don&rsquo;t want to name yet</li>
 </ul>
-<p>Use &ldquo;Enlarge&rdquo; or double-click any face crop to see the full photo for context. Once you&rsquo;ve named a few people, move on to Stage 2.</p>
-<h3>Stage 2: Review people (the fast part)</h3>
-<p>Go to <a href="/people-review">Review people</a>. LensLedger uses the faces you named in Stage 1 to find matches across your entire library &mdash; this is where the bulk of identification happens. Batches of face-match suggestions are shown per person. For each photo:</p>
+<p>Use &ldquo;Enlarge&rdquo; or double-click any face crop to see the full photo for context.</p>
+<h3>When to stop</h3>
+<p>As you confirm faces, the match group header tracks your progress toward a threshold where the system can take over:</p>
 <ul>
-<li><strong>Confirm</strong> &mdash; this is the right person</li>
-<li><strong>Wrong</strong> &mdash; this is not the right person</li>
-<li><strong>Correct</strong> &mdash; reassign to a different person</li>
+<li><strong>&ldquo;5/10 confirmed &mdash; keep going&rdquo;</strong> &mdash; the system is still learning. Keep confirming batches.</li>
+<li><strong>&ldquo;ready to confirm all&rdquo;</strong> &mdash; you&rsquo;ve confirmed 10+ faces with 100% accuracy. The system knows this face well enough to handle the rest. Click <strong>Confirm all remaining</strong> and move on to the next person.</li>
 </ul>
-<p>Use <strong>Save &amp; publish this group</strong> to confirm and write names into JPEG metadata. <strong>Undo last batch</strong> rolls back decisions including metadata changes. You can <strong>defer</strong> a person&rsquo;s suggestions for 1&ndash;30 days.</p>
+<p>If accuracy drops below 100% (the system made some wrong suggestions), you&rsquo;ll see the accuracy percentage instead. Keep reviewing to refine the model.</p>
 <h3>Recognition accuracy</h3>
 <p>Each person&rsquo;s card on the People search page shows two key numbers:</p>
 <ul>
@@ -1282,7 +1279,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p><strong>What accuracy means:</strong> a person at 100% accuracy means every suggestion the system made was correct &mdash; you never had to reject or correct a match. A lower accuracy (e.g. 87%) means the system occasionally suggests the wrong face for that person, likely because they resemble someone else in your library. Accuracy improves as you review more suggestions, because each confirmation refines the person&rsquo;s face model.</p>
 <p>Accuracy appears once you&rsquo;ve reviewed at least one suggestion for a person. If no suggestions have been reviewed yet, only the confirmed count is shown.</p>
 <h3>Confirm all remaining</h3>
-<p>When a person has at least 25 confirmed faces and 75% or higher confidence, a <strong>Confirm all remaining</strong> button appears in the Name faces match group. This confirms every remaining match in a single click instead of reviewing 200 at a time. The system loops server-side: compute centroid, find matches, confirm, repeat until no new matches are found.</p>
+<p>When a person has at least 10 confirmed faces and 100% accuracy (every suggestion was correct), a <strong>Confirm all remaining</strong> button appears. This confirms every remaining match in a single click instead of reviewing 200 at a time. The system loops server-side: compute centroid, find matches, confirm, repeat until no new matches are found.</p>
 <h3>Managing people</h3>
 <p>From the People search scope on the home page:</p>
 <ul>
@@ -1355,7 +1352,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li>Click <strong>Restore last publish</strong> to revert from the safety backup</li>
 </ul>
 <h3>Auto-publishing</h3>
-<p>When you confirm people in <a href="/people-review">Review people</a>, their names are automatically published to the JPEG metadata.</p>
+<p>When you confirm people in <a href="/faces-review">People review</a>, their names are saved to the database. Use <a href="/publish">Publish photos</a> to write the metadata to your JPEG files.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -2096,7 +2093,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             f'<div class="people-head-actions"><span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
-            f'<button type="button" id="reviewPeopleGallery">Review people ({review_count:,})</button></div></div><section class="people-grid">'
+            f'<button type="button" id="reviewPeopleGallery">People review ({review_count:,})</button></div></div><section class="people-grid">'
             + ("".join(gallery_cards) if gallery_cards else '<p class="people-empty">No people match that name.</p>')
             + '</section></main>'
         ) if gallery_mode else ""
@@ -2174,9 +2171,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
     def faces_review_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Name faces — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
+<title>People review — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
-<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Name faces</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("faces-review", str(self.library_root))}
 <main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><p class="intro" hidden>Faces LensLedger has detected but nobody has named yet. You don&#x27;t need to name every face here — just name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Then head to <a href="/people-review">Review people</a>, where LensLedger uses what you taught it to suggest matches across your entire library. That&#x27;s much faster than naming thousands of faces one by one. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button><button type="button" class="danger" id="lightboxTrash">Trash photo</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div></div>
@@ -2194,7 +2191,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Publish photos</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("publish", str(self.library_root))}
 <main>
-<p class="intro">Names confirmed in Name faces and Review people are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
+<p class="intro">Names confirmed in People review are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
 <div class="publish-summary" id="publishSummary"><div class="loading-spinner"></div> Loading&hellip;</div>
 <div class="publish-table-wrap" id="publishTableWrap" hidden></div>
 <div class="publish-actions" id="publishActions" hidden>
@@ -3210,7 +3207,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
             fname = con.execute("SELECT filename, relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
             matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
-        print(f'[Name faces] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}', flush=True)
+        print(f'[People review] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}', flush=True)
         self.send_json({"ok": True, "person_id": person_id, "matches": matches})
 
     def name_face_batch(self, body):
@@ -3252,7 +3249,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 sync_person_tags(con, asset_id)
                 rebuild_search_row(con, asset_id)
                 confirmed += 1
-        print(f'[Name faces] Batch confirmed {confirmed} as "{name}"', flush=True)
+        print(f'[People review] Batch confirmed {confirmed} as "{name}"', flush=True)
         self.send_json({"ok": True, "confirmed": confirmed})
 
     def publish_person_metadata(self, body):
@@ -3276,10 +3273,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         name = person["name"]
         total = len(asset_ids)
         if not total:
-            print(f'[Name faces] No photos to publish for "{name}"', flush=True)
+            print(f'[People review] No photos to publish for "{name}"', flush=True)
             self.send_json({"ok": True, "published": 0})
             return
-        print(f'[Name faces] Publishing "{name}" to {total} photos…', flush=True)
+        print(f'[People review] Publishing "{name}" to {total} photos…', flush=True)
         published = 0
         for i, asset_id in enumerate(asset_ids):
             try:
@@ -3291,7 +3288,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 pass
             done = i + 1
             if done % 25 == 0 or done == total:
-                print(f'[Name faces] Published "{name}" — {done}/{total}', flush=True)
+                print(f'[People review] Published "{name}" — {done}/{total}', flush=True)
         self.send_json({"ok": True, "published": published})
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
@@ -3421,15 +3418,23 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 for score, row in borderline[:200]
             ]
         n = len(vectors)
-        scores = sorted((dot(center, v) for v in vectors), reverse=True)
-        cohesion = scores[len(scores) // 2] if scores else 0.0
-        confidence_pct = max(0, min(100, round(cohesion * 100)))
         total_borderline = len(borderline)
-        print(f'[Name faces] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {confidence_pct}% confidence)', flush=True)
+        with self.db() as con2:
+            review_stats = con2.execute(
+                """SELECT COUNT(*) as total,
+                          SUM(CASE WHEN action='confirmed' THEN 1 ELSE 0 END) as correct
+                   FROM people_review_actions WHERE person_id=? AND undone_at IS NULL""",
+                (person_id,),
+            ).fetchone()
+        reviewed = int(review_stats["total"]) if review_stats["total"] else 0
+        correct = int(review_stats["correct"]) if review_stats["correct"] else 0
+        accuracy_pct = round(correct * 100 / reviewed) if reviewed else -1
+        print(f'[People review] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {reviewed} reviewed, {accuracy_pct}% accuracy)', flush=True)
         self.send_json({
             "ok": True, "matches": matches, "auto_confirmed": auto_confirmed,
             "name": person["name"], "confirmed_count": n,
-            "confidence_pct": confidence_pct, "total_remaining": total_borderline,
+            "accuracy_pct": accuracy_pct, "reviewed_count": reviewed,
+            "total_remaining": total_borderline,
         })
 
     def confirm_remaining_faces(self, body):
@@ -3500,10 +3505,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     round_confirmed += 1
                 rounds += 1
                 total_confirmed += round_confirmed
-                print(f'[Name faces] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)', flush=True)
+                print(f'[People review] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)', flush=True)
                 if round_confirmed == 0:
                     break
-        print(f'[Name faces] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)', flush=True)
+        print(f'[People review] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)', flush=True)
         self.send_json({"ok": True, "confirmed": total_confirmed, "rounds": rounds})
 
     def ignore_face(self, body):
