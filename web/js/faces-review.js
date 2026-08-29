@@ -196,6 +196,11 @@ function addMatchGroup(name, matches) {
 
 let openFace = null;
 let openCard = null;
+const lbZoom = initLightboxZoom('largePhotoBox');
+if (lbZoom) {
+  const resetBtn = document.querySelector('#largePhotoBox .lb-zoom-reset');
+  if (resetBtn) resetBtn.onclick = function() { lbZoom.reset(); lbZoom.repositionFaceBoxes(); };
+}
 
 // Ports people-review.js's markFace geometry (letterboxed object-fit:contain
 // math) to draw a box on the full photo in the lightbox, given the face's
@@ -215,6 +220,7 @@ function markFace(container, img, face) {
   const marker = document.createElement('div');
   marker.className = 'face-box';
   marker.innerHTML = '<span>This face</span>';
+  marker._faceData = face;
   container.append(marker);
   const position = () => {
     if (!img.naturalWidth || !img.naturalHeight) return;
@@ -237,14 +243,17 @@ function markFace(container, img, face) {
 function openLarge(face, card) {
   openFace = face;
   openCard = card;
-  $('largePhoto').src = '/media?id=' + face.asset_id;
-  markFace($('largePhotoBox'), $('largePhoto'), face);
+  const photo = $('largePhoto');
+  photo.src = '/media?id=' + face.asset_id;
+  if (lbZoom) lbZoom.attach(photo);
+  markFace($('largePhotoBox'), photo, face);
   $('lightbox').classList.add('open');
 }
 
 function closeLarge() {
   openFace = null;
   openCard = null;
+  if (lbZoom) lbZoom.reset();
   $('lightbox').classList.remove('open');
   $('largePhoto').removeAttribute('src');
   $('largePhotoBox').querySelectorAll('.face-box,.location-note').forEach(node => node.remove());

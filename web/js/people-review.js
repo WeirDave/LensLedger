@@ -161,6 +161,11 @@ function updateSummary() {
 
 let openItem = null;
 let lightboxPicker = null;
+const lbZoom = initLightboxZoom('largePhotoBox');
+if (lbZoom) {
+  const resetBtn = document.querySelector('#largePhotoBox .lb-zoom-reset');
+  if (resetBtn) resetBtn.onclick = function() { lbZoom.reset(); lbZoom.repositionFaceBoxes(); };
+}
 
 function initLightboxPicker() {
   const container = $('lightboxPicker');
@@ -198,6 +203,7 @@ function markFace(container, img, item) {
   const marker = document.createElement('div');
   marker.className = 'face-box';
   marker.innerHTML = '<span>Face being checked</span>';
+  marker._faceData = item;
   container.append(marker);
   const position = () => {
     if (!img.naturalWidth || !img.naturalHeight) return;
@@ -219,8 +225,10 @@ function markFace(container, img, item) {
 
 function openLarge(item) {
   openItem = item;
-  $('largePhoto').src = '/media?id=' + item.id;
-  markFace($('largePhotoBox'), $('largePhoto'), item);
+  const photo = $('largePhoto');
+  photo.src = '/media?id=' + item.id;
+  if (lbZoom) lbZoom.attach(photo);
+  markFace($('largePhotoBox'), photo, item);
   const info = $('lightboxInfo');
   info.innerHTML = '';
   const strong = document.createElement('strong');
@@ -243,6 +251,7 @@ function updateLightboxState() {
 
 function closeLarge() {
   openItem = null;
+  if (lbZoom) lbZoom.reset();
   $('lightbox').classList.remove('open');
   $('largePhoto').removeAttribute('src');
   $('largePhotoBox').querySelectorAll('.face-box,.location-note').forEach(node => node.remove());

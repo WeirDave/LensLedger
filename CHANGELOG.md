@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.68.0 — 2026-08-28
+
+- Added scroll-wheel zoom and drag-to-pan to the enlarged photo lightbox on both the Name Faces and People Review pages, making it possible to zoom in on background faces before deciding who they are.
+- Zoom controls (level indicator and reset button) appear automatically when zoomed past 1x.
+- Triple-click toggles between 1x and 3x zoom, matching the main viewer behavior.
+
 ## 0.67.0 — 2026-08-28
 
 - Lowered face suggestion threshold from 0.76 to 0.70 and margin from 0.04 to 0.02, generating significantly more People Review suggestions from named faces.
