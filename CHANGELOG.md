@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.66.0 — 2026-08-28
+
+- Review People header now shows how many unidentified faces remain alongside the existing suggestion counts.
+- When People Review finishes but unidentified faces remain, a large "Name faces (N)" button routes to the Name Faces page instead of sending users back to the home page.
+
 ## 0.65.4 — 2026-08-28
 
 - Terminal log labels now match their source page: `[People review]` for Review People decisions, `[Name faces]` for Name Faces naming.

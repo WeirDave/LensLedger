@@ -2591,6 +2591,15 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             people_options = [row[0] for row in con.execute(
                 "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
             )]
+            unidentified_faces = int(con.execute(
+                """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                   AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                   AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                   )"""
+            ).fetchone()[0])
         self.send_json({
             "person": dict(person) if person else None,
             "suggestions": suggestions,
@@ -2598,6 +2607,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             "people_remaining": people_remaining,
             "deferred_people": deferred_people,
             "people_options": people_options,
+            "unidentified_faces": unidentified_faces,
         })
 
     def defer_people_review(self, body):

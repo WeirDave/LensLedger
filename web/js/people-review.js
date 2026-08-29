@@ -34,6 +34,19 @@ function availableSuggestions() {
   return (queue?.suggestions || []).filter(item => !skipped.has(queue.person.id + ':' + item.id));
 }
 
+function showDoneState() {
+  const faces = queue?.unidentified_faces || 0;
+  $('globalProgress').textContent = faces ? faces.toLocaleString() + ' unidentified face' + (faces === 1 ? '' : 's') : 'No suggestions remaining';
+  if (faces) {
+    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2>'
+      + '<p>' + faces.toLocaleString() + ' unidentified face' + (faces === 1 ? ' remains' : 's remain')
+      + ' — name a few more to generate new suggestions.</p>'
+      + '<a class="button primary-action" href="/faces-review">Name faces (' + faces.toLocaleString() + ')</a></div></div>';
+  } else {
+    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
+  }
+}
+
 async function loadQueue(personId = null, advance = false) {
   let url = '/api/people/review/queue';
   const query = new URLSearchParams();
@@ -58,8 +71,7 @@ function render() {
       autoLearnOnEmpty();
       return;
     }
-    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
-    $('globalProgress').textContent = 'No suggestions remaining';
+    showDoneState();
     return;
   }
   const available = availableSuggestions();
@@ -68,7 +80,9 @@ function render() {
     return;
   }
   batch = available.slice(0, maxVisible);
-  $('globalProgress').textContent = queue.remaining_total.toLocaleString() + ' photos · ' + queue.people_remaining.toLocaleString() + ' people remaining';
+  let progressText = queue.remaining_total.toLocaleString() + ' photos · ' + queue.people_remaining.toLocaleString() + ' people remaining';
+  if (queue.unidentified_faces) progressText += ' · ' + queue.unidentified_faces.toLocaleString() + ' unnamed face' + (queue.unidentified_faces === 1 ? '' : 's');
+  $('globalProgress').textContent = progressText;
   knownPeople = queue.people_options;
   const section = document.createElement('section');
   section.innerHTML = '<div class="review-head"><div><h1></h1><p>Click a face to mark it wrong. Use ⛶ Enlarge to see the full photo or set corrections.</p></div><div class="person-count"></div></div><div class="thumb-grid"></div>';
@@ -307,7 +321,7 @@ async function autoLearnOnEmpty() {
   } catch (error) {
     $('globalProgress').textContent = error.message || String(error);
   }
-  $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
+  showDoneState();
 }
 
 async function deferPerson() {
