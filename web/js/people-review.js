@@ -309,10 +309,18 @@ function showError(error) {
 }
 
 async function autoLearnOnEmpty() {
-  $('reviewArea').innerHTML = '<div class="empty"><div><h2>Checking for more matches…</h2><p>Learning from the reviews you just completed.</p></div></div>';
+  $('reviewArea').innerHTML = '<div class="empty"><div><div class="saving-spinner"></div><h2>Checking for more matches…</h2><p>Analyzing confirmed faces to find new suggestions. This may take a moment with large libraries.</p></div></div>';
   $('globalProgress').textContent = 'Learning from confirmed faces…';
   try {
     const result = await api('/api/people/learn', {});
+    const autoCount = result.auto_confirmed || 0;
+    const sugCount = result.suggestions || 0;
+    if (autoCount || sugCount) {
+      const parts = [];
+      if (sugCount) parts.push(sugCount.toLocaleString() + ' new suggestion' + (sugCount === 1 ? '' : 's'));
+      if (autoCount) parts.push(autoCount.toLocaleString() + ' auto-confirmed');
+      $('globalProgress').textContent = 'Found ' + parts.join(', ') + ' — loading…';
+    }
     skipped.clear();
     history = [];
     await loadQueue();

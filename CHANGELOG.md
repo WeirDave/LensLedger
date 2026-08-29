@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.66.1 — 2026-08-28
+
+- "Checking for more matches" screen now shows a spinner animation and explains what's happening, instead of looking frozen.
+- After learning completes, the header briefly shows what was found (e.g. "Found 42 new suggestions, 3 auto-confirmed") before loading the next batch.
+- The face learning process now logs to the terminal: profile count, suggestion count, and auto-confirmed count.
+
 ## 0.66.0 — 2026-08-28
 
 - Review People header now shows how many unidentified faces remain alongside the existing suggestion counts.

@@ -2635,11 +2635,12 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         })
 
     def learn_people(self, body):
+        print("[People review] Learning from confirmed faces…", flush=True)
         result = learn_faces(self.db_path, apply=True)
-        # learn_faces() already wrote near-certain matches into the catalog
-        # as confirmed (see AUTO_CONFIRM_THRESHOLD in face_learning.py); the
-        # same JPEG metadata publish a human confirmation triggers still has
-        # to happen here, with the usual safety-backup-and-rollback pattern.
+        auto_count = len(result["auto_confirmed"])
+        sug_count = result["suggestions"]
+        print(f"[People review] Built {result['profiles']} profile(s), "
+              f"{sug_count} suggestion(s), {auto_count} auto-confirmed", flush=True)
         published = []
         try:
             with self.db() as con:
@@ -2654,8 +2655,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             "ok": True,
             "profiles": result["profiles"],
             "eligible_profiles": result["eligible_profiles"],
-            "suggestions": result["suggestions"],
-            "auto_confirmed": len(result["auto_confirmed"]),
+            "suggestions": sug_count,
+            "auto_confirmed": auto_count,
         })
 
     FACE_DISPOSITION_COLUMNS = {"not_a_person": "ignored_at", "unknown_person": "unknown_at"}
