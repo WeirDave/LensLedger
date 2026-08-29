@@ -335,6 +335,9 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
     people_columns = {row[1] for row in con.execute("PRAGMA table_info(asset_people)")}
     if "face_id" not in people_columns:
         con.execute("ALTER TABLE asset_people ADD COLUMN face_id INTEGER REFERENCES face_embeddings(id) ON DELETE SET NULL")
+    if "published_at" not in people_columns:
+        con.execute("ALTER TABLE asset_people ADD COLUMN published_at TEXT")
+        con.execute("UPDATE asset_people SET published_at = updated_at WHERE state = 'confirmed'")
     face_columns = {row[1] for row in con.execute("PRAGMA table_info(face_embeddings)")}
     for name in ("box_left", "box_top", "box_right", "box_bottom", "localization_similarity"):
         if name not in face_columns:

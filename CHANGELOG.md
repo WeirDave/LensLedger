@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.73.0 — 2026-08-28
+
+- Added dedicated "Publish photos" page for controlling when JPEG metadata is written.
+- Moved metadata publishing out of the Name faces flow — confirming faces now only updates the database.
+- Added `published_at` tracking to `asset_people` so the publish page knows what needs writing.
+- Added nav link for Publish photos between Review people and Photo map.
+
 ## 0.72.1 — 2026-08-28
 
 - Metadata publishing now logs progress every 25 photos (e.g. "Published 'Name' — 25/199") instead of staying silent until all photos are done.

@@ -130,8 +130,8 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         + lib_line
         + '<p>Local-first photo and video indexing, search, people review, and safe metadata publishing for Windows. '
         'Your photos stay on your machine &mdash; nothing is uploaded, no cloud required.</p>'
-        '<p>Each library has a separate index. Approved People-review decisions publish immediately; '
-        'other edits use Preview &amp; Publish. Every write creates a safety backup and verifies the picture pixels afterward.</p>'
+        '<p>Each library has a separate index. Use <a href="/publish">Publish photos</a> to write confirmed names to your JPEG metadata on your schedule. '
+        'Every write creates a safety backup and verifies the picture pixels afterward.</p>'
         '<hr>'
         '<p><strong>Other projects by the developer</strong></p>'
         '<ul>'
@@ -168,6 +168,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         + _link("/scan-photos", "\U0001f50e Scan photos", "scan-photos")
         + _link("/faces-review", "\U0001f642 Name faces", "faces-review")
         + _link("/people-review", "\U0001f465 Review people", "people-review")
+        + _link("/publish", "\U0001f4e4 Publish photos", "publish")
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
         + _link("/settings", "⚙ Settings", "settings")
@@ -811,6 +812,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.people_review_page(params)
         if url.path == "/faces-review":
             return self.faces_review_page()
+        if url.path == "/publish":
+            return self.publish_page()
+        if url.path == "/api/publish/pending":
+            return self.publish_pending()
         if url.path == "/map":
             return self.map_page()
         if url.path == "/scan-photos":
@@ -873,6 +878,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.name_face_batch(body)
             if route == "/api/faces/publish-person":
                 return self.publish_person_metadata(body)
+            if route == "/api/publish/run":
+                return self.publish_run(body)
             if route == "/api/person/state":
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
@@ -2160,6 +2167,91 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 </body></html>"""
         self.send_html(page)
 
+    def publish_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Publish photos — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/publish.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Publish photos</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+{nav_menu("publish", str(self.library_root))}
+<main>
+<p class="intro">Names confirmed in Name faces and Review people are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
+<div class="publish-summary" id="publishSummary"><div class="loading-spinner"></div> Loading&hellip;</div>
+<div class="publish-table-wrap" id="publishTableWrap" hidden></div>
+<div class="publish-actions" id="publishActions" hidden>
+<button type="button" class="primary-action" id="publishAll">Publish all</button>
+</div>
+<div class="publish-progress" id="publishProgress" hidden>
+<div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
+<p class="progress-text" id="progressText"></p>
+</div>
+<div class="publish-done" id="publishDone" hidden></div>
+</main>
+<div class="toast" id="toast"></div>
+<script src="{asset_url('js/publish.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def publish_pending(self):
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT p.id AS person_id, p.name, COUNT(*) AS pending
+                   FROM asset_people ap
+                   JOIN people p ON p.id = ap.person_id
+                   JOIN assets a ON a.id = ap.asset_id
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0
+                   GROUP BY p.id
+                   ORDER BY pending DESC"""
+            ).fetchall()
+            total_photos = con.execute(
+                """SELECT COUNT(DISTINCT ap.asset_id)
+                   FROM asset_people ap
+                   JOIN assets a ON a.id = ap.asset_id
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0"""
+            ).fetchone()[0]
+        people = [{"person_id": r["person_id"], "name": r["name"], "pending": r["pending"]} for r in rows]
+        self.send_json({"ok": True, "people": people, "total_photos": total_photos})
+
+    def publish_run(self, body):
+        person_ids = body.get("person_ids")
+        with self.db() as con:
+            if person_ids:
+                placeholders = ",".join("?" * len(person_ids))
+                asset_ids = [r["asset_id"] for r in con.execute(
+                    f"""SELECT DISTINCT ap.asset_id FROM asset_people ap
+                        JOIN assets a ON a.id = ap.asset_id
+                        WHERE ap.person_id IN ({placeholders})
+                              AND ap.state = 'confirmed' AND ap.published_at IS NULL
+                              AND a.in_review_bin = 0""",
+                    [int(pid) for pid in person_ids],
+                ).fetchall()]
+            else:
+                asset_ids = [r["asset_id"] for r in con.execute(
+                    """SELECT DISTINCT ap.asset_id FROM asset_people ap
+                       JOIN assets a ON a.id = ap.asset_id
+                       WHERE ap.state = 'confirmed' AND ap.published_at IS NULL
+                             AND a.in_review_bin = 0"""
+                ).fetchall()]
+        total = len(asset_ids)
+        if not total:
+            print("[Publish] Nothing to publish.", flush=True)
+            self.send_json({"ok": True, "published": 0, "total": 0})
+            return
+        print(f"[Publish] Writing metadata to {total} photos…", flush=True)
+        published = 0
+        for i, asset_id in enumerate(asset_ids):
+            try:
+                with self.db() as con:
+                    result = self._publish_people_metadata(con, asset_id)
+                    if result:
+                        published += 1
+            except Exception:
+                pass
+            done = i + 1
+            if done % 25 == 0 or done == total:
+                print(f"[Publish] {done}/{total} photos", flush=True)
+        print(f"[Publish] Done — {published}/{total} photos updated.", flush=True)
+        self.send_json({"ok": True, "published": published, "total": total})
+
     def asset_detail(self, params):
         try:
             asset_id = int(params.get("id", [""])[0])
@@ -2401,6 +2493,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         )
         set_source_tags(con, asset_id, "embedded_xmp", keywords)
         rebuild_search_row(con, asset_id)
+        con.execute(
+            "UPDATE asset_people SET published_at=? WHERE asset_id=? AND state='confirmed'",
+            (utc_now(), asset_id),
+        )
         return {"path": path, "backup": backup, "filename": asset["filename"]}
 
     @staticmethod
@@ -3074,34 +3170,28 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         face_id = int(body["face_id"]); name = clean_tag(str(body.get("name", "")))
         if not name:
             raise ValueError("enter a person's name")
-        published = []
-        try:
-            with self.db() as con:
-                face = con.execute(
-                    "SELECT asset_id,embedding_f32 FROM face_embeddings WHERE id=?", (face_id,)
-                ).fetchone()
-                if not face or face["asset_id"] is None:
-                    raise ValueError("this face is no longer available")
-                asset_id = int(face["asset_id"])
-                self.get_active_asset(con, asset_id)
-                person_id = self.resolve_or_create_person(con, name)
-                con.execute(
-                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
-                       VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
-                       ON CONFLICT(asset_id,person_id) DO UPDATE SET
-                           state='confirmed',face_id=excluded.face_id,source='manual_face',
-                           updated_at=excluded.updated_at""",
-                    (asset_id, person_id, face_id, utc_now()),
-                )
-                sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
-                published.append(self._publish_people_metadata(con, asset_id))
-                fname = con.execute("SELECT filename, relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
-                matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
-        except Exception:
-            self._restore_people_batch(published)
-            raise
+        with self.db() as con:
+            face = con.execute(
+                "SELECT asset_id,embedding_f32 FROM face_embeddings WHERE id=?", (face_id,)
+            ).fetchone()
+            if not face or face["asset_id"] is None:
+                raise ValueError("this face is no longer available")
+            asset_id = int(face["asset_id"])
+            self.get_active_asset(con, asset_id)
+            person_id = self.resolve_or_create_person(con, name)
+            con.execute(
+                """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                   VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
+                   ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                       state='confirmed',face_id=excluded.face_id,source='manual_face',
+                       updated_at=excluded.updated_at""",
+                (asset_id, person_id, face_id, utc_now()),
+            )
+            sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
+            fname = con.execute("SELECT filename, relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
+            matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
         print(f'[Name faces] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}', flush=True)
-        self.send_json({"ok": True, "published": 1, "person_id": person_id, "matches": matches})
+        self.send_json({"ok": True, "person_id": person_id, "matches": matches})
 
     def name_face_batch(self, body):
         """Confirm multiple faces as the same person in one request.  Metadata

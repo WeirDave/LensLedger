@@ -115,26 +115,16 @@ function releasePending(ids) {
   checkEmpty();
 }
 
-async function publishPerson(personId, name) {
-  $('globalProgress').textContent = `Writing "${name}" to photo metadata…`;
-  try {
-    const result = await api('/api/faces/publish-person', { person_id: personId });
-    $('globalProgress').textContent = `Published "${name}" to ${result.published} photo${result.published === 1 ? '' : 's'}. ` + remaining.toLocaleString() + ' unidentified face' + (remaining === 1 ? '' : 's');
-  } catch (_) {
-    updateProgress();
-  }
-}
-
-function showPublishStatus(name, personId, autoCount) {
+function showDoneStatus(name, autoCount) {
   const banner = document.createElement('div');
   banner.className = 'match-group';
   banner.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span></div>'
     + '<div class="match-status"></div>';
   banner.querySelector('strong').textContent = name;
-  banner.querySelector('.match-count').textContent = autoCount + ' auto-confirmed (high confidence)';
-  banner.querySelector('.match-status').textContent = 'No borderline matches remain.';
+  banner.querySelector('.match-count').textContent = (autoCount || 0) + ' auto-confirmed (high confidence)';
+  banner.querySelector('.match-status').textContent = 'No more matches. Go to Publish photos when ready to write metadata.';
   $('matchGroups').prepend(banner);
-  publishPerson(personId, name).then(() => setTimeout(() => banner.remove(), 4000));
+  setTimeout(() => banner.remove(), 6000);
 }
 
 function addMatchGroup(name, personId, matches, autoCount) {
@@ -201,13 +191,13 @@ function addMatchGroup(name, personId, matches, autoCount) {
           if (auto) addMatchGroup(name, personId, more.matches, auto);
           else addMatchGroup(name, personId, more.matches);
         } else {
-          if (auto) showPublishStatus(name, personId, auto);
-          else publishPerson(personId, name);
+          showDoneStatus(name, auto);
+          updateProgress();
         }
       } catch (_) {
         group.remove();
         releasePending(skipped);
-        publishPerson(personId, name);
+        updateProgress();
       }
     } catch (error) {
       status.textContent = error.message;
