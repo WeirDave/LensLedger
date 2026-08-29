@@ -121,10 +121,9 @@ function showDoneStatus(name, moreData) {
   banner.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span></div>'
     + '<div class="match-status"></div>';
   banner.querySelector('strong').textContent = name;
-  const parts = [];
-  if (moreData && moreData.auto_confirmed) parts.push(moreData.auto_confirmed + ' auto-confirmed');
-  if (moreData && moreData.confidence_pct) parts.push(moreData.confidence_pct + '% recognition confidence');
-  banner.querySelector('.match-count').textContent = parts.join(' · ');
+  if (moreData && moreData.auto_confirmed) {
+    banner.querySelector('.match-count').textContent = moreData.auto_confirmed + ' auto-confirmed';
+  }
   banner.querySelector('.match-status').textContent = 'No more matches. Go to Publish photos when ready to write metadata.';
   $('matchGroups').prepend(banner);
   setTimeout(() => banner.remove(), 8000);
@@ -151,7 +150,6 @@ function addMatchGroup(name, personId, matches, moreData) {
   group.querySelector('strong').textContent = 'Also looks like ' + name;
   const countParts = [matches.length + ' to review'];
   if (autoCount) countParts.unshift(autoCount + ' auto-confirmed');
-  if (confidencePct) countParts.push(confidencePct + '% confidence');
   group.querySelector('.match-count').textContent = countParts.join(' · ');
   if (confirmedCount >= 25 && confidencePct >= 75 && totalRemaining > 0) {
     const confirmRemBtn = document.createElement('button');
@@ -221,7 +219,7 @@ function addMatchGroup(name, personId, matches, moreData) {
       updateProgress();
       status.textContent = `${result.confirmed || checkedIds.length} confirmed. Looking for more…`;
       try {
-        const more = await api('/api/faces/find-more', { person_id: personId });
+        const more = await api('/api/faces/find-more', { person_id: personId, exclude_face_ids: skipped });
         const auto = more.auto_confirmed || 0;
         remaining = Math.max(0, remaining - auto);
         updateProgress();

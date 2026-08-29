@@ -1272,6 +1272,17 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Correct</strong> &mdash; reassign to a different person</li>
 </ul>
 <p>Use <strong>Save &amp; publish this group</strong> to confirm and write names into JPEG metadata. <strong>Undo last batch</strong> rolls back decisions including metadata changes. You can <strong>defer</strong> a person&rsquo;s suggestions for 1&ndash;30 days.</p>
+<h3>Recognition accuracy</h3>
+<p>Each person&rsquo;s card on the People search page shows two key numbers:</p>
+<ul>
+<li><strong>Confirmed photos</strong> &mdash; how many photos of this person the system has identified in your library.</li>
+<li><strong>Accuracy</strong> &mdash; how often the system is correct when it suggests a face belongs to this person. Calculated from your review history: confirmed suggestions divided by total suggestions (confirmed + rejected + corrected).</li>
+</ul>
+<p><strong>How recognition works:</strong> when you name a face, LensLedger builds a mathematical model of that person&rsquo;s face (a &ldquo;centroid&rdquo; &mdash; the average of all confirmed face vectors). To identify an unknown face, the system compares it to every known person&rsquo;s centroid. If the similarity is above 75%, the match is auto-confirmed. Between 65% and 75%, it&rsquo;s shown to you for review. Below 65%, the system won&rsquo;t suggest a match.</p>
+<p><strong>What accuracy means:</strong> a person at 100% accuracy means every suggestion the system made was correct &mdash; you never had to reject or correct a match. A lower accuracy (e.g. 87%) means the system occasionally suggests the wrong face for that person, likely because they resemble someone else in your library. Accuracy improves as you review more suggestions, because each confirmation refines the person&rsquo;s face model.</p>
+<p>Accuracy appears once you&rsquo;ve reviewed at least one suggestion for a person. If no suggestions have been reviewed yet, only the confirmed count is shown.</p>
+<h3>Confirm all remaining</h3>
+<p>When a person has at least 25 confirmed faces and 75% or higher confidence, a <strong>Confirm all remaining</strong> button appears in the Name faces match group. This confirms every remaining match in a single click instead of reviewing 200 at a time. The system loops server-side: compute centroid, find matches, confirm, repeat until no new matches are found.</p>
 <h3>Managing people</h3>
 <p>From the People search scope on the home page:</p>
 <ul>
@@ -1955,7 +1966,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                  (SELECT ap.asset_id FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                                   WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0 AND a.media_type='image'
                                   ORDER BY ap.confidence DESC,a.id DESC LIMIT 1)
-                               ) representative_id
+                               ) representative_id,
+                               COALESCE(
+                                 (SELECT CASE WHEN COUNT(*)>0 THEN ROUND(SUM(CASE WHEN pra.action='confirmed' THEN 1 ELSE 0 END)*100.0/COUNT(*))
+                                  ELSE NULL END FROM people_review_actions pra
+                                  WHERE pra.person_id=p.id AND pra.undone_at IS NULL), -1) accuracy_pct
                             FROM people p
                             WHERE ?='' OR p.name LIKE ? ESCAPE '\\' OR EXISTS (
                                 SELECT 1 FROM person_aliases pa WHERE pa.person_id=p.id AND pa.alias LIKE ? ESCAPE '\\'
@@ -2062,10 +2077,13 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 if person["representative_id"] else '<div class="person-placeholder">👤</div>'
             )
             person_url = "/?" + urllib.parse.urlencode({"scope": "people", "person": person["id"], "sort": "newest"})
+            accuracy = int(person.get("accuracy_pct", -1))
+            accuracy_html = f' · {accuracy}% accuracy' if accuracy >= 0 else ''
             gallery_cards.append(
                 f'<article class="person-card"><a href="{person_url}">{picture}'
                 f'<div class="person-card-info"><strong>{html.escape(person["name"])}</strong>'
                 f'<small>{int(person["confirmed_count"]):,} confirmed photo{"s" if int(person["confirmed_count"]) != 1 else ""}'
+                f'{accuracy_html}'
                 f' · {int(person["suggested_count"]):,} to review</small>'
                 f'<span>{html.escape(alias_text)}</span></div></a>'
                 f'<button type="button" class="edit-aliases" data-person-id="{int(person["id"])}" '
@@ -3325,6 +3343,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         (>=0.75) are auto-confirmed in the database without metadata publishing;
         only borderline matches (0.65-0.75) are returned for manual review."""
         person_id = int(body["person_id"])
+        exclude_face_ids = set(int(fid) for fid in body.get("exclude_face_ids", []))
         AUTO_CONFIRM_THRESHOLD = 0.75
         SIMILAR_FACE_THRESHOLD = 0.65
         with self.db() as con:
@@ -3361,6 +3380,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             high = []
             borderline = []
             for row in rows:
+                if int(row["face_id"]) in exclude_face_ids:
+                    continue
                 candidate = decode_vector(row["embedding_f32"])
                 if not candidate:
                     continue

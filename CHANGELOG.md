@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.75.0 — 2026-08-28
+
+- Added recognition accuracy percentage to People gallery cards on the search page, calculated from review history (confirmed vs. rejected/corrected suggestions).
+- Added "Recognition accuracy" and "Confirm all remaining" sections to the user manual explaining how face recognition works, what accuracy means, and the matching thresholds.
+- Removed cohesion-based "confidence" display from Name Faces match group headers — the internal threshold is still used for the "Confirm all remaining" button, but the user-facing label was misleading.
+- Fixed cycling bug where unchecked faces in "Also looks like" groups reappeared indefinitely after confirming a batch.
+
 ## 0.74.0 — 2026-08-28
 
 - Added recognition confidence percentage to match groups (e.g. "87% confidence").
