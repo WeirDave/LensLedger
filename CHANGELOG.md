@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.65.3 — 2026-08-28
+
+- Name Faces page now logs to the terminal when a face is named, including "Also looks like" match confirmations.
+
 ## 0.65.2 — 2026-08-28
 
 - Review People terminal logging now prints each entry in real time as each photo's metadata is written, instead of batching all log entries at the end.
