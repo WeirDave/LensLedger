@@ -154,9 +154,11 @@ function addMatchGroup(name, personId, matches, moreData) {
   if (confirmedCount >= 10 && accuracyPct === 100) {
     countParts.push('ready to confirm all');
   } else if (confirmedCount > 0) {
-    const needed = Math.max(0, 10 - confirmedCount);
-    if (needed > 0) countParts.push(confirmedCount + '/10 confirmed — keep going');
-    else if (accuracyPct < 100) countParts.push(accuracyPct + '% accuracy — review more to improve');
+    if (confirmedCount < 10) {
+      countParts.push(confirmedCount + '/10 confirmed — keep going');
+    } else if (accuracyPct >= 0 && accuracyPct < 100) {
+      countParts.push(accuracyPct + '% accuracy — review more to improve');
+    }
   }
   group.querySelector('.match-count').textContent = countParts.join(' · ');
   if (confirmedCount >= 10 && accuracyPct === 100 && totalRemaining > 0) {
@@ -165,6 +167,7 @@ function addMatchGroup(name, personId, matches, moreData) {
     confirmRemBtn.className = 'confirm-remaining';
     confirmRemBtn.textContent = 'Confirm all remaining (' + totalRemaining.toLocaleString() + ')';
     group.querySelector('.match-group-head').insertBefore(confirmRemBtn, group.querySelector('.confirm-all'));
+    group.querySelector('.confirm-all').hidden = true;
     confirmRemBtn.onclick = async () => {
       group.querySelectorAll('button').forEach(b => b.disabled = true);
       const status = group.querySelector('.match-status');

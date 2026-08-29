@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.76.3 — 2026-08-28
+
+- Hidden the redundant "Confirm all" button when "Confirm all remaining" is available — only one confirmation action shows at a time to avoid confusion.
+
 ## 0.76.2 — 2026-08-28
 
 - Updated all user-facing references from "Name faces" and "Review people" to "People review" — Quick guide, Scan photos metrics, user manual, page titles, and button labels.
