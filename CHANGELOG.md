@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.10 — 2026-08-29
+
+- Fixed garbled file path display in the faces review lightbox caused by CSS `direction: rtl` reordering slashes and dashes via the Unicode bidirectional algorithm.
+
 ## 0.81.9 — 2026-08-29
 
 - Fixed faces resurfacing as unidentified when the same person appears multiple times in one photo (e.g. composite/collage photos). Identification is now tracked per face embedding, not per person-per-photo.
