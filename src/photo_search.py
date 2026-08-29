@@ -1921,7 +1921,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                          AND NOT EXISTS (
-                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
+                             AND ap.state IN ('confirmed','suggested')
                          )"""
                 ).fetchone()[0])
                 if scope == "people" and not person_id:
@@ -2597,7 +2598,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                    AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                    AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                    AND NOT EXISTS (
-                       SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                       SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
+                       AND ap.state IN ('confirmed','suggested')
                    )"""
             ).fetchone()[0])
         self.send_json({
@@ -2943,7 +2945,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                     AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                     AND NOT EXISTS (
-                        SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                        SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
+                        AND ap.state IN ('confirmed','suggested')
                     )"""
         with self.db() as con:
             total = int(con.execute(
@@ -3092,7 +3095,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         print(f'[Name faces] Named "{name}" in {fname["filename"] if fname else f"asset #{asset_id}"}', flush=True)
         self.send_json({"ok": True, "published": 1, "person_id": person_id, "matches": matches})
 
-    def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=16):
+    def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=50):
         """Other still-unidentified faces that likely show the same person as
         the one just named -- lets the Name-faces page group repeats of one
         person behind a single "confirm all" instead of one dropdown pick
@@ -3113,16 +3116,17 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                      AND NOT EXISTS (
                          SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
                      )
-               ORDER BY f.id DESC LIMIT 4000""",
+               ORDER BY f.id DESC LIMIT 50000""",
             (face_id,),
         ).fetchall()
+        SIMILAR_FACE_THRESHOLD = 0.65
         scored = []
         for row in rows:
             candidate = decode_vector(row["embedding_f32"])
             if not candidate:
                 continue
             score = dot(vector, candidate)
-            if score >= SUGGESTION_THRESHOLD:
+            if score >= SIMILAR_FACE_THRESHOLD:
                 scored.append((score, row))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [
@@ -3571,7 +3575,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                          AND NOT EXISTS (
-                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                             SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id
+                             AND ap.state IN ('confirmed','suggested')
                          )"""
                 ).fetchone()[0]),
                 "publications": int(con.execute("SELECT COUNT(*) FROM metadata_publications").fetchone()[0]),

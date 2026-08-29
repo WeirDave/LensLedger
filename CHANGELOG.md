@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.67.0 — 2026-08-28
+
+- Lowered face suggestion threshold from 0.76 to 0.70 and margin from 0.04 to 0.02, generating significantly more People Review suggestions from named faces.
+- "Also looks like" matches when naming a face now searches 50,000 faces (was 4,000) with a lower similarity bar (0.65 vs 0.76), surfacing up to 50 matches instead of 16.
+- Name Faces page now excludes faces that already have pending suggestions in People Review, avoiding duplicate work.
+- Unidentified face counts now exclude faces with pending suggestions, giving a more accurate picture of remaining work.
+
 ## 0.66.1 — 2026-08-28
 
 - "Checking for more matches" screen now shows a spinner animation and explains what's happening, instead of looking frozen.

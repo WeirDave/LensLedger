@@ -207,9 +207,9 @@ class LearnOrchestrationTests(unittest.TestCase):
             # (0.76) but not AUTO_CONFIRM_THRESHOLD -- should be proposed for
             # human review, not auto-confirmed.
             moderate_asset = add_face(con, root, "moderate.jpg", 30.0, 901)
-            # 45 degrees off (cos(45deg) ~= 0.707): below the suggestion
+            # 48 degrees off (cos(48deg) ~= 0.669): below the suggestion
             # threshold entirely -- should not appear anywhere.
-            weak_asset = add_face(con, root, "weak.jpg", 45.0, 902)
+            weak_asset = add_face(con, root, "weak.jpg", 48.0, 902)
             con.commit()
             con.close()
 

@@ -18,8 +18,8 @@ from photo_index import connect, rebuild_search_row, sync_person_tags, utc_now
 
 MIN_PROFILE_FACES = 2
 PROFILE_FACE_THRESHOLD = 0.66
-SUGGESTION_THRESHOLD = 0.76
-SUGGESTION_MARGIN = 0.04
+SUGGESTION_THRESHOLD = 0.70
+SUGGESTION_MARGIN = 0.02
 # A match this confident, with this wide a gap over the runner-up, is safe to
 # confirm immediately instead of waiting on a human decision: the reviewer
 # can still reject it afterward exactly like any other confirmed match, so
