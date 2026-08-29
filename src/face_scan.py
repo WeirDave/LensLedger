@@ -45,11 +45,11 @@ def list_errors(db_path: Path, limit: int = 200) -> list[dict[str, str]]:
     """Return the photos face detection could not process, most recent first."""
     with connect(db_path) as con:
         rows = con.execute(
-            """SELECT relative_path, face_scan_error FROM assets
+            """SELECT path, relative_path, face_scan_error FROM assets
                WHERE face_scan_error<>'' ORDER BY id DESC LIMIT ?""",
             (limit,),
         ).fetchall()
-    return [{"path": row["relative_path"], "error": row["face_scan_error"]} for row in rows]
+    return [{"path": row["relative_path"], "full_path": row["path"], "error": row["face_scan_error"]} for row in rows]
 
 
 def scan_for_faces(

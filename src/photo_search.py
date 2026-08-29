@@ -4438,10 +4438,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     def ocr_errors(self):
         with self.db() as con:
             rows = con.execute(
-                """SELECT a.relative_path,x.ocr_error FROM text_data x JOIN assets a ON a.id=x.asset_id
+                """SELECT a.path,a.relative_path,x.ocr_error FROM text_data x JOIN assets a ON a.id=x.asset_id
                    WHERE x.ocr_error<>'' ORDER BY a.id DESC LIMIT 200"""
             ).fetchall()
-        self.send_json({"errors": [{"path": row["relative_path"], "error": row["ocr_error"]} for row in rows]})
+        self.send_json({"errors": [{"path": row["relative_path"], "full_path": row["path"], "error": row["ocr_error"]} for row in rows]})
 
     def start_ocr(self, body):
         workers = max(1, min(8, int(body.get("workers", 4))))
@@ -4489,7 +4489,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     def semantic_errors(self):
         with self.db() as con:
             rows = con.execute(
-                """SELECT relative_path, semantic_error FROM assets
+                """SELECT path, relative_path, semantic_error FROM assets
                    WHERE semantic_error<>'' AND in_review_bin=0
                    ORDER BY id DESC LIMIT 200"""
             ).fetchall()
@@ -4499,7 +4499,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ).fetchone()
                 if model_row:
                     rows = con.execute(
-                        """SELECT a.relative_path FROM assets a
+                        """SELECT a.path, a.relative_path FROM assets a
                            LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
                            WHERE a.media_type='image' AND a.metadata_scanned=1
                                  AND a.in_review_bin=0 AND se.asset_id IS NULL
@@ -4507,11 +4507,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         (model_row["model"],),
                     ).fetchall()
                     self.send_json({
-                        "errors": [{"path": row["relative_path"], "error": "Not indexed — no error recorded. Try rebuilding the meaning index."} for row in rows],
+                        "errors": [{"path": row["relative_path"], "full_path": row["path"], "error": "Not indexed — no error recorded. Try rebuilding the meaning index."} for row in rows],
                     })
                     return
         self.send_json({
-            "errors": [{"path": row["relative_path"], "error": row["semantic_error"]} for row in rows],
+            "errors": [{"path": row["relative_path"], "full_path": row["path"], "error": row["semantic_error"]} for row in rows],
         })
 
     def start_semantic_index(self, body):
@@ -4746,14 +4746,17 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         with type(self).library_lock:
             in_memory = list(type(self).library_job.get("error_details", []))
         if in_memory:
+            root = str(type(self).library_root)
+            for entry in in_memory:
+                entry["full_path"] = str(Path(root) / entry["path"])
             self.send_json({"errors": in_memory[:200]})
             return
         with self.db() as con:
             rows = con.execute(
-                """SELECT relative_path, scan_error FROM assets
+                """SELECT path, relative_path, scan_error FROM assets
                    WHERE scan_error<>'' ORDER BY id DESC LIMIT 200"""
             ).fetchall()
-        self.send_json({"errors": [{"path": row["relative_path"], "error": row["scan_error"]} for row in rows]})
+        self.send_json({"errors": [{"path": row["relative_path"], "full_path": row["path"], "error": row["scan_error"]} for row in rows]})
 
     def library_options(self):
         config = load_library_config()

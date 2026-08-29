@@ -140,7 +140,7 @@ def status(db_path: Path) -> dict[str, object]:
         ).fetchone()
         eligible = int(con.execute(
             """SELECT COUNT(*) FROM assets WHERE media_type='image'
-               AND metadata_scanned=1 AND in_review_bin=0"""
+               AND metadata_scanned=1 AND in_review_bin=0 AND extension != '.gif'"""
         ).fetchone()[0])
         columns = {row[1] for row in con.execute("PRAGMA table_info(assets)")}
         if "semantic_error" in columns:
@@ -155,7 +155,7 @@ def status(db_path: Path) -> dict[str, object]:
                 """SELECT COUNT(*) FROM assets a
                    LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
                    WHERE a.media_type='image' AND a.metadata_scanned=1
-                         AND a.in_review_bin=0 AND se.asset_id IS NULL""",
+                         AND a.in_review_bin=0 AND a.extension != '.gif' AND se.asset_id IS NULL""",
                 (model,),
             ).fetchone()[0])
             if unindexed > 0 and unindexed < eligible * 0.05:
@@ -185,7 +185,7 @@ def build_index(
             """SELECT a.id,a.path FROM assets a
                LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
                WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0
-                     AND se.asset_id IS NULL
+                     AND a.extension != '.gif' AND a.semantic_error='' AND se.asset_id IS NULL
                ORDER BY a.capture_date,a.relative_path""",
             (model,),
         ).fetchall()

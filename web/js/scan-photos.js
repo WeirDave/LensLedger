@@ -107,16 +107,32 @@ function errorListNode(errors) {
     wrapper.append(box);
     return wrapper;
   }
-  errors.forEach(({ path, error }) => {
+  errors.forEach(({ path, full_path, error }) => {
     const row = document.createElement('div');
     row.className = 'error-row';
-    const pathEl = document.createElement('span');
+    const displayPath = full_path || path;
+    const pathEl = document.createElement('a');
     pathEl.className = 'path';
-    pathEl.textContent = path;
+    pathEl.textContent = displayPath;
+    pathEl.href = 'file:///' + displayPath.replace(/\\/g, '/');
+    pathEl.target = '_blank';
+    pathEl.title = 'Open file';
     const msgEl = document.createElement('span');
     msgEl.className = 'msg';
     msgEl.textContent = error;
-    row.append(pathEl, msgEl);
+    const copyPathBtn = document.createElement('button');
+    copyPathBtn.type = 'button';
+    copyPathBtn.className = 'copy-path-btn';
+    copyPathBtn.textContent = 'Copy path';
+    copyPathBtn.title = 'Copy full path to clipboard';
+    copyPathBtn.onclick = (e) => {
+      e.preventDefault();
+      navigator.clipboard.writeText(displayPath).then(() => {
+        copyPathBtn.textContent = 'Copied!';
+        setTimeout(() => { copyPathBtn.textContent = 'Copy path'; }, 1500);
+      });
+    };
+    row.append(pathEl, copyPathBtn, msgEl);
     const hint = explainError(error);
     if (hint) {
       const hintEl = document.createElement('span');
@@ -135,7 +151,7 @@ function errorListNode(errors) {
   copyBtn.className = 'secondary';
   copyBtn.textContent = 'Copy all to clipboard';
   copyBtn.onclick = () => {
-    const text = errors.map(e => `${e.path}\n  ${e.error}`).join('\n\n');
+    const text = errors.map(e => `${e.full_path || e.path}\n  ${e.error}`).join('\n\n');
     navigator.clipboard.writeText(text).then(() => {
       copyBtn.textContent = 'Copied!';
       setTimeout(() => { copyBtn.textContent = 'Copy all to clipboard'; }, 2000);

@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.16 — 2026-08-29
+
+- Error paths in the scan page error modal now display as full Windows paths and are clickable links that open the file location.
+- Added a per-row "Copy path" button to each error entry for quick clipboard access.
+- "Copy all to clipboard" now copies full absolute paths instead of relative paths.
+- Excluded GIF files from meaning search indexing (OpenCV/Pillow cannot reliably decode them).
+- Meaning search no longer retries files that previously failed with a permanent error.
+
 ## 0.81.15 — 2026-08-29
 
 - Switched scan progress logging from count-based intervals to time-based (every 10 seconds) so progress always appears during long-running scans regardless of batch size.
