@@ -115,19 +115,26 @@ function releasePending(ids) {
   checkEmpty();
 }
 
-function showDoneStatus(name, autoCount) {
+function showDoneStatus(name, moreData) {
   const banner = document.createElement('div');
   banner.className = 'match-group';
   banner.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span></div>'
     + '<div class="match-status"></div>';
   banner.querySelector('strong').textContent = name;
-  banner.querySelector('.match-count').textContent = (autoCount || 0) + ' auto-confirmed (high confidence)';
+  const parts = [];
+  if (moreData && moreData.auto_confirmed) parts.push(moreData.auto_confirmed + ' auto-confirmed');
+  if (moreData && moreData.confidence_pct) parts.push(moreData.confidence_pct + '% recognition confidence');
+  banner.querySelector('.match-count').textContent = parts.join(' · ');
   banner.querySelector('.match-status').textContent = 'No more matches. Go to Publish photos when ready to write metadata.';
   $('matchGroups').prepend(banner);
-  setTimeout(() => banner.remove(), 6000);
+  setTimeout(() => banner.remove(), 8000);
 }
 
-function addMatchGroup(name, personId, matches, autoCount) {
+function addMatchGroup(name, personId, matches, moreData) {
+  const autoCount = moreData ? moreData.auto_confirmed : 0;
+  const confidencePct = moreData ? moreData.confidence_pct : 0;
+  const confirmedCount = moreData ? moreData.confirmed_count : 0;
+  const totalRemaining = moreData ? moreData.total_remaining : 0;
   const ids = matches.map(match => match.face_id);
   ids.forEach(id => pending.add(id));
   ids.forEach(id => {
@@ -144,7 +151,40 @@ function addMatchGroup(name, personId, matches, autoCount) {
   group.querySelector('strong').textContent = 'Also looks like ' + name;
   const countParts = [matches.length + ' to review'];
   if (autoCount) countParts.unshift(autoCount + ' auto-confirmed');
-  group.querySelector('.match-count').textContent = countParts.join(', ');
+  if (confidencePct) countParts.push(confidencePct + '% confidence');
+  group.querySelector('.match-count').textContent = countParts.join(' · ');
+  if (confirmedCount >= 25 && confidencePct >= 75 && totalRemaining > 0) {
+    const confirmRemBtn = document.createElement('button');
+    confirmRemBtn.type = 'button';
+    confirmRemBtn.className = 'confirm-remaining';
+    confirmRemBtn.textContent = 'Confirm all remaining (' + totalRemaining.toLocaleString() + ')';
+    group.querySelector('.match-group-head').insertBefore(confirmRemBtn, group.querySelector('.confirm-all'));
+    confirmRemBtn.onclick = async () => {
+      group.querySelectorAll('button').forEach(b => b.disabled = true);
+      const status = group.querySelector('.match-status');
+      status.textContent = `Confirming all remaining matches for ${name}…`;
+      try {
+        const allItems = [...group.querySelector('.match-thumbs').querySelectorAll('.match-item')];
+        const checkedIds = allItems.filter(t => t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
+        if (checkedIds.length) {
+          await apiRetry('/api/faces/name-batch',
+            { person_id: personId, face_ids: checkedIds },
+            message => status.textContent = message);
+          remaining = Math.max(0, remaining - checkedIds.length);
+        }
+        status.textContent = `Confirming remaining matches for ${name}… (this may take a moment)`;
+        const result = await api('/api/faces/confirm-remaining', { person_id: personId });
+        remaining = Math.max(0, remaining - (result.confirmed || 0));
+        updateProgress();
+        ids.forEach(id => pending.delete(id));
+        group.remove();
+        showDoneStatus(name, { auto_confirmed: (result.confirmed || 0) + checkedIds.length, confidence_pct: confidencePct });
+      } catch (error) {
+        status.textContent = error.message;
+        group.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
+    };
+  }
   const thumbs = group.querySelector('.match-thumbs');
   matches.forEach(match => {
     const wrap = document.createElement('div');
@@ -188,10 +228,9 @@ function addMatchGroup(name, personId, matches, autoCount) {
         group.remove();
         releasePending(skipped);
         if (more.matches && more.matches.length) {
-          if (auto) addMatchGroup(name, personId, more.matches, auto);
-          else addMatchGroup(name, personId, more.matches);
+          addMatchGroup(name, personId, more.matches, more);
         } else {
-          showDoneStatus(name, auto);
+          showDoneStatus(name, more);
           updateProgress();
         }
       } catch (_) {

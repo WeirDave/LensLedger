@@ -878,6 +878,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.name_face_batch(body)
             if route == "/api/faces/publish-person":
                 return self.publish_person_metadata(body)
+            if route == "/api/faces/confirm-remaining":
+                return self.confirm_remaining_faces(body)
             if route == "/api/publish/run":
                 return self.publish_run(body)
             if route == "/api/person/state":
@@ -3398,8 +3400,90 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 for score, row in borderline[:200]
             ]
         n = len(vectors)
-        print(f'[Name faces] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed)', flush=True)
-        self.send_json({"ok": True, "matches": matches, "auto_confirmed": auto_confirmed, "name": person["name"]})
+        scores = sorted((dot(center, v) for v in vectors), reverse=True)
+        cohesion = scores[len(scores) // 2] if scores else 0.0
+        confidence_pct = max(0, min(100, round(cohesion * 100)))
+        total_borderline = len(borderline)
+        print(f'[Name faces] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {confidence_pct}% confidence)', flush=True)
+        self.send_json({
+            "ok": True, "matches": matches, "auto_confirmed": auto_confirmed,
+            "name": person["name"], "confirmed_count": n,
+            "confidence_pct": confidence_pct, "total_remaining": total_borderline,
+        })
+
+    def confirm_remaining_faces(self, body):
+        """Confirm all remaining borderline matches for a person in one shot.
+        Loops server-side: compute centroid → find all matches ≥0.65 → confirm
+        → recompute centroid → repeat until no new matches found."""
+        person_id = int(body["person_id"])
+        SIMILAR_FACE_THRESHOLD = 0.65
+        total_confirmed = 0
+        rounds = 0
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person not found")
+            name = person["name"]
+            while True:
+                refs = con.execute(
+                    """SELECT f.embedding_f32 FROM face_embeddings f
+                       JOIN asset_people ap ON ap.face_id=f.id
+                       WHERE ap.person_id=? AND ap.state='confirmed' AND f.embedding_f32 IS NOT NULL""",
+                    (person_id,),
+                ).fetchall()
+                vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
+                if not vectors:
+                    break
+                center = centroid(vectors)
+                if not center:
+                    break
+                rows = con.execute(
+                    """SELECT f.id AS face_id, f.asset_id, f.embedding_f32
+                       FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
+                             AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                             AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM asset_people ap WHERE ap.face_id=f.id AND ap.state='confirmed'
+                             )
+                       ORDER BY f.id DESC LIMIT 50000""",
+                ).fetchall()
+                matched = []
+                for row in rows:
+                    candidate = decode_vector(row["embedding_f32"])
+                    if not candidate:
+                        continue
+                    if dot(center, candidate) >= SIMILAR_FACE_THRESHOLD:
+                        matched.append(row)
+                if not matched:
+                    break
+                now = utc_now()
+                round_confirmed = 0
+                for row in matched:
+                    face_id = int(row["face_id"])
+                    asset_id = int(row["asset_id"])
+                    try:
+                        self.get_active_asset(con, asset_id)
+                    except Exception:
+                        continue
+                    con.execute(
+                        """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                           VALUES (?,?,'confirmed',NULL,?,'manual_face',?)
+                           ON CONFLICT(asset_id,person_id) DO UPDATE SET
+                               state='confirmed',face_id=excluded.face_id,source='manual_face',
+                               updated_at=excluded.updated_at""",
+                        (asset_id, person_id, face_id, now),
+                    )
+                    sync_person_tags(con, asset_id)
+                    rebuild_search_row(con, asset_id)
+                    round_confirmed += 1
+                rounds += 1
+                total_confirmed += round_confirmed
+                print(f'[Name faces] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)', flush=True)
+                if round_confirmed == 0:
+                    break
+        print(f'[Name faces] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)', flush=True)
+        self.send_json({"ok": True, "confirmed": total_confirmed, "rounds": rounds})
 
     def ignore_face(self, body):
         face_id = int(body["face_id"])

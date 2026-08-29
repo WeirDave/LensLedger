@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.74.0 — 2026-08-28
+
+- Added recognition confidence percentage to match groups (e.g. "87% confidence").
+- Added "Confirm all remaining" button that appears when confidence is 75%+ and at least 25 faces are confirmed — one click confirms every remaining match server-side.
+- Match group headers now show confidence alongside auto-confirmed counts.
+
 ## 0.73.0 — 2026-08-28
 
 - Added dedicated "Publish photos" page for controlling when JPEG metadata is written.
