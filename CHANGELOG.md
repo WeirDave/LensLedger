@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.1 — 2026-08-29
+
+- Fixed test suite corrupting the user's library-state.json by writing test library paths to the real config file instead of a temp copy.
+- Deleted stray empty photo_index.db left behind by a previous test run.
+
 ## 0.81.0 — 2026-08-29
 
 - Improved "Confirm all remaining" to stop iterating when the centroid is stable instead of drip-feeding a few auto-confirms per round indefinitely.

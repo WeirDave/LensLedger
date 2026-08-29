@@ -31,10 +31,15 @@ class ServerWorkflowTests(unittest.TestCase):
         self.environment = patch.dict(os.environ, {"LENSLEDGER_DATA_DIR": str(self.data)})
         self.environment.start()
 
+        import library_config
         import photo_search
         from photo_index import scan_library
 
         self.photo_search = photo_search
+        self._patched_state = patch.object(library_config, "LIBRARY_STATE_PATH", self.data / "library-state.json")
+        self._patched_db_root = patch.object(library_config, "LIBRARY_DATABASE_ROOT", self.data / "Libraries")
+        self._patched_state.start()
+        self._patched_db_root.start()
         self.database = self.root / "library.sqlite3"
         self.assertEqual(scan_library(self.library, self.database), 0)
         photo_search.BACKUP_ROOT = self.data / "Metadata Backups"
@@ -68,6 +73,8 @@ class ServerWorkflowTests(unittest.TestCase):
         self.thread.join(timeout=5)
         import console_log
         console_log.shutdown()
+        self._patched_db_root.stop()
+        self._patched_state.stop()
         self.environment.stop()
         self.temporary.cleanup()
 
@@ -168,13 +175,13 @@ class ServerWorkflowTests(unittest.TestCase):
 
     def test_onboarding_page_shown_for_true_first_run(self):
         from photo_index import connect
-        from library_config import LIBRARY_STATE_PATH
 
         empty_database = self.root / "empty.sqlite3"
         connect(empty_database).close()
         self.photo_search.SearchHandler.current_library = (self.library.resolve(), empty_database)
-        if LIBRARY_STATE_PATH.is_file():
-            LIBRARY_STATE_PATH.unlink()
+        state_path = self.data / "library-state.json"
+        if state_path.is_file():
+            state_path.unlink()
         try:
             with self.get("/") as response:
                 page = response.read().decode("utf-8")
