@@ -2044,7 +2044,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ).fetchone()[0])
                 unidentified_faces_count = int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND a.in_review_bin=0
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                          AND NOT EXISTS (
@@ -3156,12 +3156,26 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             with self.db() as con:
                 self.get_active_asset(con, asset_id)
                 person_id = self.resolve_or_create_person(con, name)
+                face_row = con.execute(
+                    """SELECT f.id FROM face_embeddings f
+                       WHERE f.asset_id=? AND f.ignored_at IS NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM asset_people ap
+                             WHERE ap.face_id=f.id AND ap.state IN ('confirmed','suggested')
+                         )
+                       ORDER BY (f.box_right-f.box_left)*(f.box_bottom-f.box_top) DESC
+                       LIMIT 1""",
+                    (asset_id,),
+                ).fetchone()
+                face_id = face_row["id"] if face_row else None
                 con.execute(
-                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
-                       VALUES (?,?,'confirmed',NULL,'manual',?)
+                    """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+                       VALUES (?,?,'confirmed',NULL,?,'manual',?)
                        ON CONFLICT(asset_id,person_id) DO UPDATE SET
-                           state='confirmed',source='manual',updated_at=excluded.updated_at""",
-                    (asset_id, person_id, utc_now()),
+                           state='confirmed',
+                           face_id=COALESCE(excluded.face_id, asset_people.face_id),
+                           source='manual',updated_at=excluded.updated_at""",
+                    (asset_id, person_id, face_id, utc_now()),
                 )
                 sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
                 published.append(self._publish_people_metadata(con, asset_id))
@@ -4123,7 +4137,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
                 "unidentified_faces": int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND a.in_review_bin=0
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                          AND NOT EXISTS (
