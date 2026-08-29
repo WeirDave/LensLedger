@@ -214,7 +214,20 @@ function addMatchGroup(name, personId, matches, moreData) {
         updateProgress();
         ids.forEach(id => pending.delete(id));
         group.remove();
-        showDoneStatus(name, { auto_confirmed: totalConfirmed + checkedIds.length });
+        if (lastEvent && lastEvent.needs_review) {
+          try {
+            const more = await api('/api/faces/find-more', { person_id: personId });
+            if (more.matches && more.matches.length) {
+              addMatchGroup(name, personId, more.matches, more);
+            } else {
+              showDoneStatus(name, { auto_confirmed: totalConfirmed + checkedIds.length });
+            }
+          } catch (_) {
+            showDoneStatus(name, { auto_confirmed: totalConfirmed + checkedIds.length });
+          }
+        } else {
+          showDoneStatus(name, { auto_confirmed: totalConfirmed + checkedIds.length });
+        }
       } catch (error) {
         status.textContent = error.message;
         group.querySelectorAll('button').forEach(b => b.disabled = false);

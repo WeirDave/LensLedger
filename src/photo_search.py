@@ -3548,14 +3548,17 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         })
 
     def confirm_remaining_faces(self, body):
-        """Confirm all remaining borderline matches for a person in one shot.
-        Loops server-side: compute centroid → find all matches ≥0.65 → confirm
-        → recompute centroid → repeat until no new matches found.
-        Streams SSE progress events so the UI can show a live progress bar."""
+        """Confirm all remaining matches for a person above the similarity
+        threshold.  Runs up to two rounds: the first confirms everything
+        ≥0.65, the second catches any faces that crossed the threshold due
+        to centroid drift.  If a round finds very few matches relative to
+        the first (centroid is stable), iteration stops early and the
+        remaining borderline faces are left for human review."""
         person_id = int(body["person_id"])
         SIMILAR_FACE_THRESHOLD = 0.65
         total_confirmed = 0
         rounds = 0
+        first_round_count = 0
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -3634,8 +3637,13 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 send_event({"round": rounds, "round_confirmed": round_confirmed, "total_confirmed": total_confirmed})
                 if round_confirmed == 0:
                     break
+                if rounds == 1:
+                    first_round_count = round_confirmed
+                elif round_confirmed < max(first_round_count // 10, 10):
+                    console_log(f'[People review] Centroid stable — stopping auto-confirm, remaining faces need human review')
+                    break
         console_log(f'[People review] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)')
-        send_event({"done": True, "confirmed": total_confirmed, "rounds": rounds})
+        send_event({"done": True, "confirmed": total_confirmed, "rounds": rounds, "needs_review": rounds > 1})
 
     def ignore_face(self, body):
         face_id = int(body["face_id"])

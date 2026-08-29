@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.81.0 — 2026-08-29
+
+- Improved "Confirm all remaining" to stop iterating when the centroid is stable instead of drip-feeding a few auto-confirms per round indefinitely.
+- After confirm-all stops early, remaining borderline faces are now loaded for human review instead of showing a done status.
+
 ## 0.80.1 — 2026-08-29
 
 - Removed duplicate title from GitHub release notes — release notes files no longer start with an H1 heading that duplicated the release title GitHub already displays.
