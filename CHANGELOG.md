@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.85.0 — 2026-08-30
+
+- Added People Index page with direct nav-menu access, alphabet jump bar, and film-strip letter dividers.
+- Renamed the section from "People" to "People Index" in nav, heading, page title, and back-links.
+- Moved alphabet-bar scroll JS to an external file to comply with Content Security Policy.
+
 ## 0.84.0 — 2026-08-30
 
 - Unified all user-facing naming to "People" across URLs, page titles, nav, buttons, and text.

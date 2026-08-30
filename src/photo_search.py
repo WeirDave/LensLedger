@@ -169,7 +169,8 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<summary class="menu-section-label">Navigation</summary>'
         + _link("/", "⌂ Home", "home")
         + _link("/scan-photos", "\U0001f50e Scan photos", "scan-photos")
-        + _link("/people", "\U0001f465 People", "people")
+        + _link("/?scope=people", "\U0001f465 People Index", "people-directory")
+        + _link("/people", "\U0001f3f7️ Tag faces", "people")
         + _link("/publish", "\U0001f4e4 Publish photos", "publish")
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
@@ -2266,15 +2267,46 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f'data-person-name="{html.escape(person["name"], quote=True)}" '
                 f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit name</button></article>'
             )
+        active_letters = {card["name"][0].upper() for card in people_cards if card["name"]} if people_cards else set()
+        alpha_bar = '<nav class="alpha-bar" aria-label="Jump to letter">' + "".join(
+            f'<a href="#letter-{letter}" data-letter="{letter}" class="alpha-link">{letter}</a>'
+            if letter in active_letters
+            else f'<span class="alpha-link disabled">{letter}</span>'
+            for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        ) + '</nav>'
+        lettered_cards = []
+        current_letter = ""
+        for card_index, card_html in enumerate(gallery_cards):
+            name = people_cards[card_index]["name"] if card_index < len(people_cards) else ""
+            first = name[0].upper() if name else ""
+            if first and first != current_letter:
+                current_letter = first
+                film_strip_svg = (
+                    '<svg class="film-strip" viewBox="0 0 800 28" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">'
+                    '<rect width="800" height="28" rx="2" fill="var(--text-secondary)"/>'
+                    '<rect y="4" width="800" height="20" fill="var(--surface2)"/>'
+                    + ''.join(f'<rect x="{x}" y="1" width="10" height="7" rx="1.5" fill="var(--bg)"/>'
+                             f'<rect x="{x}" y="20" width="10" height="7" rx="1.5" fill="var(--bg)"/>'
+                             for x in range(8, 800, 20))
+                    + '</svg>'
+                )
+                lettered_cards.append(
+                    f'<h3 class="letter-header" id="letter-{current_letter}">'
+                    f'<span class="letter-char">{current_letter}</span>'
+                    f'{film_strip_svg}</h3>'
+                )
+            lettered_cards.append(card_html)
         people_gallery_html = (
-            '<main class="people-browser"><div class="people-browser-head"><div><h2>People</h2>'
+            '<main class="people-browser"><div class="people-browser-head"><div><h2>People Index</h2>'
             '<p>Choose a person to see confirmed photos. Use Edit name on a card to add nicknames, maiden names, or other aliases for that one person; separate each alternate name with a comma.</p></div>'
             f'<div class="people-head-actions"><span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
-            f'<button type="button" id="reviewPeopleGallery">People ({review_count:,})</button></div></div><section class="people-grid">'
-            + ("".join(gallery_cards) if gallery_cards else '<p class="people-empty">No people match that name.</p>')
-            + '</section></main>'
+            f'<button type="button" id="reviewPeopleGallery">People ({review_count:,})</button></div></div>'
+            + alpha_bar
+            + '<section class="people-grid">'
+            + ("".join(lettered_cards) if lettered_cards else '<p class="people-empty">No people match that name.</p>')
+            + f'</section><script src="{asset_url("js/alpha-bar.js")}"></script></main>'
         ) if gallery_mode else ""
         people_result_bar = ""
         if scope == "people" and person_id:
@@ -2282,7 +2314,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             suggested = selected_person_stats.get("suggested_count", 0)
             localized = selected_person_stats.get("localized_count", 0)
             people_result_bar = (
-                f'<div class="people-result-bar"><a href="/?scope=people">← All people</a>'
+                f'<div class="people-result-bar"><a href="/?scope=people">← People Index</a>'
                 f'<strong>{html.escape(selected_person_name)}</strong>'
                 f'<span>{confirmed:,} confirmed photo{"s" if confirmed != 1 else ""}</span>'
                 + (f'<span>{localized:,} exact face box{"es" if localized != 1 else ""}</span>' if localized else "")
@@ -2299,7 +2331,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         )
         viewer_hidden_class = " viewer-hidden" if gallery_mode else ""
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}">
+<title>{"People Index — " if gallery_mode else ""}{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body class="{body_class}" {bootstrap_attr({
             "items": items, "personDirectory": people_directory, "csrf": self.csrf_token,
             "currentLibrary": str(self.library_root), "viewedPersonId": person_id,
@@ -2313,7 +2345,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <a href="#stage" class="skip-nav">Skip to photos</a>
 <header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
 <form class="toolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
-{nav_menu("home", str(self.library_root))}
+{nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button class="stage-nav" id="nextPhoto"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details">ⓘ</button></div><aside class="sidebar" id="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">i</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you use Publish to this photo. Nothing is written automatically.</div></div>
