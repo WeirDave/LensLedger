@@ -43,7 +43,7 @@ def _capture_date(path: Path) -> dt.datetime | None:
                 if tag in ("DateTimeOriginal", "DateTime", "DateTimeDigitized"):
                     return dt.datetime.strptime(str(value), "%Y:%m:%d %H:%M:%S")
     except Exception:
-        pass
+        pass  # EXIF extraction is best-effort; fall through to mtime
     try:
         return dt.datetime.fromtimestamp(path.stat().st_mtime)
     except OSError:
@@ -248,7 +248,7 @@ class IngestPipeline:
                     placeholders += 1
                     continue
             except Exception:
-                pass
+                pass  # cloud-placeholder detection is best-effort
             candidates.append(path)
 
         if placeholders:

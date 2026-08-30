@@ -86,8 +86,8 @@ class FolderWatcher:
             if self._scan_fn:
                 console_log("Folder watcher: checking for changes")
                 self._scan_fn()
-        except Exception:
-            pass
+        except Exception as exc:
+            console_log(f"Folder watcher: scan error — {exc}")
         with self._lock:
             if self._running:
                 self._schedule_next()

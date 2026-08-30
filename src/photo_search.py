@@ -1209,7 +1209,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 {nav_menu("settings", str(self.library_root))}
 <main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#display-prefs">Display preferences</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
 <section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div>
-<div class="toggle-row" style="margin-top:14px"><label class="toggle-switch"><input type="checkbox" id="showLibraryPicker" {"checked" if startup_cfg.get("show_library_picker") else ""}><span class="slider"></span></label><label for="showLibraryPicker">Ask which library to open at startup</label></div></section>
+<div class="toggle-row toggle-row-spaced"><label class="toggle-switch"><input type="checkbox" id="showLibraryPicker" {"checked" if startup_cfg.get("show_library_picker") else ""}><span class="slider"></span></label><label for="showLibraryPicker">Ask which library to open at startup</label></div></section>
 <section class="card" id="scan-prefs"><h2>Scan preferences</h2>
 <div class="field"><label for="ocrWorkers">OCR worker threads</label><input type="number" id="ocrWorkers" min="1" max="16" value="{int(scan.get('ocr_workers', 4))}"><span class="hint">More workers scan faster but use more CPU. Default: 4</span></div>
 <div class="field"><label for="ocrBatchSize">OCR batch size</label><input type="number" id="ocrBatchSize" min="10" max="500" value="{int(scan.get('ocr_batch_size', 50))}"><span class="hint">Photos processed per OCR commit. Default: 50</span></div>
@@ -3169,6 +3169,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (restore_pid, previous["face_id"]))
         disposition_column = self.FACE_DISPOSITION_COLUMNS.get(action["face_disposition"])
         if disposition_column and previous["face_id"] is not None:
+            if disposition_column not in {"ignored_at", "unknown_at"}:
+                raise ValueError("invalid disposition column")
             con.execute(
                 f"UPDATE face_embeddings SET {disposition_column}=NULL WHERE id=?",
                 (previous["face_id"],),
@@ -4252,8 +4254,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try:
                 raw = log_file.read_text(encoding="utf-8", errors="replace")
                 lines = raw.splitlines()[-200:]
-            except Exception:
-                pass
+            except Exception as exc:
+                console_log(f"Could not read log file: {exc}")
         self.send_json({"lines": lines})
 
     @classmethod
@@ -5209,8 +5211,8 @@ def main():
                 return
         try:
             scan_library(SearchHandler.library_root, SearchHandler.db_path, quiet=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            console_log(f"Folder watcher scan failed: {exc}")
     settings = load_settings()
     watch_cfg = settings.get("watch", {})
     watcher = FolderWatcher(

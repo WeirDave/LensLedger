@@ -66,7 +66,7 @@ class OpenClipEncoder:
         import warnings
         logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
         warnings.filterwarnings("ignore", message="QuickGELU mismatch", module="open_clip")
-        Image.MAX_IMAGE_PIXELS = None
+        Image.MAX_IMAGE_PIXELS = 300_000_000
         self.torch = torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(

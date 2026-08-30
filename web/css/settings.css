@@ -47,7 +47,7 @@ main{width:min(1060px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:8px;background:var(--toast-bg,#333);color:var(--toast-text,#fff);font-size:12.5px;font-weight:600;transform:translateY(120%);opacity:0;transition:all .3s;z-index:50;max-width:340px}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.error{background:var(--danger)}
-.toggle-row{display:flex;align-items:center;gap:10px;margin:7px 0}
+.toggle-row{display:flex;align-items:center;gap:10px;margin:7px 0}.toggle-row.toggle-row-spaced{margin-top:14px}
 .toggle-row label{font-size:12.5px;font-weight:650;color:var(--text)}
 .toggle-switch{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
 .toggle-switch input{opacity:0;width:0;height:0}

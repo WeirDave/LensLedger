@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.5 — 2026-08-30
+
+- Hardened image processing: set a 300-megapixel decompression bomb limit instead of disabling Pillow's protection entirely.
+- Added SQL column allowlist assertion for face disposition updates, preventing future regression into SQL injection.
+- Pinned dependency upper bounds in all requirements files to prevent unexpected breaking changes.
+- Moved all inline styles from viewer.js into CSS classes — face box overlay, status colors, guide panel, trash bar, toast visibility.
+- Replaced hardcoded hex color literals with CSS custom property classes (status-error, status-warning, status-success).
+- Reformatted the Quick Guide panel builder from a single 2000+ character line into readable multi-line code.
+- Added logging to five silent exception blocks that previously swallowed errors without any record.
+- Replaced inline style margin override in Settings template with a CSS modifier class.
+
 ## 0.82.4 — 2026-08-29
 
 - Fixed scan error links not opening — browsers block `file:///` links from `http://` pages. Replaced the broken path links with an "Open folder" button that opens the containing folder in Explorer (or Finder on macOS) via the server.
