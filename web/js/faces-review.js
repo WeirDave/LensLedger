@@ -61,6 +61,16 @@ function updateProgress() {
   if (btn) btn.hidden = skippedCount === 0;
 }
 
+function updatePublishReminder(people, photos) {
+  const el = $('publishReminder');
+  if (!el) return;
+  if (people === 0) { el.hidden = true; return; }
+  const ppl = people.toLocaleString() + ' ' + (people === 1 ? 'person' : 'people');
+  const pho = photos.toLocaleString() + ' photo' + (photos === 1 ? '' : 's');
+  $('publishReminderText').textContent = ppl + ' tagged across ' + pho + ' — not yet published to file metadata';
+  el.hidden = false;
+}
+
 let initialLoadDone = false;
 let autoLearnTriggered = false;
 function checkEmpty() {
@@ -504,6 +514,7 @@ async function loadMore() {
     remaining = data.total;
     skippedCount = data.skipped || 0;
     updateProgress();
+    updatePublishReminder(data.unpublished_people || 0, data.unpublished_photos || 0);
     knownPeople = data.people_options;
     knownAliasMap = data.people_alias_map || null;
     const existing = new Set([...$('faceGrid').children].map(el => el.dataset.faceId));

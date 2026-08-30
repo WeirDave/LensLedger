@@ -904,6 +904,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.person_photo_thumbnails(params)
         if url.path == "/api/groups":
             return self.list_groups()
+        if url.path == "/api/people/all-with-groups":
+            return self.all_people_with_groups()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/api/faces/unidentified":
@@ -912,6 +914,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.faces_review_page()
         if url.path == "/people/review":
             return self.people_review_page(params)
+        if url.path == "/people/groups":
+            return self.group_manager_page()
         if url.path == "/faces-review":
             self.send_response(301)
             self.send_header("Location", "/people")
@@ -1011,6 +1015,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.set_person_groups(body)
             if route == "/api/group/delete":
                 return self.delete_group(body)
+            if route == "/api/groups/bulk-assign":
+                return self.bulk_assign_group(body)
+            if route == "/api/groups/bulk-remove":
+                return self.bulk_remove_group(body)
             if route == "/api/person/names":
                 return self.set_person_names(body)
             if route == "/api/person/card-photo":
@@ -2336,6 +2344,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'<div class="alpha-actions">'
             f'<span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
             f'{group_filter_html}'
+            f'<a href="/people/groups" class="button secondary gm-back-link">Manage groups</a>'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
             f'<button type="button" id="reviewPeopleGallery">Tag faces ({review_count:,})</button>'
@@ -2442,7 +2451,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="quickTagBtn">Quick tag</button><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="secondary" id="unskipAll" hidden>Show skipped</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people", str(self.library_root))}
-<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet. Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><div class="publish-reminder" id="publishReminder" hidden><span class="publish-reminder-text" id="publishReminderText"></span><a class="button secondary publish-reminder-btn" href="/publish">Publish now</a></div><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet. Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><div class="lightbox-picker" id="lightboxPicker"></div><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button><button type="button" class="danger" id="lightboxTrash">Trash photo</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div><div class="lightbox-path" id="lightboxPath"><span class="lightbox-path-text" id="lightboxPathText"></span><button type="button" class="secondary lightbox-reveal" id="lightboxReveal">Show in folder</button></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
@@ -3424,6 +3433,18 @@ class SearchHandler(BaseHTTPRequestHandler):
             people_alias_map = {row[0]: row[1] for row in con.execute(
                 "SELECT pa.alias, p.name FROM person_aliases pa JOIN people p ON p.id=pa.person_id"
             )}
+            unpublished_people = int(con.execute(
+                """SELECT COUNT(DISTINCT ap.person_id)
+                   FROM asset_people ap
+                   JOIN assets a ON a.id = ap.asset_id
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0"""
+            ).fetchone()[0])
+            unpublished_photos = int(con.execute(
+                """SELECT COUNT(DISTINCT ap.asset_id)
+                   FROM asset_people ap
+                   JOIN assets a ON a.id = ap.asset_id
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0"""
+            ).fetchone()[0])
 
         DIVERSITY_THRESHOLD = 0.78
         candidates = []
@@ -3451,6 +3472,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({
             "total": total,
             "skipped": skipped_count,
+            "unpublished_people": unpublished_people,
+            "unpublished_photos": unpublished_photos,
             "people_options": people_names,
             "people_alias_map": people_alias_map,
             "faces": [
@@ -4024,6 +4047,109 @@ class SearchHandler(BaseHTTPRequestHandler):
                 raise ValueError("group not found")
             con.execute("DELETE FROM person_groups WHERE id=?", (group_id,))
         self.send_json({"ok": True})
+
+    def group_manager_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Manage groups — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}"><link rel="stylesheet" href="{asset_url('css/group-manager.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Manage groups</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><a href="/?scope=people" class="button secondary gm-back-link">← People Index</a><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+{nav_menu("people-directory", str(self.library_root))}
+<div class="gm-layout">
+<div class="gm-sidebar">
+<div class="gm-sidebar-header"><h3>Groups</h3><div class="gm-new-group"><input type="text" id="newGroupInput" placeholder="New group name"><button type="button" id="newGroupBtn">Create</button></div></div>
+<div class="gm-group-list" id="groupList"></div>
+</div>
+<div class="gm-main">
+<div class="gm-toolbar"><label class="gm-select-all-wrap"><input type="checkbox" id="selectAll"><span>All</span></label><input type="text" class="gm-search" id="searchInput" placeholder="Search people by name, alias, or group"><span class="gm-selection-count" id="selectionCount"></span><div class="gm-actions"><button type="button" class="gm-add" id="addToGroup" disabled>Add to group</button><button type="button" class="gm-remove" id="removeFromGroup" disabled>Remove from group</button></div></div>
+<div class="gm-status" id="statusMsg"></div>
+<div class="gm-people-list" id="peopleList"></div>
+</div>
+</div>
+<script src="{asset_url('js/group-manager.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def all_people_with_groups(self):
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT p.id, p.name,
+                       (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                        WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0) confirmed_count
+                   FROM people p ORDER BY p.name COLLATE NOCASE"""
+            ).fetchall()
+            people = []
+            for row in rows:
+                pid = row["id"]
+                aliases = [r[0] for r in con.execute(
+                    "SELECT alias FROM person_aliases WHERE person_id=? ORDER BY alias COLLATE NOCASE",
+                    (pid,),
+                )]
+                groups = [r[0] for r in con.execute(
+                    """SELECT pg.name FROM person_groups pg
+                       JOIN person_group_members pgm ON pg.id=pgm.group_id
+                       WHERE pgm.person_id=? ORDER BY pg.name COLLATE NOCASE""",
+                    (pid,),
+                )]
+                people.append({
+                    "id": pid, "name": row["name"],
+                    "confirmed_count": row["confirmed_count"],
+                    "aliases": aliases, "groups": groups,
+                })
+        self.send_json({"people": people})
+
+    def bulk_assign_group(self, body):
+        group_name = clean_tag(str(body.get("group_name", "")))
+        if not group_name:
+            raise ValueError("group_name is required")
+        person_ids = body.get("person_ids", [])
+        if not isinstance(person_ids, list):
+            raise ValueError("person_ids must be a list")
+        person_ids = [int(pid) for pid in person_ids]
+        added = 0
+        with self.db() as con:
+            con.execute("INSERT OR IGNORE INTO person_groups(name) VALUES (?)", (group_name,))
+            group_id = con.execute(
+                "SELECT id FROM person_groups WHERE name=? COLLATE NOCASE", (group_name,)
+            ).fetchone()["id"]
+            for pid in person_ids:
+                person = con.execute("SELECT id FROM people WHERE id=?", (pid,)).fetchone()
+                if not person:
+                    continue
+                existing = con.execute(
+                    "SELECT 1 FROM person_group_members WHERE group_id=? AND person_id=?",
+                    (group_id, pid),
+                ).fetchone()
+                if not existing:
+                    con.execute(
+                        "INSERT INTO person_group_members(group_id,person_id) VALUES (?,?)",
+                        (group_id, pid),
+                    )
+                    added += 1
+        self.send_json({"ok": True, "added": added})
+
+    def bulk_remove_group(self, body):
+        group_name = clean_tag(str(body.get("group_name", "")))
+        if not group_name:
+            raise ValueError("group_name is required")
+        person_ids = body.get("person_ids", [])
+        if not isinstance(person_ids, list):
+            raise ValueError("person_ids must be a list")
+        person_ids = [int(pid) for pid in person_ids]
+        removed = 0
+        with self.db() as con:
+            group_row = con.execute(
+                "SELECT id FROM person_groups WHERE name=? COLLATE NOCASE", (group_name,)
+            ).fetchone()
+            if not group_row:
+                return self.send_json({"ok": True, "removed": 0})
+            group_id = group_row["id"]
+            for pid in person_ids:
+                cur = con.execute(
+                    "DELETE FROM person_group_members WHERE group_id=? AND person_id=?",
+                    (group_id, pid),
+                )
+                removed += cur.rowcount
+        self.send_json({"ok": True, "removed": removed})
 
     def person_photo_thumbnails(self, params):
         person_id = int(params.get("person_id", ["0"])[0])

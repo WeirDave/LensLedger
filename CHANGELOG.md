@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.89.0 — 2026-08-30
+
+- Added publish reminder banner to the Tag Faces page showing how many people and photos have been tagged but not yet published to file metadata.
+- Banner includes a "Publish now" link to the Publish page for quick action.
+- Banner updates on each load and hides when there is nothing to publish.
+- Styled for both light and dark themes.
+
 ## 0.88.0 — 2026-08-30
 
 - Added person groups feature: tag people with groups like Family, Friends, Coworkers, or band names.
