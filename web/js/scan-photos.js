@@ -114,9 +114,16 @@ function errorListNode(errors) {
     const pathEl = document.createElement('a');
     pathEl.className = 'path';
     pathEl.textContent = displayPath;
-    pathEl.href = 'file:///' + displayPath.replace(/\\/g, '/');
-    pathEl.target = '_blank';
+    pathEl.href = '#';
     pathEl.title = 'Open file';
+    pathEl.onclick = (e) => {
+      e.preventDefault();
+      fetch('/api/reveal-path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+    };
     const msgEl = document.createElement('span');
     msgEl.className = 'msg';
     msgEl.textContent = error;

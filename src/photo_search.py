@@ -1052,6 +1052,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.restart_source(body)
             if route == "/api/reveal-file":
                 return self.reveal_file(body)
+            if route == "/api/reveal-path":
+                return self.reveal_path(body)
             if route == "/api/dev/set":
                 return self.set_dev_override(body)
             if route == "/api/settings/save":
@@ -4422,6 +4424,18 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         with self.db() as con:
             asset = self.get_active_asset(con, asset_id)
         source_path = self.library_root / Path(asset["relative_path"])
+        self._reveal_on_disk(source_path)
+
+    def reveal_path(self, body):
+        rel = body.get("path", "")
+        if not rel:
+            raise ValueError("Missing path")
+        source_path = self.library_root / Path(rel)
+        if not source_path.resolve().is_relative_to(self.library_root.resolve()):
+            raise ValueError("Path is outside the library")
+        self._reveal_on_disk(source_path)
+
+    def _reveal_on_disk(self, source_path: Path):
         if not source_path.exists():
             raise ValueError("File not found on disk")
         if sys.platform == "win32":

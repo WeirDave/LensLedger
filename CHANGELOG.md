@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.3 — 2026-08-29
+
+- Fixed scan error links not opening files — browsers block `file:///` links from `http://` pages, so clicking a path in the error list now asks the server to reveal the file in Explorer (or Finder on macOS).
+
 ## 0.82.2 — 2026-08-29
 
 - Fixed person aliases (alternate names) not appearing in the name picker on the faces review page, so typing an alias now surfaces the person as expected.
