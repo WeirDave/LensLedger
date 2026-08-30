@@ -9,7 +9,7 @@
     if (!anchor) return;
     var scroller = document.querySelector(".people-browser");
     if (!scroller) return;
-    var barH = bar.offsetHeight + 16;
+    var barH = bar.offsetHeight + 8;
     var top = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - barH;
     scroller.scrollTo({top: top, behavior: "smooth"});
   });

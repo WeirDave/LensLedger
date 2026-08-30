@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.85.1 — 2026-08-30
+
+- Attached alphabet bar flush to the page header with no gap.
+- Made film-strip dividers a shorter decorative accent instead of full-width.
+- Improved film-strip SVG with darker film-stock colors and clearer sprocket holes.
+
 ## 0.85.0 — 2026-08-30
 
 - Added People Index page with direct nav-menu access, alphabet jump bar, and film-strip letter dividers.
