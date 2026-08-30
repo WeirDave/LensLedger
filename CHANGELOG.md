@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.87.0 — 2026-08-30
+
+- Added ability to set a custom card photo for each person on the People Index.
+- "Change photo" button on People Index cards opens a photo picker modal showing recent confirmed photos.
+- "Set as card photo" button in the viewer's person result bar sets the currently viewed photo as the card image.
+- Card photo preference is stored in the database and takes priority over the automatic most-recent selection.
+
 ## 0.86.0 — 2026-08-30
 
 - Clickable named face boxes: clicking a named bounding box on a photo opens a corrector popover with "Remove" and "Change to" options.

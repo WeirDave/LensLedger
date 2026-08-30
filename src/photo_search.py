@@ -891,6 +891,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.version_info()
         if url.path == "/api/update/status":
             return self.update_status()
+        if url.path == "/api/person/photos":
+            return self.person_photo_thumbnails(params)
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/api/faces/unidentified":
@@ -996,6 +998,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.set_person_aliases(body)
             if route == "/api/person/names":
                 return self.set_person_names(body)
+            if route == "/api/person/card-photo":
+                return self.set_person_card_photo(body)
             if route == "/api/person/merge":
                 return self.merge_people(body)
             if route == "/api/people/review/decision":
@@ -2137,6 +2141,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                                (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                                 WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0) suggested_count,
                                COALESCE(
+                                 p.card_asset_id,
                                  (SELECT ap.asset_id FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                                   WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0 AND a.media_type='image'
                                   ORDER BY a.capture_date DESC,a.id DESC LIMIT 1),
@@ -2265,7 +2270,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f'<span>{html.escape(alias_text)}</span></div></a>'
                 f'<button type="button" class="edit-aliases" data-person-id="{int(person["id"])}" '
                 f'data-person-name="{html.escape(person["name"], quote=True)}" '
-                f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit name</button></article>'
+                f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit name</button>'
+                f'<button type="button" class="change-card-photo" data-person-id="{int(person["id"])}" '
+                f'data-person-name="{html.escape(person["name"], quote=True)}">Change photo</button></article>'
             )
         active_letters = {card["name"][0].upper() for card in people_cards if card["name"]} if people_cards else set()
         alpha_letters = "".join(
@@ -2315,6 +2322,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f'<span>{confirmed:,} confirmed photo{"s" if confirmed != 1 else ""}</span>'
                 + (f'<span>{localized:,} exact face box{"es" if localized != 1 else ""}</span>' if localized else "")
                 + (f'<a class="button secondary" href="/people/review?person={person_id}">Review {suggested:,} possible match{"es" if suggested != 1 else ""}</a>' if suggested else "")
+                + f'<button type="button" class="secondary" id="setCardPhoto">Set as card photo</button>'
                 + '</div>'
             )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
@@ -3918,6 +3926,44 @@ class SearchHandler(BaseHTTPRequestHandler):
                 [(person_id, alias) for alias in aliases],
             )
         self.send_json({"ok": True, "aliases": aliases})
+
+    def person_photo_thumbnails(self, params):
+        person_id = int(params.get("person_id", ["0"])[0])
+        if not person_id:
+            raise ValueError("person_id is required")
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT a.id FROM asset_people ap
+                   JOIN assets a ON a.id=ap.asset_id
+                   WHERE ap.person_id=? AND ap.state='confirmed'
+                     AND a.in_review_bin=0 AND a.media_type='image'
+                   ORDER BY a.capture_date DESC, a.id DESC LIMIT 24""",
+                (person_id,),
+            ).fetchall()
+            card_asset_id = con.execute(
+                "SELECT card_asset_id FROM people WHERE id=?", (person_id,)
+            ).fetchone()
+        self.send_json({
+            "photos": [{"id": int(row["id"])} for row in rows],
+            "card_asset_id": int(card_asset_id["card_asset_id"]) if card_asset_id and card_asset_id["card_asset_id"] else None,
+        })
+
+    def set_person_card_photo(self, body):
+        person_id = int(body["person_id"])
+        asset_id = body.get("asset_id")
+        if asset_id is not None:
+            asset_id = int(asset_id)
+        with self.db() as con:
+            person = con.execute("SELECT id FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person is no longer available")
+            if asset_id is not None:
+                asset = con.execute("SELECT id FROM assets WHERE id=?", (asset_id,)).fetchone()
+                if not asset:
+                    raise ValueError("photo is no longer available")
+            con.execute("UPDATE people SET card_asset_id=? WHERE id=?", (asset_id, person_id))
+            con.commit()
+        self.send_json({"ok": True})
 
     def set_person_names(self, body):
         person_id = int(body["person_id"])

@@ -40,7 +40,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -363,6 +363,9 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         )""")
     if "skipped_at" not in face_columns:
         con.execute("ALTER TABLE face_embeddings ADD COLUMN skipped_at TEXT")
+    person_columns = {row[1] for row in con.execute("PRAGMA table_info(people)")}
+    if "card_asset_id" not in person_columns:
+        con.execute("ALTER TABLE people ADD COLUMN card_asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL")
     review_action_columns = {row[1] for row in con.execute("PRAGMA table_info(people_review_actions)")}
     if "face_disposition" not in review_action_columns:
         con.execute("ALTER TABLE people_review_actions ADD COLUMN face_disposition TEXT")
