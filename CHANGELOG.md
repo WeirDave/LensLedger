@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.0 — 2026-08-29
+
+- Added a "Who is this?" name picker to the enlarged photo lightbox on the faces review page, so faces can be named directly while viewing the full photo for context instead of having to close the lightbox first.
+
 ## 0.81.18 — 2026-08-29
 
 - On startup, previously stuck "broken data stream" scan errors are automatically cleared so those photos get retried with the tolerant JPEG decoder from v0.81.17.

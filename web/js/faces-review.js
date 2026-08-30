@@ -353,6 +353,7 @@ function openLarge(face, card) {
   const fullPath = (face.folder ? face.folder + '/' : '') + face.filename;
   $('lightboxPathText').textContent = fullPath;
   $('lightboxPathText').title = fullPath;
+  lbPicker.reset();
   $('lightbox').classList.add('open');
 }
 
@@ -363,6 +364,7 @@ $('lightboxReveal').onclick = () => {
 function closeLarge() {
   openFace = null;
   openCard = null;
+  lbPicker.close();
   if (lbZoom) lbZoom.reset();
   $('lightbox').classList.remove('open');
   $('largePhoto').removeAttribute('src');
@@ -513,6 +515,35 @@ function showTrashUndo(reviewId, name) {
   t.style.display = 'block';
   setTimeout(() => t.style.display = 'none', 12000);
 }
+
+const lbPicker = createPersonPicker({
+  container: $('lightboxPicker'),
+  getNames: () => knownPeople,
+  placeholder: 'Who is this?',
+  onChoose: async name => {
+    if (!openFace) return;
+    const face = openFace, card = openCard;
+    closeLarge();
+    if (card) {
+      card.querySelector('.not-person').disabled = true;
+      card.querySelector('.unknown-person').disabled = true;
+      card.querySelector('.face-status').textContent = 'Saving…';
+    }
+    try {
+      registerKnownPerson(name);
+      const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name });
+      if (card) removeCard(card);
+      else { remaining = Math.max(0, remaining - 1); updateProgress(); }
+      if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches, result);
+    } catch (error) {
+      if (card) {
+        card.querySelector('.face-status').textContent = error.message;
+        card.querySelector('.not-person').disabled = false;
+        card.querySelector('.unknown-person').disabled = false;
+      }
+    }
+  },
+});
 
 $('closeLightbox').onclick = closeLarge;
 $('lightboxNotAPerson').onclick = () => actOnOpenFace('/api/faces/ignore');
