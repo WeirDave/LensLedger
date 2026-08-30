@@ -38,12 +38,12 @@ function showDoneState() {
   const faces = queue?.unidentified_faces || 0;
   $('globalProgress').textContent = faces ? faces.toLocaleString() + ' unidentified face' + (faces === 1 ? '' : 's') : 'No suggestions remaining';
   if (faces) {
-    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2>'
+    $('reviewArea').innerHTML = '<div class="empty"><div><h2>Review complete</h2>'
       + '<p>' + faces.toLocaleString() + ' unidentified face' + (faces === 1 ? ' remains' : 's remain')
       + ' — name a few more to generate new suggestions.</p>'
-      + '<a class="button primary-action" href="/faces-review">People review (' + faces.toLocaleString() + ')</a></div></div>';
+      + '<a class="button primary-action" href="/people">People (' + faces.toLocaleString() + ')</a></div></div>';
   } else {
-    $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
+    $('reviewArea').innerHTML = '<div class="empty"><div><h2>Review complete</h2><p>There are no face suggestions waiting for review.</p><a class="button" href="/">Return to the photo library</a></div></div>';
   }
 }
 
@@ -55,7 +55,7 @@ async function loadQueue(personId = null, advance = false) {
   if (query.size) url += '?' + query;
   const response = await fetch(url);
   queue = await response.json();
-  if (!response.ok) throw new Error(queue.error || 'Could not load People review');
+  if (!response.ok) throw new Error(queue.error || 'Could not load review queue');
   render();
 }
 
@@ -403,7 +403,7 @@ $('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
 document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLarge(); closeMenu(); } });
 loadQueue(initialPersonId).catch(error => {
-  $('reviewArea').innerHTML = '<div class="empty"><div><h2>People review could not open</h2><p></p></div></div>';
+  $('reviewArea').innerHTML = '<div class="empty"><div><h2>Could not open review</h2><p></p></div></div>';
   $('reviewArea').querySelector('p').textContent = error.message;
 });
 

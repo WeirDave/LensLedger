@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.84.0 — 2026-08-30
+
+- Unified all user-facing naming to "People" across URLs, page titles, nav, buttons, and text.
+- Added server-side skip tracking for dismissed faces so they stop reappearing across sessions.
+- Raised face similarity thresholds from 0.65 to 0.72 to reduce false-positive recycling.
+- Added old-URL 301 redirects (`/faces-review` → `/people`, `/people-review` → `/people/review`).
+- Added Quick tag mode on the People page: select a person, then click face cards to tag rapidly.
+- Added Bulk select mode on the People page: multi-select face cards, then assign all to one person.
+- Added clickable face boxes in the photo viewer: hover to see labels, click unnamed faces to tag them.
+- Added "Show skipped" button to restore previously dismissed faces when needed.
+
 ## 0.83.0 — 2026-08-30
 
 - Added cross-platform support for folder and file picker dialogs: native dialogs on macOS (AppleScript) and Linux (zenity/kdialog), with Windows SetForegroundWindow fix for the browse button appearing behind the browser.

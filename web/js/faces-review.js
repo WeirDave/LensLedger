@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const PAGE_SIZE = 30;
 let loading = false;
 let remaining = 0;
+let skippedCount = 0;
 // Face ids currently parked inside a match group (not resolved, just pulled
 // out of the grid). loadMore() must skip these or the next top-up fetch
 // re-adds the very card a match group just removed.
@@ -52,7 +53,11 @@ async function apiRetry(path, data, onWaiting) {
 }
 
 function updateProgress() {
-  $('globalProgress').textContent = remaining.toLocaleString() + ' unidentified face' + (remaining === 1 ? '' : 's');
+  let text = remaining.toLocaleString() + ' unidentified face' + (remaining === 1 ? '' : 's');
+  if (skippedCount > 0) text += ' · ' + skippedCount.toLocaleString() + ' skipped';
+  $('globalProgress').textContent = text;
+  const btn = $('unskipAll');
+  if (btn) btn.hidden = skippedCount === 0;
 }
 
 let initialLoadDone = false;
@@ -76,15 +81,15 @@ async function autoLearn() {
     const autoCount = result.auto_confirmed ? (Array.isArray(result.auto_confirmed) ? result.auto_confirmed.length : result.auto_confirmed) : 0;
     const sugCount = result.suggestions || 0;
     if (autoCount || sugCount) {
-      $('emptyHeading').textContent = 'Ready for People Review';
+      $('emptyHeading').textContent = 'Ready for review';
       $('globalProgress').textContent = (autoCount ? autoCount + ' auto-confirmed' : '') + (autoCount && sugCount ? '; ' : '') + (sugCount ? sugCount + ' suggestion' + (sugCount === 1 ? '' : 's') + ' ready' : '');
       $('emptyText').innerHTML = (sugCount
         ? '<strong>' + sugCount + ' suggestion' + (sugCount === 1 ? '' : 's') + '</strong> ready for review based on the faces you named.'
         : 'All strong matches were confirmed automatically.') + (autoCount ? '<br>' + autoCount + ' near-certain match' + (autoCount === 1 ? ' was' : 'es were') + ' confirmed automatically.' : '');
       const link = document.createElement('a');
       link.className = 'button';
-      link.href = '/people-review';
-      link.textContent = 'Review people suggestions';
+      link.href = '/people/review';
+      link.textContent = 'Review suggestions';
       const existing = $('emptyState').querySelector('a.button');
       if (existing) existing.replaceWith(link);
     } else {
@@ -252,12 +257,29 @@ function addMatchGroup(name, personId, matches, moreData) {
     thumbs.append(wrap);
   });
   const status = group.querySelector('.match-status');
-  group.querySelector('.dismiss').onclick = () => { group.remove(); releasePending(ids); };
+  group.querySelector('.dismiss').onclick = async () => {
+    const unchecked = [...thumbs.querySelectorAll('.match-item')]
+      .filter(t => !t.querySelector('input').checked)
+      .map(t => Number(t.dataset.faceId));
+    const skipIds = unchecked.length ? unchecked : ids;
+    group.remove();
+    ids.forEach(id => pending.delete(id));
+    try { await api('/api/faces/skip', { face_ids: skipIds }); } catch (_) {}
+    if ($('faceGrid').children.length < 12 && remaining > pending.size) loadMore();
+    checkEmpty();
+  };
   group.querySelector('.confirm-all').onclick = async () => {
     const allItems = [...thumbs.querySelectorAll('.match-item')];
     const checked = allItems.filter(t => t.querySelector('input').checked && !t.classList.contains('failed'));
     const skipped = allItems.filter(t => !t.querySelector('input').checked).map(t => Number(t.dataset.faceId));
-    if (!checked.length) { group.remove(); releasePending(skipped); return; }
+    if (!checked.length) {
+      group.remove();
+      ids.forEach(id => pending.delete(id));
+      if (skipped.length) { try { await api('/api/faces/skip', { face_ids: skipped }); } catch (_) {} }
+      if ($('faceGrid').children.length < 12 && remaining > pending.size) loadMore();
+      checkEmpty();
+      return;
+    }
     const checkedIds = checked.map(t => Number(t.dataset.faceId));
     group.querySelectorAll('button').forEach(b => b.disabled = true);
     status.textContent = `Confirming ${checkedIds.length} faces…`;
@@ -275,7 +297,8 @@ function addMatchGroup(name, personId, matches, moreData) {
         remaining = Math.max(0, remaining - auto);
         updateProgress();
         group.remove();
-        releasePending(skipped);
+        if (skipped.length) { try { await api('/api/faces/skip', { face_ids: skipped }); } catch (_) {} }
+        skipped.forEach(id => pending.delete(id));
         if (more.matches && more.matches.length) {
           addMatchGroup(name, personId, more.matches, more);
         } else {
@@ -284,7 +307,8 @@ function addMatchGroup(name, personId, matches, moreData) {
         }
       } catch (_) {
         group.remove();
-        releasePending(skipped);
+        if (skipped.length) { try { await api('/api/faces/skip', { face_ids: skipped }); } catch (_e) {} }
+        skipped.forEach(id => pending.delete(id));
         updateProgress();
       }
     } catch (error) {
@@ -391,7 +415,7 @@ function buildCard(face) {
   const card = document.createElement('article');
   card.className = 'face-card';
   card.dataset.faceId = face.face_id;
-  card.innerHTML = '<div class="face-photo"><img loading="lazy" alt="Detected face"><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash"><svg viewBox="0 0 16 16"><path d="M5.5 0h5a.5.5 0 0 1 .5.5V2h4v2h-1l-1 11.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5L2 4H1V2h4V.5a.5.5 0 0 1 .5-.5zM6 1v1h4V1H6zm-2.9 3 .9 11h8l.9-11H3.1zM5.5 5v8h1V5h-1zm2 0v8h1V5h-1zm2 0v8h1V5h-1z"/></svg>Trash</button></div>'
+  card.innerHTML = '<div class="bulk-check"></div><div class="face-photo"><img loading="lazy" alt="Detected face"><button type="button" class="expand" title="Show the full photo larger">⛶ Enlarge</button><button type="button" class="trash" title="Move to Trash"><svg viewBox="0 0 16 16"><path d="M5.5 0h5a.5.5 0 0 1 .5.5V2h4v2h-1l-1 11.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5L2 4H1V2h4V.5a.5.5 0 0 1 .5-.5zM6 1v1h4V1H6zm-2.9 3 .9 11h8l.9-11H3.1zM5.5 5v8h1V5h-1zm2 0v8h1V5h-1zm2 0v8h1V5h-1z"/></svg>Trash</button></div>'
     + '<div class="face-info"><small></small>'
     + '<div class="face-form"><div class="face-picker"></div></div>'
     + '<div class="face-actions"><button type="button" class="not-person">Not a person</button>'
@@ -476,6 +500,7 @@ async function loadMore() {
   try {
     const data = await fetch('/api/faces/unidentified?limit=' + PAGE_SIZE).then(r => r.json());
     remaining = data.total;
+    skippedCount = data.skipped || 0;
     updateProgress();
     knownPeople = data.people_options;
     const existing = new Set([...$('faceGrid').children].map(el => el.dataset.faceId));
@@ -569,6 +594,163 @@ $('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
 document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLarge(); closeMenu(); } });
 
+// --- Quick-tag mode ---
+let quickTagPerson = null;
+let quickTagCount = 0;
+const quickTagPicker = createPersonPicker({
+  container: $('quickTagPicker'),
+  getNames: () => knownPeople,
+  placeholder: 'Choose a person',
+  onChoose: name => {
+    registerKnownPerson(name);
+    quickTagPerson = name;
+    $('quickTagHint').textContent = 'Click faces to tag as ' + name;
+    $('quickTagCount').textContent = '';
+  },
+});
+
+function enterQuickTag() {
+  exitBulkSelect();
+  quickTagPerson = null;
+  quickTagCount = 0;
+  quickTagPicker.reset();
+  $('quickTagBar').hidden = false;
+  $('quickTagHint').textContent = 'Choose a person, then click faces';
+  $('quickTagCount').textContent = '';
+  $('faceGrid').classList.add('quick-tag-active');
+  $('quickTagBtn').textContent = 'Exit quick tag';
+}
+
+function exitQuickTag() {
+  $('quickTagBar').hidden = true;
+  $('faceGrid').classList.remove('quick-tag-active');
+  $('quickTagBtn').textContent = 'Quick tag';
+  quickTagPerson = null;
+}
+
+$('quickTagBtn').onclick = () => {
+  if ($('faceGrid').classList.contains('quick-tag-active')) exitQuickTag();
+  else enterQuickTag();
+};
+
+$('quickTagStop').onclick = exitQuickTag;
+
+$('faceGrid').addEventListener('click', async event => {
+  if (!$('faceGrid').classList.contains('quick-tag-active')) return;
+  if (!quickTagPerson) return;
+  const card = event.target.closest('.face-card');
+  if (!card) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const faceId = Number(card.dataset.faceId);
+  card.classList.add('tagged-flash');
+  try {
+    const result = await apiRetry('/api/faces/name', { face_id: faceId, name: quickTagPerson });
+    removeCard(card);
+    quickTagCount++;
+    $('quickTagCount').textContent = quickTagCount + ' tagged';
+    if (result.matches && result.matches.length) addMatchGroup(quickTagPerson, result.person_id, result.matches, result);
+  } catch (error) {
+    card.classList.remove('tagged-flash');
+    const status = card.querySelector('.face-status');
+    if (status) status.textContent = error.message;
+  }
+});
+
+// --- Bulk select mode ---
+const bulkSelected = new Set();
+
+function enterBulkSelect() {
+  exitQuickTag();
+  bulkSelected.clear();
+  $('bulkBar').hidden = false;
+  $('faceGrid').classList.add('bulk-active');
+  $('bulkSelectBtn').textContent = 'Exit select';
+  updateBulkCount();
+  document.querySelectorAll('.face-card .bulk-check').forEach(el => { el.textContent = ''; });
+}
+
+function exitBulkSelect() {
+  bulkSelected.clear();
+  $('bulkBar').hidden = true;
+  $('faceGrid').classList.remove('bulk-active');
+  $('bulkSelectBtn').textContent = 'Select';
+  document.querySelectorAll('.face-card.bulk-selected').forEach(el => el.classList.remove('bulk-selected'));
+}
+
+function updateBulkCount() {
+  $('bulkCount').textContent = bulkSelected.size + ' selected';
+}
+
+$('bulkSelectBtn').onclick = () => {
+  if ($('faceGrid').classList.contains('bulk-active')) exitBulkSelect();
+  else enterBulkSelect();
+};
+
+$('bulkClear').onclick = () => {
+  bulkSelected.clear();
+  document.querySelectorAll('.face-card.bulk-selected').forEach(el => el.classList.remove('bulk-selected'));
+  document.querySelectorAll('.face-card .bulk-check').forEach(el => { el.textContent = ''; });
+  updateBulkCount();
+};
+
+const bulkPicker = createPersonPicker({
+  container: $('bulkPicker'),
+  getNames: () => knownPeople,
+  placeholder: 'Assign to…',
+  onChoose: async name => {
+    if (!bulkSelected.size) return;
+    registerKnownPerson(name);
+    const ids = [...bulkSelected];
+    bulkPicker.reset();
+    $('bulkCount').textContent = 'Saving ' + ids.length + '…';
+    try {
+      for (const faceId of ids) {
+        await apiRetry('/api/faces/name', { face_id: faceId, name });
+        const card = $('faceGrid').querySelector(`[data-face-id="${faceId}"]`);
+        if (card) removeCard(card);
+      }
+      bulkSelected.clear();
+      updateBulkCount();
+    } catch (error) {
+      $('bulkCount').textContent = error.message;
+    }
+  },
+});
+
+$('faceGrid').addEventListener('click', event => {
+  if (!$('faceGrid').classList.contains('bulk-active')) return;
+  const card = event.target.closest('.face-card');
+  if (!card) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const faceId = Number(card.dataset.faceId);
+  const check = card.querySelector('.bulk-check');
+  if (bulkSelected.has(faceId)) {
+    bulkSelected.delete(faceId);
+    card.classList.remove('bulk-selected');
+    if (check) check.textContent = '';
+  } else {
+    bulkSelected.add(faceId);
+    card.classList.add('bulk-selected');
+    if (check) check.textContent = '✓';
+  }
+  updateBulkCount();
+});
+
+$('unskipAll').onclick = async () => {
+  $('unskipAll').disabled = true;
+  try {
+    await api('/api/faces/unskip', {});
+    skippedCount = 0;
+    updateProgress();
+    loadMore();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    $('unskipAll').disabled = false;
+  }
+};
 loadMore();
 
 function checkServerVersion(){

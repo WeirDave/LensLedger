@@ -109,6 +109,77 @@ function renderFocusedFace(media,face){
   zoomResizeObserver=new ResizeObserver(repositionFaceBox);
   zoomResizeObserver.observe(stage);
 }
+function renderClickableFaces(media, allFaces) {
+  stage.querySelectorAll('.clickable-face-box').forEach(el => el.remove());
+  if (!media || media.tagName !== 'IMG' || !allFaces || !allFaces.length) return;
+  const boxes = allFaces.filter(f => [f.box_left, f.box_top, f.box_right, f.box_bottom].every(Number.isFinite));
+  if (!boxes.length) return;
+  const positionAll = () => {
+    if (!media.naturalWidth || !media.naturalHeight) return;
+    const fitScale = Math.min(media.clientWidth / media.naturalWidth, media.clientHeight / media.naturalHeight);
+    const shownW = media.naturalWidth * fitScale, shownH = media.naturalHeight * fitScale;
+    const mediaRect = media.getBoundingClientRect(), stageRect = stage.getBoundingClientRect();
+    const offX = mediaRect.left - stageRect.left + (media.clientWidth - shownW) / 2;
+    const offY = mediaRect.top - stageRect.top + (media.clientHeight - shownH) / 2;
+    stage.querySelectorAll('.clickable-face-box').forEach(el => {
+      const f = el._faceData;
+      el.style.left = (offX + f.box_left * shownW) + 'px';
+      el.style.top = (offY + f.box_top * shownH) + 'px';
+      el.style.width = ((f.box_right - f.box_left) * shownW) + 'px';
+      el.style.height = ((f.box_bottom - f.box_top) * shownH) + 'px';
+    });
+  };
+  boxes.forEach(face => {
+    const el = document.createElement('div');
+    el.className = 'clickable-face-box';
+    el._faceData = face;
+    if (face.person_name) {
+      el.innerHTML = '<span>' + face.person_name + '</span>';
+      el.classList.add('named');
+    } else {
+      el.innerHTML = '<span>Click to name</span>';
+      el.classList.add('unnamed');
+      el.onclick = () => openFaceNamer(face, media);
+    }
+    stage.append(el);
+  });
+  media.addEventListener('load', positionAll, { once: true });
+  if (media.complete) positionAll();
+  if (zoomResizeObserver) zoomResizeObserver.disconnect();
+  zoomResizeObserver = new ResizeObserver(positionAll);
+  zoomResizeObserver.observe(stage);
+}
+let faceNamerPopover = null;
+function openFaceNamer(face, media) {
+  closeFaceNamer();
+  const box = stage.querySelector('.clickable-face-box.unnamed');
+  if (!box) return;
+  faceNamerPopover = document.createElement('div');
+  faceNamerPopover.className = 'face-namer-popover';
+  const picker = createPersonPicker({
+    container: faceNamerPopover,
+    getNames: () => sidebarKnownPeople,
+    placeholder: 'Who is this?',
+    onChoose: async name => {
+      closeFaceNamer();
+      try {
+        await api('/api/faces/name', { face_id: face.face_id, name });
+        await selectAsset(selectedId);
+        setStatus(name + ' tagged');
+      } catch (e) { setStatus(e.message, true); }
+    },
+  });
+  stage.append(faceNamerPopover);
+  const boxRect = box.getBoundingClientRect(), stageRect = stage.getBoundingClientRect();
+  faceNamerPopover.style.position = 'absolute';
+  faceNamerPopover.style.left = (boxRect.left - stageRect.left) + 'px';
+  faceNamerPopover.style.top = (boxRect.bottom - stageRect.top + 6) + 'px';
+  faceNamerPopover.style.zIndex = '10';
+  picker.focus();
+}
+function closeFaceNamer() {
+  if (faceNamerPopover) { faceNamerPopover.remove(); faceNamerPopover = null; }
+}
 async function selectAsset(id){
   selectedId=Number(id);
   document.querySelectorAll('.thumb').forEach(x=>{const isActive=Number(x.dataset.id)===selectedId;x.classList.toggle('active',isActive);if(isActive)x.setAttribute('aria-current','true');else x.removeAttribute('aria-current')});
@@ -117,12 +188,12 @@ async function selectAsset(id){
     const detailUrl='/api/asset?id='+selectedId+(viewedPersonId?'&person_id='+viewedPersonId:'');
     const r=await fetch(detailUrl);if(!r.ok)throw new Error('Could not load photo');
     const d=await r.json();currentDetail=d;
-    stage.querySelectorAll('img,video,.empty,.raw-preview,.focused-face-box').forEach(x=>x.remove());
+    stage.querySelectorAll('img,video,.empty,.raw-preview,.focused-face-box,.clickable-face-box,.face-namer-popover').forEach(x=>x.remove());closeFaceNamer();
     resetZoom();zoomMedia=null;
     if(d.media_type==='raw'){
       const raw=document.createElement('div');raw.className='raw-preview';raw.innerHTML='<strong>RAW photo</strong>LensLedger indexed this original file.<br>A browser preview is not available yet.';stage.prepend(raw);
     }else{
-      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media);initZoom(media);renderFocusedFace(media,d.focused_person_face);
+      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media);initZoom(media);if(d.all_faces&&d.all_faces.length)renderClickableFaces(media,d.all_faces);else renderFocusedFace(media,d.focused_person_face);
     }
     $('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';personPicker?.reset();$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'Only this selected photo will be changed, and only after you approve the preview.':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderEmbeddedMetadata(d.embedded_metadata);setStatus('');
   }catch(e){setStatus(e.message,true)}
@@ -185,7 +256,7 @@ async function openMenuPanel(name){
     [
       'Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.',
       'Face matches are suggestions until you confirm them. Open Capture details to see readable EXIF, IPTC, and XMP details already stored in the file.',
-      "To identify people: go to People review and name a handful of different people (5–10 is plenty). LensLedger uses what you taught it to suggest matches across your entire library. You don't need to name every face by hand — just seed the system and let it do the work."
+      "To identify people: go to People and name a handful of different people (5–10 is plenty). LensLedger uses what you taught it to suggest matches across your entire library. You don't need to name every face by hand — just seed the system and let it do the work."
     ].forEach(t=>{const p=document.createElement('p');p.textContent=t;box.append(p)});
     const kh=document.createElement('h3');
     kh.textContent='Keyboard & mouse shortcuts';
@@ -350,7 +421,7 @@ function renderCalendar(){$('calMonth').value=calViewMonth;$('calYear').value=ca
 function openCalendar(){const now=new Date();const current=parseDateValue($('datePicker').value)||{y:now.getFullYear(),m:now.getMonth()+1};calViewYear=current.y;calViewMonth=current.m-1;populateCalendarSelects();renderCalendar();$('datePopover').classList.add('open')}
 function chooseDate(y,m,d){$('datePicker').value=y+'-'+pad2(m)+'-'+pad2(d);syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()}
 function shiftCalendarMonth(delta){calViewMonth+=delta;if(calViewMonth<0){calViewMonth=11;calViewYear-=1}else if(calViewMonth>11){calViewMonth=0;calViewYear+=1}renderCalendar()}
-$('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/faces-review');
+$('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/people');
 $('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,placeholder:"Person's name",onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('sidebarToggle').onclick=()=>{$('sidebar').classList.toggle('open');$('sidebarBackdrop').classList.toggle('open')};$('sidebarBackdrop').onclick=()=>{$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')};$('batchAddTags').onclick=batchAddTags;$('batchTagInput').onkeydown=e=>submitOnEnter(e,batchAddTags);$('batchTrash').onclick=batchTrash;$('batchClear').onclick=clearBatchSelection;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();if($('menuPanel').classList.contains('open'))closeMenu();else openMenu()};$('menuClose').onclick=closeMenu;$('menuBackdrop').onclick=closeMenu;document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=closeModal;$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))closeModal()};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))closeMenu();if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();closeModal();$('datePopover').classList.remove('open');closeHelp();if(batchSelected.size)clearBatchSelection();$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);updateNav()}
 
 function checkServerVersion(){

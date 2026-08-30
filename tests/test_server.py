@@ -155,14 +155,14 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertNotIn('id="addPerson"', viewer_page)
         self.assertNotIn('id="peopleOptions"', viewer_page)
 
-        with self.get("/faces-review") as response:
+        with self.get("/people") as response:
             faces_page = response.read().decode("utf-8")
         self.assertIn("js/person-picker.js", faces_page)
         self.assertIn("css/person-picker.css", faces_page)
         self.assertNotIn('id="peopleOptions"', faces_page)
         self.assertNotIn('<input list="peopleOptions"', faces_page)
 
-        with self.get("/people-review") as response:
+        with self.get("/people/review") as response:
             people_review_page = response.read().decode("utf-8")
         self.assertIn("js/person-picker.js", people_review_page)
         self.assertIn("css/person-picker.css", people_review_page)
@@ -396,7 +396,7 @@ class ServerWorkflowTests(unittest.TestCase):
             [suggestion[key] for key in ("box_left", "box_top", "box_right", "box_bottom")],
             [0.1, 0.2, 0.4, 0.6],
         )
-        with self.get("/people-review") as response:
+        with self.get("/people/review") as response:
             page = response.read().decode("utf-8")
         self.assertIn("/web/js/people-review.js", page)
         with self.get("/web/js/people-review.js") as response:
@@ -616,7 +616,7 @@ class ServerWorkflowTests(unittest.TestCase):
             page = response.read().decode("utf-8")
         self.assertIn("1 confirmed photo", page)
         self.assertIn("1 exact face box", page)
-        self.assertIn(f'/people-review?person={person_id}', page)
+        self.assertIn(f'/people/review?person={person_id}', page)
         self.assertIn("Review 1 possible match", page)
         detail = self.json_response(self.get(
             f"/api/asset?id={self.asset_id}&person_id={person_id}"

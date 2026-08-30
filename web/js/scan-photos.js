@@ -211,8 +211,8 @@ async function refresh() {
     $('healthSummary').replaceChildren(
       metric('Library files', c.assets, null, 'Total photos and videos in your library'),
       metric('Mapped photos', c.mapped, c.mapped ? () => { window.location.href = '/map'; } : null, 'Photos with GPS coordinates — click to view on the map'),
-      metric('People to review', c.people_pending, c.people_pending ? () => { window.location.href = '/faces-review'; } : null, 'Groups of faces that may be the same person — click to confirm or separate them'),
-      metric('Faces to review', c.unidentified_faces, c.unidentified_faces ? () => { window.location.href = '/faces-review'; } : null, 'Detected faces that haven\'t been given a name yet'),
+      metric('People to review', c.people_pending, c.people_pending ? () => { window.location.href = '/people'; } : null, 'Groups of faces that may be the same person — click to confirm or separate them'),
+      metric('Unidentified faces', c.unidentified_faces, c.unidentified_faces ? () => { window.location.href = '/people'; } : null, 'Detected faces that haven\'t been given a name yet'),
       metric('OCR complete', c.ocr_complete, null, 'Photos scanned for visible text (signs, documents, screens, etc.)'),
       metric('Meaning indexed', c.semantic_indexed, null, 'Photos indexed for meaning search — lets you search by describing what\'s in the photo'),
       metric('Review Bin', c.review_bin, null, 'Photos you\'ve moved to the review bin for possible removal — not yet permanently deleted'),
@@ -310,7 +310,7 @@ async function refresh() {
       $('faceScanMessage').textContent = faceScan.message || 'Ready. Scan for faces below to find people in photos LensLedger has not looked at yet.';
       const faceErrorCount = Math.max(c.face_scan_errors || 0, faceScan.errors || 0);
       $('faceScanMetrics').replaceChildren(
-        metric('Faces found', faceScan.faces_found, faceScan.faces_found ? () => { window.location.href = '/faces-review'; } : null),
+        metric('Faces found', faceScan.faces_found, faceScan.faces_found ? () => { window.location.href = '/people'; } : null),
         metric('Remaining photos', faceScan.remaining),
         metric('This pass', faceScan.processed),
         metric('Errors', faceErrorCount, faceErrorCount ? () => showScanErrors('/api/faces/errors', 'Face detection errors') : null),

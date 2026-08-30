@@ -169,7 +169,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<summary class="menu-section-label">Navigation</summary>'
         + _link("/", "⌂ Home", "home")
         + _link("/scan-photos", "\U0001f50e Scan photos", "scan-photos")
-        + _link("/faces-review", "\U0001f465 People review", "faces-review")
+        + _link("/people", "\U0001f465 People", "people")
         + _link("/publish", "\U0001f4e4 Publish photos", "publish")
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
@@ -621,7 +621,7 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             else:
                 face_message = (
                     f"Face detection complete: {result['faces_found']:,} faces found. "
-                    f"Go to \"People review\" to name a few faces — LensLedger will find the rest across your whole library."
+                    f"Go to People to name a few faces — LensLedger will find the rest across your whole library."
                 )
             current.update({"state": state, "message": face_message})
             handler_class.face_scan_job = current
@@ -894,10 +894,21 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.people_review_queue(params)
         if url.path == "/api/faces/unidentified":
             return self.unidentified_faces(params)
-        if url.path == "/people-review":
+        if url.path == "/people":
+            return self.faces_review_page()
+        if url.path == "/people/review":
             return self.people_review_page(params)
         if url.path == "/faces-review":
-            return self.faces_review_page()
+            self.send_response(301)
+            self.send_header("Location", "/people")
+            self.end_headers()
+            return
+        if url.path == "/people-review":
+            qs = f"?{url.query}" if url.query else ""
+            self.send_response(301)
+            self.send_header("Location", f"/people/review{qs}")
+            self.end_headers()
+            return
         if url.path == "/publish":
             return self.publish_page()
         if url.path == "/api/publish/pending":
@@ -972,6 +983,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.publish_person_metadata(body)
             if route == "/api/faces/confirm-remaining":
                 return self.confirm_remaining_faces(body)
+            if route == "/api/faces/skip":
+                return self.skip_faces(body)
+            if route == "/api/faces/unskip":
+                return self.unskip_all_faces(body)
             if route == "/api/publish/run":
                 return self.publish_run(body)
             if route == "/api/person/state":
@@ -1362,7 +1377,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </table>
 <p>Set up meaning search from <a href="/settings#meaning-search">Settings</a>. Changing the model re-indexes on the next run.</p>
 <h3>Face detection (optional)</h3>
-<p>Finds faces in your photos so they can be identified in <a href="/faces-review">People review</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
+<p>Finds faces in your photos so they can be identified in <a href="/people">People</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
 <h3>Backups</h3>
 <p>Click <strong>Create verified database backup</strong> to make a verified copy of your database with an integrity check.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
@@ -1418,7 +1433,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
 <section class="manual-section" id="people">
 <h2>6. People and Faces</h2>
-<p>Go to <a href="/faces-review">People review</a>. You don&rsquo;t need to name every face by hand &mdash; name a few, then let LensLedger find the rest.</p>
+<p>Go to <a href="/people">People</a>. You don&rsquo;t need to name every face by hand &mdash; name a few, then let LensLedger find the rest.</p>
 <h3>How it works</h3>
 <p>A grid of unidentified face crops is shown, diversity-sampled for variety. For each face:</p>
 <ul>
@@ -1517,7 +1532,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li>Click <strong>Restore last publish</strong> to revert from the safety backup</li>
 </ul>
 <h3>Auto-publishing</h3>
-<p>When you confirm people in <a href="/faces-review">People review</a>, their names are saved to the database. Use <a href="/publish">Publish photos</a> to write the metadata to your JPEG files.</p>
+<p>When you confirm people in <a href="/people">People</a>, their names are saved to the database. Use <a href="/publish">Publish photos</a> to write the metadata to your JPEG files.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -2257,7 +2272,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'<div class="people-head-actions"><span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
-            f'<button type="button" id="reviewPeopleGallery">People review ({review_count:,})</button></div></div><section class="people-grid">'
+            f'<button type="button" id="reviewPeopleGallery">People ({review_count:,})</button></div></div><section class="people-grid">'
             + ("".join(gallery_cards) if gallery_cards else '<p class="people-empty">No people match that name.</p>')
             + '</section></main>'
         ) if gallery_mode else ""
@@ -2271,7 +2286,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f'<strong>{html.escape(selected_person_name)}</strong>'
                 f'<span>{confirmed:,} confirmed photo{"s" if confirmed != 1 else ""}</span>'
                 + (f'<span>{localized:,} exact face box{"es" if localized != 1 else ""}</span>' if localized else "")
-                + (f'<a class="button secondary" href="/people-review?person={person_id}">Review {suggested:,} possible match{"es" if suggested != 1 else ""}</a>' if suggested else "")
+                + (f'<a class="button secondary" href="/people/review?person={person_id}">Review {suggested:,} possible match{"es" if suggested != 1 else ""}</a>' if suggested else "")
                 + '</div>'
             )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
@@ -2320,10 +2335,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         requested = params.get("person", [""])[0]
         initial_person_id = int(requested) if requested.isdigit() else None
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>People review — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
+<title>People — review suggestions — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "initialPersonId": initial_person_id, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
-<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
-{nav_menu("people-review", str(self.library_root))}
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading suggestions…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+{nav_menu("people", str(self.library_root))}
 <main><section id="reviewArea"><div class="empty"><div><h2>Loading people…</h2><p>Preparing the next group of photos.</p></div></div></section></main>
 <div class="actionbar" id="actionbar" hidden><div class="actions"><button type="button" class="secondary" id="skipBatch">Skip these for now</button><button type="button" class="secondary" id="nextPerson">Next person</button><button type="button" class="secondary" id="deferPerson">Defer person 7 days</button><button type="button" class="secondary" id="undoBatch" disabled>Undo last batch</button><span class="spacer"></span><span><span class="selection-summary" id="selectionSummary"></span><span class="status" id="status"></span></span><button type="button" class="primary-action" id="confirmBatch">Save &amp; publish this group</button></div></div>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><span id="lightboxInfo" class="lightbox-info"></span><div class="lightbox-actions"><button type="button" class="secondary" id="lightboxToggle">Mark as wrong</button><span id="lightboxCorrectionArea" class="lightbox-correction" hidden><span id="lightboxPicker" class="lightbox-picker"></span><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button></span></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div></div>
@@ -2337,11 +2352,11 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def faces_review_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>People review — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
+<title>People — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
-<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People review</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
-{nav_menu("faces-review", str(self.library_root))}
-<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet. Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="quickTagBtn">Quick tag</button><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="secondary" id="unskipAll" hidden>Show skipped</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+{nav_menu("people", str(self.library_root))}
+<main><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet. Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><div class="lightbox-picker" id="lightboxPicker"></div><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button><button type="button" class="danger" id="lightboxTrash">Trash photo</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div><div class="lightbox-path" id="lightboxPath"><span class="lightbox-path-text" id="lightboxPathText"></span><button type="button" class="secondary lightbox-reveal" id="lightboxReveal">Show in folder</button></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
@@ -2357,7 +2372,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Publish photos</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("publish", str(self.library_root))}
 <main>
-<p class="intro">Names confirmed in People review are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
+<p class="intro">Names confirmed in People are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
 <div class="publish-summary" id="publishSummary"><div class="loading-spinner"></div> Loading&hellip;</div>
 <div class="publish-table-wrap" id="publishTableWrap" hidden></div>
 <div class="publish-actions" id="publishActions" hidden>
@@ -2522,6 +2537,15 @@ class SearchHandler(BaseHTTPRequestHandler):
                         (asset_id, focused_person_id),
                     ).fetchone()
                     focused_person_face = dict(focused) if focused else None
+                all_faces = [dict(row) for row in con.execute(
+                    """SELECT f.id AS face_id, f.box_left, f.box_top, f.box_right, f.box_bottom,
+                              p.name AS person_name, ap.state
+                       FROM face_embeddings f
+                       LEFT JOIN asset_people ap ON ap.face_id=f.id
+                       LEFT JOIN people p ON p.id=ap.person_id
+                       WHERE f.asset_id=? AND f.ignored_at IS NULL
+                       ORDER BY f.box_left""", (asset_id,)
+                )]
                 confirmed_keys = {person["name"].casefold() for person in confirmed_people}
                 image_tags = [tag for tag in image_tags if tag["name"].casefold() not in confirmed_keys]
                 return self.send_json({
@@ -2531,6 +2555,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "image_tags": image_tags, "context_tags": context_tags,
                     "confirmed_people": confirmed_people, "suggested_people": suggested_people,
                     "focused_person_face": focused_person_face,
+                    "all_faces": all_faces,
                     "people_options": [row[0] for row in con.execute(
                         "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
                     )],
@@ -2947,11 +2972,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         })
 
     def learn_people(self, body):
-        console_log("[People review] Learning from confirmed faces…")
+        console_log("[People] Learning from confirmed faces…")
         result = learn_faces(self.db_path, apply=True)
         auto_count = len(result["auto_confirmed"])
         sug_count = result["suggestions"]
-        console_log(f"[People review] Built {result['profiles']} profile(s), "
+        console_log(f"[People] Built {result['profiles']} profile(s), "
                     f"{sug_count} suggestion(s), {auto_count} auto-confirmed")
         published = []
         try:
@@ -3072,14 +3097,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         person_name = str(person["name"])
         corrected = body.get("corrected_name", "").strip()
         if action == "confirmed":
-            console_log(f'[People review] Confirmed "{person_name}" in {log_fname}')
+            console_log(f'[People] Confirmed "{person_name}" in {log_fname}')
         elif action == "corrected" and corrected:
-            console_log(f'[People review] Corrected "{person_name}" → "{corrected}" in {log_fname}')
+            console_log(f'[People] Corrected "{person_name}" → "{corrected}" in {log_fname}')
         elif action == "rejected":
-            console_log(f'[People review] Rejected "{person_name}" in {log_fname}')
+            console_log(f'[People] Rejected "{person_name}" in {log_fname}')
         elif action in self.FACE_DISPOSITION_COLUMNS:
             label = "not a person" if action == "not_a_person" else "unknown person"
-            console_log(f'[People review] Marked {label} in {log_fname}')
+            console_log(f'[People] Marked {label} in {log_fname}')
         self.send_json({"ok": True, "action_id": action_id, "published": 1})
 
     def people_review_batch_decision(self, body):
@@ -3123,14 +3148,14 @@ class SearchHandler(BaseHTTPRequestHandler):
                     action = item.get("action", "")
                     corrected = item.get("corrected_name", "").strip()
                     if action == "confirmed":
-                        console_log(f'[People review] Confirmed "{person_name}" in {fname}')
+                        console_log(f'[People] Confirmed "{person_name}" in {fname}')
                     elif action == "corrected" and corrected:
-                        console_log(f'[People review] Corrected "{person_name}" → "{corrected}" in {fname}')
+                        console_log(f'[People] Corrected "{person_name}" → "{corrected}" in {fname}')
                     elif action == "rejected":
-                        console_log(f'[People review] Rejected "{person_name}" in {fname}')
+                        console_log(f'[People] Rejected "{person_name}" in {fname}')
                     elif action in self.FACE_DISPOSITION_COLUMNS:
                         label = "not a person" if action == "not_a_person" else "unknown person"
-                        console_log(f'[People review] Marked {label} in {fname}')
+                        console_log(f'[People] Marked {label} in {fname}')
         except Exception:
             self._restore_people_batch(published)
             raise
@@ -3275,13 +3300,16 @@ class SearchHandler(BaseHTTPRequestHandler):
             limit = max(1, min(100, int(params.get("limit", ["30"])[0])))
         except ValueError:
             limit = 30
-        where = """f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
-                    AND a.in_review_bin=0
+        where = """f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.skipped_at IS NULL
+                    AND f.person_id IS NULL AND a.in_review_bin=0
                     AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                     AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
         with self.db() as con:
             total = int(con.execute(
                 f"SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE {where}"
+            ).fetchone()[0])
+            skipped_count = int(con.execute(
+                "SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE f.skipped_at IS NOT NULL AND f.person_id IS NULL AND f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0"
             ).fetchone()[0])
             pool_limit = min(total, 2000)
             rows = con.execute(
@@ -3326,6 +3354,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         self.send_json({
             "total": total,
+            "skipped": skipped_count,
             "people_options": people_names,
             "faces": [
                 {
@@ -3392,7 +3421,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     def name_face(self, body):
         """Attach a name directly to one detected face -- the missing link
         between face detection (which only fills face_embeddings) and the
-        name-first confirmation flow the rest of People review is built on.
+        name-first confirmation flow the rest of the People page is built on.
         Because face_id is set, face_learning.build_profile can use this
         confirmation even when the photo has other, unnamed faces in it."""
         face_id = int(body["face_id"]); name = clean_tag(str(body.get("name", "")))
@@ -3426,7 +3455,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
             fname = con.execute("SELECT filename, relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
             matches = self._find_similar_unidentified_faces(con, face_id, face["embedding_f32"])
-        console_log(f'[People review] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}')
+        console_log(f'[People] Named "{name}" in {fname["relative_path"] if fname else f"asset #{asset_id}"}')
         self.send_json({"ok": True, "person_id": person_id, "matches": matches})
 
     def name_face_batch(self, body):
@@ -3475,7 +3504,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 sync_person_tags(con, asset_id)
                 rebuild_search_row(con, asset_id)
                 confirmed += 1
-        console_log(f'[People review] Batch confirmed {confirmed} as "{name}"')
+        console_log(f'[People] Batch confirmed {confirmed} as "{name}"')
         self.send_json({"ok": True, "confirmed": confirmed})
 
     def publish_person_metadata(self, body):
@@ -3499,10 +3528,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         name = person["name"]
         total = len(asset_ids)
         if not total:
-            console_log(f'[People review] No photos to publish for "{name}"')
+            console_log(f'[People] No photos to publish for "{name}"')
             self.send_json({"ok": True, "published": 0})
             return
-        console_log(f'[People review] Publishing "{name}" to {total} photos…')
+        console_log(f'[People] Publishing "{name}" to {total} photos…')
         published = 0
         for i, asset_id in enumerate(asset_ids):
             try:
@@ -3510,11 +3539,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                     result = self._publish_people_metadata(con, asset_id)
                     if result:
                         published += 1
-                        console_log(f'[People review] Wrote: {result["relative_path"]} — {", ".join(result["people"])}')
+                        console_log(f'[People] Wrote: {result["relative_path"]} — {", ".join(result["people"])}')
                     else:
                         with self.db() as con:
                             asset = self.get_active_asset(con, asset_id)
-                        console_log(f'[People review] Skipped (not publishable): {asset["relative_path"]}')
+                        console_log(f'[People] Skipped (not publishable): {asset["relative_path"]}')
             except Exception as exc:
                 try:
                     with self.db() as con:
@@ -3522,15 +3551,15 @@ class SearchHandler(BaseHTTPRequestHandler):
                         path = asset["relative_path"]
                 except Exception:
                     path = f"(asset id {asset_id})"
-                console_log(f'[People review] Failed: {path} — {exc}')
+                console_log(f'[People] Failed: {path} — {exc}')
             done = i + 1
             if done % 25 == 0 or done == total:
-                console_log(f'[People review] Published "{name}" — {done}/{total}')
+                console_log(f'[People] Published "{name}" — {done}/{total}')
         self.send_json({"ok": True, "published": published})
 
     def _find_similar_unidentified_faces(self, con, face_id, embedding_blob, limit=200):
         """Other still-unidentified faces that likely show the same person as
-        the one just named -- lets the People-review page group repeats of one
+        the one just named -- lets the People page group repeats of one
         person behind a single "confirm all" instead of one dropdown pick
         each. Direct face-to-face similarity (not a person profile centroid)
         so it works from the very first photo named, before enough confirmed
@@ -3544,13 +3573,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                       a.filename, a.folder, a.capture_date
                FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                WHERE f.id!=? AND f.ignored_at IS NULL AND f.unknown_at IS NULL
-                     AND f.person_id IS NULL AND a.in_review_bin=0
+                     AND f.skipped_at IS NULL AND f.person_id IS NULL AND a.in_review_bin=0
                      AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                      AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                ORDER BY f.id DESC LIMIT 50000""",
             (face_id,),
         ).fetchall()
-        SIMILAR_FACE_THRESHOLD = 0.65
+        SIMILAR_FACE_THRESHOLD = 0.72
         scored = []
         for row in rows:
             candidate = decode_vector(row["embedding_f32"])
@@ -3573,11 +3602,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         """After confirming a batch of 'Also looks like' matches, search for
         more unidentified faces similar to this person.  High-confidence matches
         (>=0.75) are auto-confirmed in the database without metadata publishing;
-        only borderline matches (0.65-0.75) are returned for manual review."""
+        only borderline matches (0.72-0.75) are returned for manual review."""
         person_id = int(body["person_id"])
         exclude_face_ids = set(int(fid) for fid in body.get("exclude_face_ids", []))
         AUTO_CONFIRM_THRESHOLD = 0.75
-        SIMILAR_FACE_THRESHOLD = 0.65
+        SIMILAR_FACE_THRESHOLD = 0.72
         with self.db() as con:
             person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
             if not person:
@@ -3600,8 +3629,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                           f.box_left, f.box_top, f.box_right, f.box_bottom,
                           a.filename, a.folder, a.capture_date
                    FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
-                         AND a.in_review_bin=0
+                   WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.skipped_at IS NULL
+                         AND f.person_id IS NULL AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                    ORDER BY f.id DESC LIMIT 50000""",
@@ -3662,7 +3691,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         reviewed = int(review_stats["total"]) if review_stats["total"] else 0
         correct = int(review_stats["correct"]) if review_stats["correct"] else 0
         accuracy_pct = round(correct * 100 / reviewed) if reviewed else -1
-        console_log(f'[People review] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {reviewed} reviewed, {accuracy_pct}% accuracy)')
+        console_log(f'[People] {auto_confirmed} auto-confirmed, {len(matches)} borderline for "{person["name"]}" (centroid from {n} confirmed, {reviewed} reviewed, {accuracy_pct}% accuracy)')
         self.send_json({
             "ok": True, "matches": matches, "auto_confirmed": auto_confirmed,
             "name": person["name"], "confirmed_count": n,
@@ -3673,12 +3702,12 @@ class SearchHandler(BaseHTTPRequestHandler):
     def confirm_remaining_faces(self, body):
         """Confirm all remaining matches for a person above the similarity
         threshold.  Runs up to two rounds: the first confirms everything
-        ≥0.65, the second catches any faces that crossed the threshold due
+        ≥0.72, the second catches any faces that crossed the threshold due
         to centroid drift.  If a round finds very few matches relative to
         the first (centroid is stable), iteration stops early and the
         remaining borderline faces are left for human review."""
         person_id = int(body["person_id"])
-        SIMILAR_FACE_THRESHOLD = 0.65
+        SIMILAR_FACE_THRESHOLD = 0.72
         total_confirmed = 0
         rounds = 0
         first_round_count = 0
@@ -3716,8 +3745,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 rows = con.execute(
                     """SELECT f.id AS face_id, f.asset_id, f.embedding_f32
                        FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
-                             AND a.in_review_bin=0
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.skipped_at IS NULL
+                             AND f.person_id IS NULL AND a.in_review_bin=0
                              AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                              AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                        ORDER BY f.id DESC LIMIT 50000""",
@@ -3754,16 +3783,16 @@ class SearchHandler(BaseHTTPRequestHandler):
                     round_confirmed += 1
                 rounds += 1
                 total_confirmed += round_confirmed
-                console_log(f'[People review] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)')
+                console_log(f'[People] Confirm-all round {rounds}: {round_confirmed} confirmed for "{name}" ({total_confirmed} total)')
                 send_event({"round": rounds, "round_confirmed": round_confirmed, "total_confirmed": total_confirmed})
                 if round_confirmed == 0:
                     break
                 if rounds == 1:
                     first_round_count = round_confirmed
                 elif round_confirmed < max(first_round_count // 10, 10):
-                    console_log(f'[People review] Centroid stable — stopping auto-confirm, remaining faces need human review')
+                    console_log(f'[People] Centroid stable — stopping auto-confirm, remaining faces need human review')
                     break
-        console_log(f'[People review] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)')
+        console_log(f'[People] Confirm-all complete: {total_confirmed} confirmed for "{name}" in {rounds} round(s)')
         send_event({"done": True, "confirmed": total_confirmed, "rounds": rounds, "needs_review": rounds > 1})
 
     def ignore_face(self, body):
@@ -3780,7 +3809,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     def mark_face_unknown(self, body):
         """A real face, just not one the reviewer can name -- distinct from
         ignore_face's "the detector was wrong, this isn't a face at all".
-        Mirrors the same unknown_at flag People review's "Unknown person"
+        Mirrors the same unknown_at flag the People page's "Unknown person"
         disposition already sets on face_embeddings (see
         FACE_DISPOSITION_COLUMNS), so both routes into that state stay
         equivalent: excluded from face_learning.learn()'s suggestion source
@@ -3794,6 +3823,27 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not updated:
             raise ValueError("this face was already handled")
         self.send_json({"ok": True})
+
+    def skip_faces(self, body):
+        face_ids = body.get("face_ids", [])
+        if not face_ids:
+            raise ValueError("face_ids required")
+        now = utc_now()
+        with self.db() as con:
+            updated = 0
+            for fid in face_ids:
+                updated += con.execute(
+                    "UPDATE face_embeddings SET skipped_at=? WHERE id=? AND skipped_at IS NULL AND person_id IS NULL AND ignored_at IS NULL AND unknown_at IS NULL",
+                    (now, int(fid)),
+                ).rowcount
+        self.send_json({"ok": True, "skipped": updated})
+
+    def unskip_all_faces(self, body):
+        with self.db() as con:
+            updated = con.execute(
+                "UPDATE face_embeddings SET skipped_at=NULL WHERE skipped_at IS NOT NULL"
+            ).rowcount
+        self.send_json({"ok": True, "unskipped": updated})
 
     def set_person_aliases(self, body):
         person_id = int(body["person_id"])
@@ -3923,11 +3973,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             self._restore_people_batch(published)
             raise
         if old_name != primary_name:
-            console_log(f'[People review] Renamed "{old_name}" → "{primary_name}", updated {len(affected)} photo(s), published {len(published)}')
+            console_log(f'[People] Renamed "{old_name}" → "{primary_name}", updated {len(affected)} photo(s), published {len(published)}')
         if aliases:
-            console_log(f'[People review] Aliases for "{primary_name}": {", ".join(aliases)}')
+            console_log(f'[People] Aliases for "{primary_name}": {", ".join(aliases)}')
         elif old_name == primary_name:
-            console_log(f'[People review] Updated aliases for "{primary_name}"')
+            console_log(f'[People] Updated aliases for "{primary_name}"')
         self.send_json({
             "ok": True, "name": primary_name, "aliases": aliases,
             "updated_photos": len(affected), "published": len(published),
