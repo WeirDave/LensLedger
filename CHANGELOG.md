@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.90.0 — 2026-08-30
+
+- Added bulk group management page at `/people/groups` for mass-assigning people to groups.
+- Left sidebar lists all groups with member counts; selecting a group enables "Add to" and "Remove from" actions.
+- Main area shows all people with checkboxes, search filtering by name/alias/group, and select-all.
+- Create new groups inline from the sidebar.
+- Added "Manage groups" button to the People Index alpha bar for quick navigation.
+- New API endpoints: `POST /api/groups/bulk-assign`, `POST /api/groups/bulk-remove`, `GET /api/people/all-with-groups`.
+
 ## 0.89.0 — 2026-08-30
 
 - Added publish reminder banner to the Tag Faces page showing how many people and photos have been tagged but not yet published to file metadata.

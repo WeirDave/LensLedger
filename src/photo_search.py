@@ -4050,7 +4050,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def group_manager_page(self):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Manage groups — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}"><link rel="stylesheet" href="{asset_url('css/group-manager.css')}">
+<title>Manage groups — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/group-manager.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Manage groups</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><a href="/?scope=people" class="button secondary gm-back-link">← People Index</a><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people-directory", str(self.library_root))}
