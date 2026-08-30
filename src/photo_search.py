@@ -248,8 +248,17 @@ def search_everything_scope(
             WHERE ap.asset_id=a.id AND ap.state='confirmed'
               AND (p.name LIKE ? ESCAPE '\\' OR pa.alias LIKE ? ESCAPE '\\')
         )
+        UNION
+        SELECT a.id, a.capture_date FROM assets a
+        WHERE {base_where} AND EXISTS (
+            SELECT 1 FROM asset_people ap
+            JOIN person_group_members pgm ON pgm.person_id=ap.person_id
+            JOIN person_groups pg ON pg.id=pgm.group_id
+            WHERE ap.asset_id=a.id AND ap.state='confirmed'
+              AND pg.name LIKE ? ESCAPE '\\'
+        )
     """
-    ids_values = [match_expr, *base_values, *base_values, person_pattern, person_pattern]
+    ids_values = [match_expr, *base_values, *base_values, person_pattern, person_pattern, *base_values, person_pattern]
     matches = [(int(row[0]), row[1]) for row in con.execute(ids_sql, ids_values)]
     total = len(matches)
     if not matches:
@@ -893,6 +902,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.update_status()
         if url.path == "/api/person/photos":
             return self.person_photo_thumbnails(params)
+        if url.path == "/api/groups":
+            return self.list_groups()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/api/faces/unidentified":
@@ -996,6 +1007,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.set_person_state(body)
             if route == "/api/person/aliases":
                 return self.set_person_aliases(body)
+            if route == "/api/person/groups":
+                return self.set_person_groups(body)
+            if route == "/api/group/delete":
+                return self.delete_group(body)
             if route == "/api/person/names":
                 return self.set_person_names(body)
             if route == "/api/person/card-photo":
@@ -2111,6 +2126,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         rows: list[dict] = []
         people_cards = []
         people_directory = []
+        all_groups: list[dict] = []
         selected_person_name = ""
         selected_person_stats: dict[str, int] = {}
         total = 0
@@ -2156,15 +2172,24 @@ class SearchHandler(BaseHTTPRequestHandler):
                             FROM people p
                             WHERE ?='' OR p.name LIKE ? ESCAPE '\\' OR EXISTS (
                                 SELECT 1 FROM person_aliases pa WHERE pa.person_id=p.id AND pa.alias LIKE ? ESCAPE '\\'
+                            ) OR EXISTS (
+                                SELECT 1 FROM person_group_members pgm JOIN person_groups pg ON pg.id=pgm.group_id
+                                WHERE pgm.person_id=p.id AND pg.name LIKE ? ESCAPE '\\'
                             ) ORDER BY p.name COLLATE NOCASE""",
-                        (query, people_query, people_query),
+                        (query, people_query, people_query, people_query),
                     ).fetchall()
                     for person in people_rows:
                         aliases = [row[0] for row in con.execute(
                             "SELECT alias FROM person_aliases WHERE person_id=? ORDER BY alias COLLATE NOCASE",
                             (person["id"],),
                         )]
-                        people_cards.append(dict(person) | {"aliases": aliases})
+                        groups = [row[0] for row in con.execute(
+                            """SELECT pg.name FROM person_groups pg
+                               JOIN person_group_members pgm ON pg.id=pgm.group_id
+                               WHERE pgm.person_id=? ORDER BY pg.name COLLATE NOCASE""",
+                            (person["id"],),
+                        )]
+                        people_cards.append(dict(person) | {"aliases": aliases, "groups": groups})
                     directory_rows = con.execute(
                         """SELECT p.id,p.name,
                                (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
@@ -2174,6 +2199,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                             FROM people p ORDER BY p.name COLLATE NOCASE"""
                     ).fetchall()
                     people_directory = [dict(row) for row in directory_rows]
+                    all_groups = [dict(row) for row in con.execute(
+                        """SELECT pg.id, pg.name, COUNT(pgm.person_id) member_count
+                           FROM person_groups pg
+                           LEFT JOIN person_group_members pgm ON pg.id=pgm.group_id
+                           GROUP BY pg.id ORDER BY pg.name COLLATE NOCASE"""
+                    ).fetchall()]
                     total = len(people_cards)
                 else:
                     if scope == "people" and person_id:
@@ -2253,6 +2284,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         gallery_cards = []
         for person in people_cards:
             aliases = person["aliases"]
+            groups = person.get("groups", [])
             alias_text = ", ".join(aliases) if aliases else "No alternate names yet"
             picture = (
                 f'<img src="/media?id={int(person["representative_id"])}" alt="Representative photo of {html.escape(person["name"], quote=True)}">'
@@ -2261,16 +2293,21 @@ class SearchHandler(BaseHTTPRequestHandler):
             person_url = "/?" + urllib.parse.urlencode({"scope": "people", "person": person["id"], "sort": "newest"})
             accuracy = int(person.get("accuracy_pct", -1))
             accuracy_html = f' · {accuracy}% accuracy' if accuracy >= 0 else ''
+            group_badges = "".join(
+                f'<span class="group-badge">{html.escape(g)}</span>' for g in groups
+            )
+            group_html = f'<div class="person-groups">{group_badges}</div>' if group_badges else ""
             gallery_cards.append(
                 f'<article class="person-card"><a href="{person_url}">{picture}'
                 f'<div class="person-card-info"><strong>{html.escape(person["name"])}</strong>'
                 f'<small>{int(person["confirmed_count"]):,} confirmed photo{"s" if int(person["confirmed_count"]) != 1 else ""}'
                 f'{accuracy_html}'
                 f' · {int(person["suggested_count"]):,} to review</small>'
-                f'<span>{html.escape(alias_text)}</span></div></a>'
+                f'<span>{html.escape(alias_text)}</span>{group_html}</div></a>'
                 f'<button type="button" class="edit-aliases" data-person-id="{int(person["id"])}" '
                 f'data-person-name="{html.escape(person["name"], quote=True)}" '
-                f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit name</button>'
+                f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}" '
+                f'data-groups="{html.escape(json.dumps(groups), quote=True)}">Edit name</button>'
                 f'<button type="button" class="change-card-photo" data-person-id="{int(person["id"])}" '
                 f'data-person-name="{html.escape(person["name"], quote=True)}">Change photo</button></article>'
             )
@@ -2281,11 +2318,24 @@ class SearchHandler(BaseHTTPRequestHandler):
             else f'<span class="alpha-link disabled">{letter}</span>'
             for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         )
+        group_filter_options = (
+            '<option value="">All groups</option>'
+            + "".join(
+                f'<option value="{html.escape(g["name"], quote=True)}">'
+                f'{html.escape(g["name"])} ({g["member_count"]})</option>'
+                for g in all_groups
+            )
+        )
+        group_filter_html = (
+            f'<select id="groupFilter" class="group-filter">{group_filter_options}</select>'
+            if all_groups else ""
+        )
         alpha_bar = (
             f'<nav class="alpha-bar" aria-label="Jump to letter">'
             f'<div class="alpha-letters">{alpha_letters}</div>'
             f'<div class="alpha-actions">'
             f'<span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
+            f'{group_filter_html}'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
             f'<button type="button" id="reviewPeopleGallery">Tag faces ({review_count:,})</button>'
@@ -2328,7 +2378,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
         body_class = "people-gallery-mode" if gallery_mode else ""
         search_placeholder = (
-            "Filter people by name or alias" if gallery_mode else
+            "Filter people by name, alias, or group" if gallery_mode else
             "Try: sunset over water, dog playing in snow" if scope == "semantic" else
             "Try: birthday, beach, John, cake" if scope == "everything" else
             "Subject, person, object, or visible text"
@@ -3926,6 +3976,54 @@ class SearchHandler(BaseHTTPRequestHandler):
                 [(person_id, alias) for alias in aliases],
             )
         self.send_json({"ok": True, "aliases": aliases})
+
+    def set_person_groups(self, body):
+        person_id = int(body["person_id"])
+        raw_groups = body.get("groups", [])
+        if not isinstance(raw_groups, list):
+            raise ValueError("groups must be a list")
+        groups: list[str] = []
+        seen: set[str] = set()
+        for value in raw_groups:
+            name = clean_tag(str(value))
+            key = name.casefold()
+            if name and key not in seen:
+                groups.append(name); seen.add(key)
+        with self.db() as con:
+            person = con.execute("SELECT id FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person is no longer available")
+            for name in groups:
+                con.execute("INSERT OR IGNORE INTO person_groups(name) VALUES (?)", (name,))
+            con.execute("DELETE FROM person_group_members WHERE person_id=?", (person_id,))
+            for name in groups:
+                group_id = con.execute(
+                    "SELECT id FROM person_groups WHERE name=? COLLATE NOCASE", (name,)
+                ).fetchone()["id"]
+                con.execute(
+                    "INSERT INTO person_group_members(group_id,person_id) VALUES (?,?)",
+                    (group_id, person_id),
+                )
+        self.send_json({"ok": True, "groups": groups})
+
+    def list_groups(self):
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT pg.id, pg.name, COUNT(pgm.person_id) member_count
+                   FROM person_groups pg
+                   LEFT JOIN person_group_members pgm ON pg.id=pgm.group_id
+                   GROUP BY pg.id ORDER BY pg.name COLLATE NOCASE"""
+            ).fetchall()
+        self.send_json({"groups": [dict(row) for row in rows]})
+
+    def delete_group(self, body):
+        group_id = int(body["group_id"])
+        with self.db() as con:
+            group = con.execute("SELECT id FROM person_groups WHERE id=?", (group_id,)).fetchone()
+            if not group:
+                raise ValueError("group not found")
+            con.execute("DELETE FROM person_groups WHERE id=?", (group_id,))
+        self.send_json({"ok": True})
 
     def person_photo_thumbnails(self, params):
         person_id = int(params.get("person_id", ["0"])[0])

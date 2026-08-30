@@ -40,7 +40,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -171,6 +171,18 @@ CREATE TABLE IF NOT EXISTS person_aliases (
     alias TEXT NOT NULL UNIQUE COLLATE NOCASE
 );
 CREATE INDEX IF NOT EXISTS idx_person_aliases_person ON person_aliases(person_id);
+
+CREATE TABLE IF NOT EXISTS person_groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
+CREATE TABLE IF NOT EXISTS person_group_members (
+    group_id INTEGER NOT NULL REFERENCES person_groups(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, person_id)
+);
+CREATE INDEX IF NOT EXISTS idx_person_group_members_person ON person_group_members(person_id);
 
 CREATE TABLE IF NOT EXISTS asset_people (
     asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,

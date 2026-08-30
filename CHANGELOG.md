@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.88.0 — 2026-08-30
+
+- Added person groups feature: tag people with groups like Family, Friends, Coworkers, or band names.
+- Group badges displayed as pills on each person's card in the People Index.
+- Group filter dropdown in the alpha bar filters the People Index to members of a selected group.
+- Groups are searchable: typing a group name in the People Index search bar filters to group members.
+- Searching a group name in the Everything scope returns all photos of people in that group.
+- Groups managed from the existing Edit Name modal with a new "Groups" input field.
+- Added API endpoints for managing groups: set groups per person, list all groups, delete a group.
+
 ## 0.87.0 — 2026-08-30
 
 - Added ability to set a custom card photo for each person on the People Index.
