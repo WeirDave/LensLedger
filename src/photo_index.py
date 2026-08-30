@@ -306,7 +306,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
         raise
 
 
+_broken_stream_cleared = False
+
 def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
+    global _broken_stream_cleared
     con.row_factory = sqlite3.Row
     con.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     con.executescript(SCHEMA)
@@ -379,14 +382,16 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
     if not con.execute("SELECT 1 FROM library_metadata WHERE key='library_id'").fetchone():
         import uuid
         con.execute("INSERT OR IGNORE INTO library_metadata(key,value) VALUES ('library_id',?)", (str(uuid.uuid4()),))
-    con.execute(
-        "UPDATE assets SET face_scanned=0, face_scan_error='' "
-        "WHERE face_scan_error LIKE '%broken data stream%'"
-    )
-    con.execute(
-        "UPDATE assets SET semantic_error='' "
-        "WHERE semantic_error LIKE '%broken data stream%'"
-    )
+    if not _broken_stream_cleared:
+        con.execute(
+            "UPDATE assets SET face_scanned=0, face_scan_error='' "
+            "WHERE face_scan_error LIKE '%broken data stream%'"
+        )
+        con.execute(
+            "UPDATE assets SET semantic_error='' "
+            "WHERE semantic_error LIKE '%broken data stream%'"
+        )
+        _broken_stream_cleared = True
     con.commit()
     if int(con.execute("PRAGMA user_version").fetchone()[0]) != SCHEMA_VERSION:
         con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")

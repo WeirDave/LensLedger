@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.1 — 2026-08-29
+
+- Fixed "database is locked" errors that crashed page requests during heavy face-review activity, caused by the broken-data-stream cleanup running on every database connection instead of only once at startup.
+
 ## 0.82.0 — 2026-08-29
 
 - Added a "Who is this?" name picker to the enlarged photo lightbox on the faces review page, so faces can be named directly while viewing the full photo for context instead of having to close the lightbox first.
