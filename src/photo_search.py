@@ -2268,12 +2268,22 @@ class SearchHandler(BaseHTTPRequestHandler):
                 f'data-aliases="{html.escape(json.dumps(aliases), quote=True)}">Edit name</button></article>'
             )
         active_letters = {card["name"][0].upper() for card in people_cards if card["name"]} if people_cards else set()
-        alpha_bar = '<nav class="alpha-bar" aria-label="Jump to letter">' + "".join(
+        alpha_letters = "".join(
             f'<a href="#letter-{letter}" data-letter="{letter}" class="alpha-link">{letter}</a>'
             if letter in active_letters
             else f'<span class="alpha-link disabled">{letter}</span>'
             for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        ) + '</nav>'
+        )
+        alpha_bar = (
+            f'<nav class="alpha-bar" aria-label="Jump to letter">'
+            f'<div class="alpha-letters">{alpha_letters}</div>'
+            f'<div class="alpha-actions">'
+            f'<span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
+            f'<button type="button" class="secondary" id="mergePeopleGallery"'
+            f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
+            f'<button type="button" id="reviewPeopleGallery">Tag faces ({review_count:,})</button>'
+            f'</div></nav>'
+        )
         lettered_cards = []
         current_letter = ""
         for card_index, card_html in enumerate(gallery_cards):
@@ -2299,12 +2309,6 @@ class SearchHandler(BaseHTTPRequestHandler):
         people_gallery_html = (
             '<main class="people-browser">'
             + alpha_bar
-            + '<div class="people-browser-head"><div><h2>People Index</h2>'
-            '<p>Choose a person to see confirmed photos. Use Edit name on a card to add nicknames, maiden names, or other aliases for that one person; separate each alternate name with a comma.</p></div>'
-            f'<div class="people-head-actions"><span>{len(people_cards):,} {"person" if len(people_cards) == 1 else "people"}</span>'
-            f'<button type="button" class="secondary" id="mergePeopleGallery"'
-            f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
-            f'<button type="button" id="reviewPeopleGallery">People ({review_count:,})</button></div></div>'
             + '<section class="people-grid">'
             + ("".join(lettered_cards) if lettered_cards else '<p class="people-empty">No people match that name.</p>')
             + f'</section><script src="{asset_url("js/alpha-bar.js")}"></script></main>'

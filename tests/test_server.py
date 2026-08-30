@@ -112,7 +112,7 @@ class ServerWorkflowTests(unittest.TestCase):
         with self.get("/?scope=people") as response:
             people_page = response.read().decode("utf-8")
         self.assertIn("Merge people", people_page)
-        self.assertIn("separate each alternate name with a comma", people_page)
+        self.assertIn("alpha-bar", people_page)
         self.assertIn("/web/js/viewer.js", people_page)
         with self.get("/web/js/viewer.js") as response:
             viewer_script = response.read().decode("utf-8")

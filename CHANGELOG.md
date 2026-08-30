@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.85.2 — 2026-08-30
+
+- Moved action buttons (people count, Merge people, Tag faces) into the alphabet bar for a compact single-bar layout.
+- Removed the separate People Index heading section; the bar now serves as the full header.
+- Fixed alphabet bar gap by zeroing parent padding when the bar is present.
+
 ## 0.85.1 — 2026-08-30
 
 - Attached alphabet bar flush to the page header with no gap.
