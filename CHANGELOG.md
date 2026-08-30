@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.0 — 2026-08-30
+
+- Redesigned the group manager page with photo cards showing representative thumbnails, circular avatars, group badges, and a check indicator.
+- Added alphabet jump bar with A–Z links for fast navigation to people by first letter.
+- Added film strip separators between letter sections, matching the People Index style.
+- Replaced flat checkbox list with a responsive card grid layout.
+- Added toast notifications for group operations (create, add, remove, delete).
+- Sidebar groups now show an icon, styled member count pill, and hover-reveal delete button.
+- Verified in both dark and light themes.
+
 ## 0.91.0 — 2026-08-30
 
 - Filtered non-publishable file types (PNG, GIF, BMP, TIFF, WebP) out of the Publish page so they no longer appear as failures.
