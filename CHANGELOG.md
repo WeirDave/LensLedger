@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.85.3 — 2026-08-30
+
+- Replaced hand-drawn film strip with a proper 35mm film strip image (v2) for letter section dividers.
+- Added image serving support (`web/img/`) for PNG, JPG, and SVG assets.
+- Fixed film strip rendering in dark mode using `filter: invert(1)` with `mix-blend-mode: screen`.
+- Tightened gap between letter character and film strip divider.
+- Pushed action buttons to the far right of the alphabet bar with `margin-left: auto`.
+
 ## 0.85.2 — 2026-08-30
 
 - Moved action buttons (people count, Merge people, Tag faces) into the alphabet bar for a compact single-bar layout.

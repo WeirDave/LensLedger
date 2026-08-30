@@ -71,8 +71,8 @@ LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
 PAGE_SIZE = 250  # default; overridden per-request from settings
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
 WEB_ROOT = Path(__file__).parent.parent / "web"
-WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)")
-WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)|img/[a-z][a-z0-9-]*\.(?:png|jpg|svg)")
+WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
 
 
 def asset_url(name: str) -> str:
@@ -2291,19 +2291,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             first = name[0].upper() if name else ""
             if first and first != current_letter:
                 current_letter = first
-                film_strip_svg = (
-                    '<svg class="film-strip" viewBox="0 0 200 18" xmlns="http://www.w3.org/2000/svg">'
-                    '<rect width="200" height="18" rx="1" fill="#3a3226"/>'
-                    + ''.join(
-                        f'<rect x="{x}" y="1.5" width="6" height="3.5" rx=".8" fill="#1a1610"/>'
-                        f'<rect x="{x}" y="13" width="6" height="3.5" rx=".8" fill="#1a1610"/>'
-                        for x in range(5, 200, 12))
-                    + '</svg>'
-                )
                 lettered_cards.append(
                     f'<h3 class="letter-header" id="letter-{current_letter}">'
                     f'<span class="letter-char">{current_letter}</span>'
-                    f'{film_strip_svg}</h3>'
+                    f'<img class="film-strip" src="{asset_url("img/filmstrip.png")}" alt="" aria-hidden="true"></h3>'
                 )
             lettered_cards.append(card_html)
         people_gallery_html = (
