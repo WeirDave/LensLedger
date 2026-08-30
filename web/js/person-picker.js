@@ -14,15 +14,17 @@
 // in the DOM while open, so there's nothing to clean up when a card is
 // later removed.
 //
-// createPersonPicker({container, getNames, placeholder, onChoose}):
+// createPersonPicker({container, getNames, getAliasMap, placeholder, onChoose}):
 //   container   -- an empty element to fill with the picker's trigger
 //   getNames()  -- returns the current array of known person names; called
 //                  fresh on every open/filter so newly-added names (from
 //                  this picker or another one on the page) show up without
 //                  a page reload
+//   getAliasMap -- optional; returns {alias: primaryName} so typing an old
+//                  name after a merge still finds the right person
 //   placeholder -- trigger button text before anything is chosen
 //   onChoose(name) -- called with the chosen (existing or newly typed) name
-function createPersonPicker({ container, getNames, placeholder, onChoose }) {
+function createPersonPicker({ container, getNames, getAliasMap, placeholder, onChoose }) {
   container.classList.add('person-picker');
   container.innerHTML = '<button type="button" class="person-trigger"></button>';
   const trigger = container.querySelector('.person-trigger');
@@ -72,18 +74,56 @@ function createPersonPicker({ container, getNames, placeholder, onChoose }) {
     const list = popover.querySelector('.person-list');
     const query = search.value.trim().toLowerCase();
     const names = getNames();
-    const matches = query ? names.filter(name => name.toLowerCase().includes(query)) : names;
+    const aliasMap = getAliasMap ? getAliasMap() : null;
+    let matches;
+    if (query) {
+      const seen = new Set();
+      matches = [];
+      for (const name of names) {
+        if (name.toLowerCase().includes(query)) {
+          matches.push({ name, matchedAlias: null });
+          seen.add(name.toLowerCase());
+        }
+      }
+      if (aliasMap) {
+        for (const [alias, primary] of Object.entries(aliasMap)) {
+          if (alias.toLowerCase().includes(query) && !seen.has(primary.toLowerCase())) {
+            matches.push({ name: primary, matchedAlias: alias });
+            seen.add(primary.toLowerCase());
+          }
+        }
+      }
+      matches.sort((a, b) => {
+        const aName = a.matchedAlias || a.name;
+        const bName = b.matchedAlias || b.name;
+        const aStarts = aName.toLowerCase().startsWith(query);
+        const bStarts = bName.toLowerCase().startsWith(query);
+        if (aStarts !== bStarts) return aStarts ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      });
+    } else {
+      matches = names.map(name => ({ name, matchedAlias: null }));
+    }
     const newItem = document.createElement('button');
     newItem.type = 'button';
     newItem.className = 'person-item person-item-new';
     newItem.textContent = '+ New person';
     newItem.onclick = () => showNewEntry(search.value.trim());
-    const items = matches.map(name => {
+    const items = matches.map(entry => {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'person-item';
-      item.textContent = name;
-      item.onclick = () => choose(name);
+      if (entry.matchedAlias) {
+        item.innerHTML = '';
+        item.append(document.createTextNode(entry.name));
+        const hint = document.createElement('small');
+        hint.className = 'person-alias-hint';
+        hint.textContent = ' (was: ' + entry.matchedAlias + ')';
+        item.append(hint);
+      } else {
+        item.textContent = entry.name;
+      }
+      item.onclick = () => choose(entry.name);
       return item;
     });
     list.replaceChildren(newItem, ...items);
@@ -122,7 +162,7 @@ function createPersonPicker({ container, getNames, placeholder, onChoose }) {
     popover.innerHTML = '<input type="text" class="person-search" autocomplete="off" placeholder="Search people">'
       + '<div class="person-list"></div>'
       + '<div class="person-new-row" hidden>'
-      + '<input type="text" class="person-new-input" autocomplete="off" placeholder="New person’s name">'
+      + '<input type="text" class="person-new-input" autocomplete="off" placeholder="New person\x27s name">'
       + '<button type="button" class="person-new-add">Add</button>'
       + '</div>';
     document.body.append(popover);

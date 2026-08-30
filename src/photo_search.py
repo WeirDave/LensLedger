@@ -2585,8 +2585,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "focused_person_face": focused_person_face,
                     "all_faces": all_faces,
                     "people_options": [row[0] for row in con.execute(
-                        "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
+                        "SELECT name FROM people ORDER BY name COLLATE NOCASE"
                     )],
+                    "people_alias_map": {row[0]: row[1] for row in con.execute(
+                        "SELECT pa.alias, p.name FROM person_aliases pa JOIN people p ON p.id=pa.person_id"
+                    )},
                     "embedded_metadata": read_embedded_metadata(source_path),
                     "publishable": asset["media_type"] == "image" and source_path.suffix.lower() in PUBLISHABLE_EXTENSIONS,
                     "can_restore_publish": bool(con.execute(
@@ -2956,8 +2959,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                     (person["id"],),
                 )]
             people_options = [row[0] for row in con.execute(
-                "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
+                "SELECT name FROM people ORDER BY name COLLATE NOCASE"
             )]
+            people_alias_map = {row[0]: row[1] for row in con.execute(
+                "SELECT pa.alias, p.name FROM person_aliases pa JOIN people p ON p.id=pa.person_id"
+            )}
             unidentified_faces = int(con.execute(
                 """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                    WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
@@ -2972,6 +2978,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "people_remaining": people_remaining,
             "deferred_people": deferred_people,
             "people_options": people_options,
+            "people_alias_map": people_alias_map,
             "unidentified_faces": unidentified_faces,
         })
 
@@ -3354,8 +3361,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                 (pool_limit,),
             ).fetchall()
             people_names = [row[0] for row in con.execute(
-                "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
+                "SELECT name FROM people ORDER BY name COLLATE NOCASE"
             )]
+            people_alias_map = {row[0]: row[1] for row in con.execute(
+                "SELECT pa.alias, p.name FROM person_aliases pa JOIN people p ON p.id=pa.person_id"
+            )}
 
         DIVERSITY_THRESHOLD = 0.78
         candidates = []
@@ -3384,6 +3394,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "total": total,
             "skipped": skipped_count,
             "people_options": people_names,
+            "people_alias_map": people_alias_map,
             "faces": [
                 {
                     "face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),

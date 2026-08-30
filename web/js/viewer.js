@@ -1,13 +1,13 @@
 const LL = JSON.parse(document.body.dataset.ll);
 const items=LL.items; const personDirectory=LL.personDirectory; const csrf=LL.csrf; const currentLibrary=LL.currentLibrary; const viewedPersonId=LL.viewedPersonId; let selectedId=LL.selectedId; let currentDetail=null;
 const $=id=>document.getElementById(id); const stage=$('stage');
-let sidebarKnownPeople=[];let personPicker=null;
+let sidebarKnownPeople=[];let sidebarAliasMap=null;let personPicker=null;
 async function api(path,payload){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,csrf})});if(r.status===403){location.reload();return}const data=await r.json();if(!r.ok)throw new Error(data.error||'Request failed');return data}
 function setStatus(text,error=false){$('status').textContent=text;$('status').className='status '+(error?'status-error':'status-warning')}
-function chip(tag,kind){const el=document.createElement('span');el.className='chip '+(kind==='context'?'context':'');el.append(document.createTextNode(tag.name));const b=document.createElement('button');b.textContent='×';b.title='Hide this tag for this photo';b.onclick=()=>removeTag(tag);el.append(b);return el}
+function chip(tag,kind){const el=document.createElement('span');el.className='chip '+(kind==='context'?'context':'');el.append(document.createTextNode(tag.name));const b=document.createElement('button');b.textContent='×';b.title='Hide this tag for this photo';b.onclick=()=>{el.remove();removeTag(tag)};el.append(b);return el}
 function renderSubject(detail){const holder=$('subjectChip');if(!detail.subject){holder.replaceChildren();$('subjectInput').placeholder='Example: Formula 1 race cars';return}const el=document.createElement('span');el.className='chip subject';el.append(document.createTextNode(detail.subject));const b=document.createElement('button');b.textContent='×';b.title='Clear the primary subject';b.onclick=clearSubject;el.append(b);holder.replaceChildren(el);$('subjectInput').placeholder='Replace the current subject'}
 function renderChips(detail){renderSubject(detail);$('imageTags').replaceChildren(...detail.image_tags.map(t=>chip(t,'image')));$('contextTags').replaceChildren(...detail.context_tags.map(t=>chip(t,'context')));const hidden=detail.hidden_tags.map(name=>{const e=document.createElement('button');e.className='chip hidden';e.textContent='Restore '+name;e.onclick=()=>restoreTag(name);return e});$('hiddenTags').replaceChildren(...hidden);$('hiddenSection').classList.toggle('viewer-hidden',!hidden.length)}
-function renderPeople(detail){const confirmed=detail.confirmed_people.map(person=>{const el=document.createElement('span');el.className='chip person';el.append(document.createTextNode(person.name));const remove=document.createElement('button');remove.textContent='×';remove.title='Remove this person from the photo';remove.onclick=()=>changePerson(person.name,'rejected');el.append(remove);return el});$('confirmedPeople').replaceChildren(...confirmed);const suggested=detail.suggested_people.map(person=>{const el=document.createElement('span');el.className='chip suggestion';el.append(document.createTextNode(person.name+' '+Math.round(person.confidence*100)+'%'));const accept=document.createElement('button');accept.className='accept-person';accept.textContent='✓';accept.title='Confirm this person';accept.onclick=()=>changePerson(person.name,'confirmed');const reject=document.createElement('button');reject.textContent='×';reject.title='Reject this suggestion';reject.onclick=()=>changePerson(person.name,'rejected');el.append(accept,reject);return el});$('suggestedPeople').replaceChildren(...suggested);$('suggestionLabel').classList.toggle('viewer-hidden',!suggested.length);sidebarKnownPeople=detail.people_options}
+function renderPeople(detail){const confirmed=detail.confirmed_people.map(person=>{const el=document.createElement('span');el.className='chip person';el.append(document.createTextNode(person.name));const remove=document.createElement('button');remove.textContent='×';remove.title='Remove this person from the photo';remove.onclick=()=>{el.remove();changePerson(person.name,'rejected')};el.append(remove);return el});$('confirmedPeople').replaceChildren(...confirmed);const suggested=detail.suggested_people.map(person=>{const el=document.createElement('span');el.className='chip suggestion';el.append(document.createTextNode(person.name+' '+Math.round(person.confidence*100)+'%'));const accept=document.createElement('button');accept.className='accept-person';accept.textContent='✓';accept.title='Confirm this person';accept.onclick=()=>changePerson(person.name,'confirmed');const reject=document.createElement('button');reject.textContent='×';reject.title='Reject this suggestion';reject.onclick=()=>{el.remove();changePerson(person.name,'rejected')};el.append(accept,reject);return el});$('suggestedPeople').replaceChildren(...suggested);$('suggestionLabel').classList.toggle('viewer-hidden',!suggested.length);sidebarKnownPeople=detail.people_options;sidebarAliasMap=detail.people_alias_map||null}
 function renderEmbeddedMetadata(meta){const holder=$('metadataReadout');holder.replaceChildren();let count=0;for(const [key,title] of [['descriptive','Description and ownership'],['capture','Capture details']]){const items=meta?.[key]||[];if(!items.length)continue;count+=items.length;const group=document.createElement('section');group.className='metadata-group';const heading=document.createElement('h3');heading.textContent=title;const list=document.createElement('dl');for(const item of items){const row=document.createElement('div');row.className='metadata-item';const term=document.createElement('dt');term.textContent=item.label;const value=document.createElement('dd');if(item.href){const link=document.createElement('a');link.href=item.href;link.target='_blank';link.rel='noopener';link.title='Open this location on the local photo map';link.textContent=item.value+'  ↗';value.append(link);if(item.osmHref){value.append(' · ');const osmLink=document.createElement('a');osmLink.href=item.osmHref;osmLink.target='_blank';osmLink.rel='noopener';osmLink.title='Open this location on OpenStreetMap';osmLink.textContent='OpenStreetMap ↗';value.append(osmLink)}}else value.textContent=item.value;row.append(term,value);list.append(row)}group.append(heading,list);holder.append(group)}if(!count){const empty=document.createElement('div');empty.className='metadata-empty';empty.textContent='No readable embedded details were found in this file.';holder.append(empty)}}
 let zoomScale=1,panX=0,panY=0,zoomMedia=null,zoomResizeObserver=null;
 function applyZoomTransform(){
@@ -136,6 +136,7 @@ function renderClickableFaces(media, allFaces) {
     if (face.person_name) {
       el.innerHTML = '<span>' + face.person_name + '</span>';
       el.classList.add('named');
+      el.onclick = () => openFaceCorrector(face, el);
     } else {
       el.innerHTML = '<span>Click to name</span>';
       el.classList.add('unnamed');
@@ -159,6 +160,7 @@ function openFaceNamer(face, media) {
   const picker = createPersonPicker({
     container: faceNamerPopover,
     getNames: () => sidebarKnownPeople,
+    getAliasMap: () => sidebarAliasMap,
     placeholder: 'Who is this?',
     onChoose: async name => {
       closeFaceNamer();
@@ -180,6 +182,65 @@ function openFaceNamer(face, media) {
 function closeFaceNamer() {
   if (faceNamerPopover) { faceNamerPopover.remove(); faceNamerPopover = null; }
 }
+let faceCorrectorPopover = null;
+function openFaceCorrector(face, box) {
+  closeFaceCorrectorPopover();
+  closeFaceNamer();
+  faceCorrectorPopover = document.createElement('div');
+  faceCorrectorPopover.className = 'face-corrector-popover';
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'face-corrector-remove';
+  removeBtn.textContent = 'Remove ' + face.person_name;
+  removeBtn.onclick = async () => {
+    closeFaceCorrectorPopover();
+    try {
+      await api('/api/person/state', { id: selectedId, name: face.person_name, state: 'rejected' });
+      await selectAsset(selectedId);
+      setStatus(face.person_name + ' removed from this photo');
+    } catch (e) { setStatus(e.message, true); }
+  };
+  const divider = document.createElement('hr');
+  const changeLabel = document.createElement('div');
+  changeLabel.className = 'face-corrector-label';
+  changeLabel.textContent = 'Change to:';
+  const pickerContainer = document.createElement('div');
+  const picker = createPersonPicker({
+    container: pickerContainer,
+    getNames: () => sidebarKnownPeople,
+    getAliasMap: () => sidebarAliasMap,
+    placeholder: 'Choose person',
+    onChoose: async name => {
+      closeFaceCorrectorPopover();
+      try {
+        await api('/api/person/state', { id: selectedId, name: face.person_name, state: 'rejected' });
+        if (face.face_id) {
+          await api('/api/faces/name', { face_id: face.face_id, name });
+        } else {
+          await api('/api/person/add', { id: selectedId, name });
+        }
+        await selectAsset(selectedId);
+        setStatus('Changed to ' + name);
+      } catch (e) { await selectAsset(selectedId); setStatus(e.message, true); }
+    },
+  });
+  faceCorrectorPopover.append(removeBtn, divider, changeLabel, pickerContainer);
+  stage.append(faceCorrectorPopover);
+  const boxRect = box.getBoundingClientRect(), stageRect = stage.getBoundingClientRect();
+  faceCorrectorPopover.style.position = 'absolute';
+  faceCorrectorPopover.style.left = (boxRect.left - stageRect.left) + 'px';
+  faceCorrectorPopover.style.top = (boxRect.bottom - stageRect.top + 6) + 'px';
+  faceCorrectorPopover.style.zIndex = '10';
+  const onClickOutside = e => {
+    if (!faceCorrectorPopover || faceCorrectorPopover.contains(e.target) || e.target === box) return;
+    closeFaceCorrectorPopover();
+    document.removeEventListener('click', onClickOutside);
+  };
+  setTimeout(() => document.addEventListener('click', onClickOutside), 0);
+}
+function closeFaceCorrectorPopover() {
+  if (faceCorrectorPopover) { faceCorrectorPopover.remove(); faceCorrectorPopover = null; }
+}
 async function selectAsset(id){
   selectedId=Number(id);
   document.querySelectorAll('.thumb').forEach(x=>{const isActive=Number(x.dataset.id)===selectedId;x.classList.toggle('active',isActive);if(isActive)x.setAttribute('aria-current','true');else x.removeAttribute('aria-current')});
@@ -188,7 +249,7 @@ async function selectAsset(id){
     const detailUrl='/api/asset?id='+selectedId+(viewedPersonId?'&person_id='+viewedPersonId:'');
     const r=await fetch(detailUrl);if(!r.ok)throw new Error('Could not load photo');
     const d=await r.json();currentDetail=d;
-    stage.querySelectorAll('img,video,.empty,.raw-preview,.focused-face-box,.clickable-face-box,.face-namer-popover').forEach(x=>x.remove());closeFaceNamer();
+    stage.querySelectorAll('img,video,.empty,.raw-preview,.focused-face-box,.clickable-face-box,.face-namer-popover,.face-corrector-popover').forEach(x=>x.remove());closeFaceNamer();closeFaceCorrectorPopover();
     resetZoom();zoomMedia=null;
     if(d.media_type==='raw'){
       const raw=document.createElement('div');raw.className='raw-preview';raw.innerHTML='<strong>RAW photo</strong>LensLedger indexed this original file.<br>A browser preview is not available yet.';stage.prepend(raw);
@@ -205,9 +266,9 @@ async function saveSubject(){const value=$('subjectInput').value.trim();if(!valu
 async function clearSubject(){try{await api('/api/subject',{id:selectedId,subject:''});await selectAsset(selectedId);setStatus('Primary subject cleared')}catch(e){setStatus(e.message,true)}}
 async function addTag(){const value=$('newTag').value.trim();if(!value)return;try{const result=await api('/api/tag/add',{id:selectedId,tag:value});$('newTag').value='';await selectAsset(selectedId);setStatus(result.added===1?'1 photo tag added':result.added+' photo tags added')}catch(e){setStatus(e.message,true)}}
 async function addPerson(name){if(!name)return;try{await api('/api/person/add',{id:selectedId,name});await selectAsset(selectedId);setStatus(name+' confirmed in this photo')}catch(e){setStatus(e.message,true)}}
-async function changePerson(name,state){try{await api('/api/person/state',{id:selectedId,name,state});await selectAsset(selectedId);setStatus(state==='confirmed'?name+' confirmed':name+' removed from this photo')}catch(e){setStatus(e.message,true)}}
+async function changePerson(name,state){try{await api('/api/person/state',{id:selectedId,name,state});if(state==='confirmed')await selectAsset(selectedId);setStatus(state==='confirmed'?name+' confirmed':name+' removed from this photo')}catch(e){await selectAsset(selectedId);setStatus(e.message,true)}}
 async function addContextTag(){const value=$('newContextTag').value.trim();if(!value)return;try{const result=await api('/api/folder-tag/add',{id:selectedId,tag:value});$('newContextTag').value='';await selectAsset(selectedId);if(result.added===0)setStatus('Those tags are already on this event');else setStatus(result.added===1?'Event tag added to '+result.assets+' photos':result.added+' event tags added to '+result.assets+' photos')}catch(e){setStatus(e.message,true)}}
-async function removeTag(tag){try{await api('/api/tag/remove',{id:selectedId,tag:tag.name,source:tag.source});await selectAsset(selectedId);setStatus('Tag hidden for this photo')}catch(e){setStatus(e.message,true)}}
+async function removeTag(tag){try{await api('/api/tag/remove',{id:selectedId,tag:tag.name,source:tag.source});setStatus('Tag hidden for this photo')}catch(e){await selectAsset(selectedId);setStatus(e.message,true)}}
 async function restoreTag(name){try{await api('/api/tag/restore',{id:selectedId,tag:name});await selectAsset(selectedId);setStatus('Tag restored')}catch(e){setStatus(e.message,true)}}
 async function moveToBin(){if(!currentDetail||!confirm('Move “'+currentDetail.filename+'” to Trash?\n\nIt will leave the photo library and disappear from search. You can undo immediately or restore it later from ☰ → Trash & restore.'))return;try{const oldId=selectedId;const result=await api('/api/review-bin',{id:selectedId});const i=items.findIndex(x=>Number(x.id)===oldId);items.splice(i,1);document.querySelector('.thumb[data-id="'+oldId+'"]').remove();showUndo(result.review_id,currentDetail.filename);if(items.length)selectAsset(items[Math.min(i,items.length-1)].id);else location.reload()}catch(e){setStatus(e.message,true)}}
 function showUndo(reviewId,name){const t=$('toast');t.replaceChildren(document.createTextNode('Moved '+name+' to Trash. '));const b=document.createElement('button');b.textContent='Undo';b.onclick=async()=>{try{await api('/api/review-bin/restore',{review_id:reviewId});location.reload()}catch(e){setStatus(e.message,true)}};t.append(b);t.classList.add('visible');setTimeout(()=>t.classList.remove('visible'),12000)}
@@ -422,7 +483,7 @@ function openCalendar(){const now=new Date();const current=parseDateValue($('dat
 function chooseDate(y,m,d){$('datePicker').value=y+'-'+pad2(m)+'-'+pad2(d);syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()}
 function shiftCalendarMonth(delta){calViewMonth+=delta;if(calViewMonth<0){calViewMonth=11;calViewYear-=1}else if(calViewMonth>11){calViewMonth=0;calViewYear+=1}renderCalendar()}
 $('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/people');
-$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,placeholder:"Person's name",onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('sidebarToggle').onclick=()=>{$('sidebar').classList.toggle('open');$('sidebarBackdrop').classList.toggle('open')};$('sidebarBackdrop').onclick=()=>{$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')};$('batchAddTags').onclick=batchAddTags;$('batchTagInput').onkeydown=e=>submitOnEnter(e,batchAddTags);$('batchTrash').onclick=batchTrash;$('batchClear').onclick=clearBatchSelection;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();if($('menuPanel').classList.contains('open'))closeMenu();else openMenu()};$('menuClose').onclick=closeMenu;$('menuBackdrop').onclick=closeMenu;document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=closeModal;$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))closeModal()};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))closeMenu();if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();closeModal();$('datePopover').classList.remove('open');closeHelp();if(batchSelected.size)clearBatchSelection();$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);updateNav()}
+$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,getAliasMap:()=>sidebarAliasMap,placeholder:"Person's name",onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('sidebarToggle').onclick=()=>{$('sidebar').classList.toggle('open');$('sidebarBackdrop').classList.toggle('open')};$('sidebarBackdrop').onclick=()=>{$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')};$('batchAddTags').onclick=batchAddTags;$('batchTagInput').onkeydown=e=>submitOnEnter(e,batchAddTags);$('batchTrash').onclick=batchTrash;$('batchClear').onclick=clearBatchSelection;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();if($('menuPanel').classList.contains('open'))closeMenu();else openMenu()};$('menuClose').onclick=closeMenu;$('menuBackdrop').onclick=closeMenu;document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=closeModal;$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))closeModal()};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))closeMenu();if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();closeModal();$('datePopover').classList.remove('open');closeHelp();if(batchSelected.size)clearBatchSelection();$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);updateNav()}
 
 function checkServerVersion(){
   fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(info=>{

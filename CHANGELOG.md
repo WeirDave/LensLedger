@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.86.0 — 2026-08-30
+
+- Clickable named face boxes: clicking a named bounding box on a photo opens a corrector popover with "Remove" and "Change to" options.
+- Optimistic UI for tag and person chip removal: chips disappear instantly on click instead of waiting for the server round-trip.
+- Person picker now prioritizes starts-with matches over contains matches, so typing "Ter" shows "Terri" before "Peters".
+- Merged person aliases no longer appear as separate entries in person pickers; typing an old name still finds the primary name with a "(was: …)" hint.
+- Person picker alias support added to viewer, faces-review, and people-review pages.
+
 ## 0.85.3 — 2026-08-30
 
 - Replaced hand-drawn film strip with a proper 35mm film strip image (v2) for letter section dividers.

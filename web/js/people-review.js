@@ -10,6 +10,7 @@ let corrections = new Map();
 let dispositions = new Map();
 let history = [];
 let knownPeople = [];
+let knownAliasMap = null;
 let autoLearnDone = false;
 const $ = id => document.getElementById(id);
 
@@ -84,6 +85,7 @@ function render() {
   if (queue.unidentified_faces) progressText += ' · ' + queue.unidentified_faces.toLocaleString() + ' unnamed face' + (queue.unidentified_faces === 1 ? '' : 's');
   $('globalProgress').textContent = progressText;
   knownPeople = queue.people_options;
+  knownAliasMap = queue.people_alias_map || null;
   const section = document.createElement('section');
   section.innerHTML = '<div class="review-head"><div><h1></h1><p>Click a face to mark it wrong. Use ⛶ Enlarge to see the full photo or set corrections.</p></div><div class="person-count"></div></div><div class="thumb-grid"></div>';
   section.querySelector('h1').textContent = 'Does this photo contain ' + queue.person.name + '?';
@@ -173,6 +175,7 @@ function initLightboxPicker() {
   lightboxPicker = createPersonPicker({
     container,
     getNames: () => knownPeople,
+    getAliasMap: () => knownAliasMap,
     placeholder: 'Correct name',
     onChoose: name => {
       if (!openItem) return;

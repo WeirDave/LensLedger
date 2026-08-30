@@ -8,3 +8,4 @@
 .person-new-row{display:flex;gap:6px;margin-top:8px}
 .person-new-row input{flex:1;min-width:0}
 .person-new-add{padding:8px 10px}
+.person-alias-hint{font-weight:400;opacity:.55;font-size:.85em}

@@ -10,6 +10,7 @@ let skippedCount = 0;
 // re-adds the very card a match group just removed.
 const pending = new Set();
 let knownPeople = [];
+let knownAliasMap = null;
 
 // Optimistic local add so a name just typed in one card's "+ New person" is
 // immediately selectable from every other open/future picker on this page,
@@ -443,6 +444,7 @@ function buildCard(face) {
   const picker = createPersonPicker({
     container: card.querySelector('.face-picker'),
     getNames: () => knownPeople,
+    getAliasMap: () => knownAliasMap,
     placeholder: 'Who is this?',
     onChoose: async name => {
       const tryName = async () => {
@@ -503,6 +505,7 @@ async function loadMore() {
     skippedCount = data.skipped || 0;
     updateProgress();
     knownPeople = data.people_options;
+    knownAliasMap = data.people_alias_map || null;
     const existing = new Set([...$('faceGrid').children].map(el => el.dataset.faceId));
     const newFaces = data.faces.filter(face => !existing.has(String(face.face_id)) && !pending.has(face.face_id));
     if (newFaces.length) autoLearnTriggered = false;
@@ -544,6 +547,7 @@ function showTrashUndo(reviewId, name) {
 const lbPicker = createPersonPicker({
   container: $('lightboxPicker'),
   getNames: () => knownPeople,
+  getAliasMap: () => knownAliasMap,
   placeholder: 'Who is this?',
   onChoose: async name => {
     if (!openFace) return;
@@ -600,6 +604,7 @@ let quickTagCount = 0;
 const quickTagPicker = createPersonPicker({
   container: $('quickTagPicker'),
   getNames: () => knownPeople,
+  getAliasMap: () => knownAliasMap,
   placeholder: 'Choose a person',
   onChoose: name => {
     registerKnownPerson(name);
@@ -697,6 +702,7 @@ $('bulkClear').onclick = () => {
 const bulkPicker = createPersonPicker({
   container: $('bulkPicker'),
   getNames: () => knownPeople,
+  getAliasMap: () => knownAliasMap,
   placeholder: 'Assign to…',
   onChoose: async name => {
     if (!bulkSelected.size) return;
