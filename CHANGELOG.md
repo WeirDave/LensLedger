@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.6 — 2026-08-30
+
+- Fixed JavaScript syntax error in viewer.js caused by Unicode smart quotes (U+2018/U+2019) introduced during the v0.82.5 inline-style refactor, which broke the entire viewer page.
+
 ## 0.82.5 — 2026-08-30
 
 - Hardened image processing: set a 300-megapixel decompression bomb limit instead of disabling Pillow's protection entirely.

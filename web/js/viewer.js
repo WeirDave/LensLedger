@@ -176,85 +176,85 @@ async function restorePublished(){if(!currentDetail?.can_restore_publish||!confi
 async function openTrashPanel(){const body=document.createElement('div');body.className='trash-list';openModal('Trash & restore',body);try{const r=await fetch('/api/trash');const data=await r.json();if(!data.items.length){const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty);return}const emptyBar=document.createElement('div');emptyBar.className='trash-empty-bar';const emptyBtn=document.createElement('button');emptyBtn.className='danger';emptyBtn.textContent='Empty trash';emptyBtn.onclick=async()=>{if(!confirm('Permanently delete all '+data.items.length+' trashed items? This cannot be undone.'))return;emptyBtn.disabled=true;try{await api('/api/review-bin/empty',{});location.reload()}catch(e){emptyBtn.disabled=false;setStatus(e.message,true)}};emptyBar.append(emptyBtn);body.before(emptyBar);data.items.forEach(item=>{const row=document.createElement('div');row.className='trash-item';const meta=document.createElement('div');meta.className='trash-meta';const strong=document.createElement('strong');strong.textContent=item.name;const small=document.createElement('small');small.textContent=item.path;meta.append(strong,small);const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=async()=>{await api('/api/review-bin/restore',{review_id:item.id});location.reload()};const del=document.createElement('button');del.className='danger';del.textContent='Delete';del.onclick=async()=>{if(!confirm('Permanently delete "'+item.name+'"? This cannot be undone.'))return;del.disabled=true;restore.disabled=true;try{await api('/api/review-bin/delete',{review_id:item.id});row.remove();if(!body.querySelector('.trash-item')){const empty=document.createElement('div');empty.className='trash-empty';empty.textContent='Trash is empty.';body.append(empty)}}catch(e){del.disabled=false;restore.disabled=false;setStatus(e.message,true)}};row.append(meta,restore,del);body.append(row)})}catch(e){body.textContent=e.message}}
 async function openMenuPanel(name){
   closeMenu();
-  if(name===’library’)return openLibraryPanelV2();
-  if(name===’update’)return openUpdatePanel();
-  if(name===’guide’){
-    const box=document.createElement(‘div’);
+  if(name==='library')return openLibraryPanelV2();
+  if(name==='update')return openUpdatePanel();
+  if(name==='guide'){
+    const box=document.createElement('div');
     [
-      ‘Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.’,
-      ‘Face matches are suggestions until you confirm them. Open Capture details to see readable EXIF, IPTC, and XMP details already stored in the file.’,
-      ‘To identify people: go to People review and name a handful of different people (5–10 is plenty). LensLedger uses what you taught it to suggest matches across your entire library. You don’t need to name every face by hand — just seed the system and let it do the work.’
-    ].forEach(t=>{const p=document.createElement(‘p’);p.textContent=t;box.append(p)});
-    const kh=document.createElement(‘h3’);
-    kh.textContent=’Keyboard & mouse shortcuts’;
-    kh.className=’guide-heading’;
+      'Use Primary subject for the main thing in one photo, Photo tags for other visible things, People for confirmed identities, and Event / folder tags for context shared by the whole batch. Search uses Everything by default so all four contribute to normal results.',
+      'Face matches are suggestions until you confirm them. Open Capture details to see readable EXIF, IPTC, and XMP details already stored in the file.',
+      "To identify people: go to People review and name a handful of different people (5–10 is plenty). LensLedger uses what you taught it to suggest matches across your entire library. You don't need to name every face by hand — just seed the system and let it do the work."
+    ].forEach(t=>{const p=document.createElement('p');p.textContent=t;box.append(p)});
+    const kh=document.createElement('h3');
+    kh.textContent='Keyboard & mouse shortcuts';
+    kh.className='guide-heading';
     box.append(kh);
-    const kt=document.createElement(‘table’);
-    kt.className=’guide-formats’;
-    kt.innerHTML=’<thead><tr><th>Action</th><th>Shortcut</th></tr></thead><tbody>’
-      +’<tr><td>Next / previous photo</td><td>← → arrow keys</td></tr>’
-      +’<tr><td>Open photo in file explorer</td><td>Double-click the main image</td></tr>’
-      +’<tr><td>Toggle 3× zoom</td><td>Triple-click the main image</td></tr>’
-      +’<tr><td>Pan while zoomed</td><td>Click and drag</td></tr>’
-      +’<tr><td>Select a photo for batch editing</td><td>Ctrl+click (or ⌘+click) a thumbnail</td></tr>’
-      +’<tr><td>Select a range of photos</td><td>Shift+click a thumbnail</td></tr>’
-      +’<tr><td>Close any panel or dialog</td><td>Escape</td></tr>’
-      +’</tbody>’;
+    const kt=document.createElement('table');
+    kt.className='guide-formats';
+    kt.innerHTML='<thead><tr><th>Action</th><th>Shortcut</th></tr></thead><tbody>'
+      +'<tr><td>Next / previous photo</td><td>← → arrow keys</td></tr>'
+      +'<tr><td>Open photo in file explorer</td><td>Double-click the main image</td></tr>'
+      +'<tr><td>Toggle 3× zoom</td><td>Triple-click the main image</td></tr>'
+      +'<tr><td>Pan while zoomed</td><td>Click and drag</td></tr>'
+      +'<tr><td>Select a photo for batch editing</td><td>Ctrl+click (or ⌘+click) a thumbnail</td></tr>'
+      +'<tr><td>Select a range of photos</td><td>Shift+click a thumbnail</td></tr>'
+      +'<tr><td>Close any panel or dialog</td><td>Escape</td></tr>'
+      +'</tbody>';
     box.append(kt);
-    const lh=document.createElement(‘h3’);
-    lh.textContent=’Library management’;
-    lh.className=’guide-heading’;
+    const lh=document.createElement('h3');
+    lh.textContent='Library management';
+    lh.className='guide-heading';
     box.append(lh);
-    const lbox=document.createElement(‘div’);
-    lbox.className=’guide-body’;
+    const lbox=document.createElement('div');
+    lbox.className='guide-body';
     [
-      ‘<b>How libraries work</b> — A library is one root folder. Everything inside it (all subfolders, any depth) belongs to that library. Each library has its own separate database — there is no shared master database.’,
-      ‘<b>Add a library</b> — Go to Settings and click “Add library.” The database is stored in a hidden .LensLedger folder inside your photo library by default, so the index travels with your photos.’,
-      ‘<b>Switch libraries</b> — Click “Switch” next to any library in the Settings list.’,
-      ‘<b>Relocate a library</b> — If you moved your photos to a new folder (e.g. from a USB drive to your hard drive), click “Relocate” next to the library in Settings and choose the new location. Your tags, scan results, and index carry over.’
-    ].forEach(t=>{const p=document.createElement(‘p’);p.innerHTML=t;lbox.append(p)});
+      '<b>How libraries work</b> — A library is one root folder. Everything inside it (all subfolders, any depth) belongs to that library. Each library has its own separate database — there is no shared master database.',
+      '<b>Add a library</b> — Go to Settings and click “Add library.” The database is stored in a hidden .LensLedger folder inside your photo library by default, so the index travels with your photos.',
+      '<b>Switch libraries</b> — Click “Switch” next to any library in the Settings list.',
+      '<b>Relocate a library</b> — If you moved your photos to a new folder (e.g. from a USB drive to your hard drive), click “Relocate” next to the library in Settings and choose the new location. Your tags, scan results, and index carry over.'
+    ].forEach(t=>{const p=document.createElement('p');p.innerHTML=t;lbox.append(p)});
     box.append(lbox);
-    const h=document.createElement(‘h3’);
-    h.textContent=’Supported image formats’;
-    h.className=’guide-heading’;
+    const h=document.createElement('h3');
+    h.textContent='Supported image formats';
+    h.className='guide-heading';
     box.append(h);
-    const note=document.createElement(‘p’);
-    note.className=’guide-note’;
-    note.textContent=’Publishable means LensLedger can write people names and tags back into the file’s metadata.’;
+    const note=document.createElement('p');
+    note.className='guide-note';
+    note.textContent="Publishable means LensLedger can write people names and tags back into the file's metadata.";
     box.append(note);
-    const tbl=document.createElement(‘table’);
-    tbl.className=’guide-formats’;
-    tbl.innerHTML=’<thead><tr><th>Format</th><th>Metadata</th><th>Faces</th><th>Viewable</th><th>Publishable</th></tr></thead><tbody>’
-      +’<tr><td>JPEG (.jpg, .jpeg)</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>’
-      +’<tr><td>PNG (.png)</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>’
-      +’<tr><td>WebP (.webp)</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>’
-      +’<tr><td>TIFF (.tif, .tiff)</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>’
-      +’<tr><td>GIF (.gif)</td><td>—</td><td>✓</td><td>✓</td><td>—</td></tr>’
-      +’<tr><td>BMP (.bmp)</td><td>—</td><td>✓</td><td>✓</td><td>—</td></tr>’
-      +’<tr><td>HEIC / HEIF</td><td>—</td><td>✓</td><td>✓ *</td><td>✓</td></tr>’
-      +’<tr><td>RAW (.dng, .cr2, .cr3, .nef, .arw, .orf, .rw2, .raf)</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>’
-      +’<tr><td>Video (.mp4, .mov, .avi, .wmv, .mpg, .mpeg, .mkv)</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>’
-      +’</tbody>’;
+    const tbl=document.createElement('table');
+    tbl.className='guide-formats';
+    tbl.innerHTML='<thead><tr><th>Format</th><th>Metadata</th><th>Faces</th><th>Viewable</th><th>Publishable</th></tr></thead><tbody>'
+      +'<tr><td>JPEG (.jpg, .jpeg)</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>'
+      +'<tr><td>PNG (.png)</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>'
+      +'<tr><td>WebP (.webp)</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>'
+      +'<tr><td>TIFF (.tif, .tiff)</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>'
+      +'<tr><td>GIF (.gif)</td><td>—</td><td>✓</td><td>✓</td><td>—</td></tr>'
+      +'<tr><td>BMP (.bmp)</td><td>—</td><td>✓</td><td>✓</td><td>—</td></tr>'
+      +'<tr><td>HEIC / HEIF</td><td>—</td><td>✓</td><td>✓ *</td><td>✓</td></tr>'
+      +'<tr><td>RAW (.dng, .cr2, .cr3, .nef, .arw, .orf, .rw2, .raf)</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>'
+      +'<tr><td>Video (.mp4, .mov, .avi, .wmv, .mpg, .mpeg, .mkv)</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>'
+      +'</tbody>';
     box.append(tbl);
-    const foot=document.createElement(‘p’);
-    foot.className=’guide-footer’;
-    foot.textContent=’* HEIC/HEIF files are converted to JPEG on the fly for viewing. RAW and video files are indexed and searchable but not viewable or face-scanned.’;
+    const foot=document.createElement('p');
+    foot.className='guide-footer';
+    foot.textContent='* HEIC/HEIF files are converted to JPEG on the fly for viewing. RAW and video files are indexed and searchable but not viewable or face-scanned.';
     box.append(foot);
-    return openModal(‘Quick guide’,box);
+    return openModal('Quick guide',box);
   }
-  if(name===’about’){
-    const o=document.getElementById(‘aboutOverlay’);
+  if(name==='about'){
+    const o=document.getElementById('aboutOverlay');
     if(o){
-      o.classList.add(‘open’);
-      document.getElementById(‘aboutClose’).onclick=
-      document.getElementById(‘aboutOverlay’).onclick=function(e){
-        if(e.target===this||e.target.id===’aboutClose’)
-          document.getElementById(‘aboutOverlay’).classList.remove(‘open’);
+      o.classList.add('open');
+      document.getElementById('aboutClose').onclick=
+      document.getElementById('aboutOverlay').onclick=function(e){
+        if(e.target===this||e.target.id==='aboutClose')
+          document.getElementById('aboutOverlay').classList.remove('open');
       };
     }
     return;
   }
-  if(name===’trash’)return openTrashPanel();
+  if(name==='trash')return openTrashPanel();
 }
 const batchSelected=new Set();let lastClickedThumbIndex=null;
 function updateBatchBar(){
@@ -349,7 +349,7 @@ function openCalendar(){const now=new Date();const current=parseDateValue($('dat
 function chooseDate(y,m,d){$('datePicker').value=y+'-'+pad2(m)+'-'+pad2(d);syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()}
 function shiftCalendarMonth(delta){calViewMonth+=delta;if(calViewMonth<0){calViewMonth=11;calViewYear-=1}else if(calViewMonth>11){calViewMonth=0;calViewYear+=1}renderCalendar()}
 $('reviewPeopleGallery')?.addEventListener('click',()=>location.href='/faces-review');
-$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,placeholder:'Person’s name',onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('sidebarToggle').onclick=()=>{$('sidebar').classList.toggle('open');$('sidebarBackdrop').classList.toggle('open')};$('sidebarBackdrop').onclick=()=>{$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')};$('batchAddTags').onclick=batchAddTags;$('batchTagInput').onkeydown=e=>submitOnEnter(e,batchAddTags);$('batchTrash').onclick=batchTrash;$('batchClear').onclick=clearBatchSelection;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();if($('menuPanel').classList.contains('open'))closeMenu();else openMenu()};$('menuClose').onclick=closeMenu;$('menuBackdrop').onclick=closeMenu;document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))closeMenu();if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();$('modalBackdrop').classList.remove('open');$('datePopover').classList.remove('open');closeHelp();if(batchSelected.size)clearBatchSelection();$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);updateNav()}
+$('mergePeopleGallery')?.addEventListener('click',openPersonMerge);$('previousPhoto').onclick=()=>step(-1);$('nextPhoto').onclick=()=>step(1);$('previousDay').onclick=()=>changeDay(-1);$('nextDay').onclick=()=>changeDay(1);$('dateTrigger').onclick=e=>{e.stopPropagation();if($('datePopover').classList.contains('open')){$('datePopover').classList.remove('open')}else{openCalendar()}};$('calPrevMonth').onclick=()=>shiftCalendarMonth(-1);$('calNextMonth').onclick=()=>shiftCalendarMonth(1);$('calMonth').onchange=e=>{calViewMonth=Number(e.target.value);renderCalendarDays()};$('calYear').onchange=e=>{calViewYear=Number(e.target.value);renderCalendarDays()};$('calToday').onclick=()=>{const t=new Date();chooseDate(t.getFullYear(),t.getMonth()+1,t.getDate())};$('calClear').onclick=()=>{$('datePicker').value='';syncDateTrigger();$('datePopover').classList.remove('open');$('datePicker').form.submit()};syncDateTrigger();$('saveSubject').onclick=saveSubject;$('subjectInput').onkeydown=e=>submitOnEnter(e,saveSubject);$('addTag').onclick=addTag;$('newTag').onkeydown=e=>submitOnEnter(e,addTag);personPicker=createPersonPicker({container:$('personPickerContainer'),getNames:()=>sidebarKnownPeople,placeholder:"Person's name",onChoose:addPerson});$('addContextTag').onclick=addContextTag;$('newContextTag').onkeydown=e=>submitOnEnter(e,addContextTag);$('previewPublish').onclick=previewPublish;$('restorePublish').onclick=restorePublished;$('moveToTrash').onclick=moveToBin;$('sidebarToggle').onclick=()=>{$('sidebar').classList.toggle('open');$('sidebarBackdrop').classList.toggle('open')};$('sidebarBackdrop').onclick=()=>{$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')};$('batchAddTags').onclick=batchAddTags;$('batchTagInput').onkeydown=e=>submitOnEnter(e,batchAddTags);$('batchTrash').onclick=batchTrash;$('batchClear').onclick=clearBatchSelection;$('scopePicker').onchange=e=>{if(e.target.value==='people')e.target.form.querySelector('[name=q]').value='';if(['people','semantic'].includes(e.target.value)){e.target.form.querySelector('[name=date]').value='';syncDateTrigger()}e.target.form.submit()};document.querySelectorAll('.edit-aliases').forEach(button=>button.onclick=()=>editAliases(button));function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}$('menuToggle').onclick=e=>{e.stopPropagation();closeHelp();if($('menuPanel').classList.contains('open'))closeMenu();else openMenu()};$('menuClose').onclick=closeMenu;$('menuBackdrop').onclick=closeMenu;document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>openMenuPanel(b.dataset.panel));document.querySelectorAll('[data-help]').forEach(b=>b.onclick=e=>{e.stopPropagation();const target=$(b.dataset.help);const opening=!target.classList.contains('open');closeHelp();if(opening)target.classList.add('open')});$('modalClose').onclick=()=>$('modalBackdrop').classList.remove('open');$('modalBackdrop').onclick=e=>{if(e.target===$('modalBackdrop'))$('modalBackdrop').classList.remove('open')};document.addEventListener('click',e=>{if(!e.target.closest('.menu-panel')&&!e.target.closest('.menu-toggle'))closeMenu();if(!e.target.closest('.help-popover')&&!e.target.closest('.info-button'))closeHelp();if(!e.target.closest('.date-field'))$('datePopover').classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();$('modalBackdrop').classList.remove('open');$('datePopover').classList.remove('open');closeHelp();if(batchSelected.size)clearBatchSelection();$('sidebar').classList.remove('open');$('sidebarBackdrop').classList.remove('open')}if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});renderFilmstrip();enableFilmstripDrag();if(selectedId)selectAsset(selectedId);else{document.querySelectorAll('.sidebar input,.sidebar textarea,.sidebar button').forEach(control=>control.disabled=true);updateNav()}
 
 function checkServerVersion(){
   fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(info=>{
