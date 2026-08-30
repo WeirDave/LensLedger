@@ -3297,19 +3297,19 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             pool_limit = min(total, 2000)
             rows = con.execute(
                 f"""WITH ranked AS (
-                        SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.capture_date,
+                        SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.relative_path, a.capture_date,
                                f.box_left, f.box_top, f.box_right, f.box_bottom, f.embedding_f32,
                                ROW_NUMBER() OVER (PARTITION BY f.asset_id ORDER BY f.id) AS rn
                         FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                         WHERE {where}
                     )
-                    SELECT face_id, asset_id, filename, folder, capture_date,
+                    SELECT face_id, asset_id, filename, folder, relative_path, capture_date,
                            box_left, box_top, box_right, box_bottom, embedding_f32
                     FROM ranked WHERE rn=1 ORDER BY RANDOM() LIMIT ?""",
                 (pool_limit,),
             ).fetchall()
             people_names = [row[0] for row in con.execute(
-                "SELECT name FROM people ORDER BY name COLLATE NOCASE"
+                "SELECT name FROM people UNION SELECT alias FROM person_aliases ORDER BY 1 COLLATE NOCASE"
             )]
 
         DIVERSITY_THRESHOLD = 0.78
@@ -3342,6 +3342,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 {
                     "face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
                     "filename": row["filename"], "folder": row["folder"],
+                    "relative_path": row["relative_path"],
                     "capture_date": row["capture_date"],
                     "box_left": row["box_left"], "box_top": row["box_top"],
                     "box_right": row["box_right"], "box_bottom": row["box_bottom"],

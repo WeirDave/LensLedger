@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.2 — 2026-08-29
+
+- Fixed person aliases (alternate names) not appearing in the name picker on the faces review page, so typing an alias now surfaces the person as expected.
+
 ## 0.82.1 — 2026-08-29
 
 - Fixed "database is locked" errors that crashed page requests during heavy face-review activity, caused by the broken-data-stream cleanup running on every database connection instead of only once at startup.
