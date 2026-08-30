@@ -4433,7 +4433,16 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         source_path = self.library_root / Path(rel)
         if not source_path.resolve().is_relative_to(self.library_root.resolve()):
             raise ValueError("Path is outside the library")
-        self._reveal_on_disk(source_path)
+        folder = source_path.parent
+        if not folder.exists():
+            raise ValueError("Folder not found on disk")
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", str(folder)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+        self.send_json({"ok": True})
 
     def _reveal_on_disk(self, source_path: Path):
         if not source_path.exists():

@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.82.4 — 2026-08-29
+
+- Fixed scan error links not opening — browsers block `file:///` links from `http://` pages. Replaced the broken path links with an "Open folder" button that opens the containing folder in Explorer (or Finder on macOS) via the server.
+
 ## 0.82.3 — 2026-08-29
 
 - Fixed scan error links not opening files — browsers block `file:///` links from `http://` pages, so clicking a path in the error list now asks the server to reveal the file in Explorer (or Finder on macOS).

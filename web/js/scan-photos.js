@@ -111,19 +111,9 @@ function errorListNode(errors) {
     const row = document.createElement('div');
     row.className = 'error-row';
     const displayPath = full_path || path;
-    const pathEl = document.createElement('a');
+    const pathEl = document.createElement('span');
     pathEl.className = 'path';
     pathEl.textContent = displayPath;
-    pathEl.href = '#';
-    pathEl.title = 'Open file';
-    pathEl.onclick = (e) => {
-      e.preventDefault();
-      fetch('/api/reveal-path', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-    };
     const msgEl = document.createElement('span');
     msgEl.className = 'msg';
     msgEl.textContent = error;
@@ -132,14 +122,21 @@ function errorListNode(errors) {
     copyPathBtn.className = 'copy-path-btn';
     copyPathBtn.textContent = 'Copy path';
     copyPathBtn.title = 'Copy full path to clipboard';
-    copyPathBtn.onclick = (e) => {
-      e.preventDefault();
+    copyPathBtn.onclick = () => {
       navigator.clipboard.writeText(displayPath).then(() => {
         copyPathBtn.textContent = 'Copied!';
         setTimeout(() => { copyPathBtn.textContent = 'Copy path'; }, 1500);
       });
     };
-    row.append(pathEl, copyPathBtn, msgEl);
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'copy-path-btn';
+    openBtn.textContent = 'Open folder';
+    openBtn.title = 'Open the containing folder';
+    openBtn.onclick = () => {
+      api('/api/reveal-path', { path }).catch(() => {});
+    };
+    row.append(pathEl, copyPathBtn, openBtn, msgEl);
     const hint = explainError(error);
     if (hint) {
       const hintEl = document.createElement('span');
