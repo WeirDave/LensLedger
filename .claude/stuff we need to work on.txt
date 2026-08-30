@@ -1,0 +1,27 @@
+Roadmap and known limitations
+=============================
+
+Cross-platform
+- Text recognition (OCR) only works on Windows. Investigate Tesseract or
+  macOS Vision framework as alternatives for Linux and macOS.
+- The Windows release installer (Install LensLedger.cmd) is Windows-only.
+  Consider packaging for macOS (.dmg) and Linux (.deb/.AppImage).
+- Self-updating only works for Windows managed installations.
+
+Accessibility
+- Comprehensive ARIA pass: add landmarks to remaining pages, ensure all
+  interactive elements have keyboard focus states, add screen reader
+  announcements for dynamic content.
+- Focus trapping in all modal-like overlays (lightbox, publish preview).
+
+Mobile experience
+- The app is desktop-first. Face review grids, filmstrip, batch selection,
+  zoom/pan, and settings are awkward on small screens.
+
+People review
+- Undo for face naming, tag edits, and people merges (beyond the trash undo).
+- Guided walkthrough for first-time users beyond the intro paragraph.
+
+UI polish
+- Contextual tooltips on icon-only buttons throughout the app.
+- Animated transitions for panel open/close.

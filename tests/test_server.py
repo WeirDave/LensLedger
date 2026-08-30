@@ -846,7 +846,7 @@ class ServerWorkflowTests(unittest.TestCase):
             with self.get("/?scope=semantic&q=blue+scene") as response:
                 page = response.read().decode("utf-8")
         self.assertIn("Meaning (optional)", page)
-        self.assertIn("Describe a scene, object, or idea", page)
+        self.assertIn("Try: sunset over water, dog playing in snow", page)
         self.assertIn(self.photo.name, page)
 
     def test_scan_photos_page_renders_all_job_cards(self):

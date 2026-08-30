@@ -8,7 +8,7 @@
   <a href="https://github.com/WeirDave/LensLedger/releases/latest"><img src="https://img.shields.io/github/v/release/WeirDave/LensLedger?style=flat-square&color=6f55b5" alt="Latest Release"></a>
   <a href="https://github.com/WeirDave/LensLedger/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/WeirDave/LensLedger/tests.yml?branch=main&style=flat-square&label=Windows%20tests" alt="Windows tests"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/platform-Windows-informational?style=flat-square" alt="Windows">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational?style=flat-square" alt="Windows | macOS | Linux">
   <img src="https://img.shields.io/github/license/WeirDave/LensLedger?style=flat-square" alt="License">
 </p>
 
@@ -30,6 +30,11 @@ placeholders it found. The scanner is incremental: unchanged files are skipped,
 new files are added, and missing files leave the index. Dropbox and other
 Windows cloud placeholders can be inventoried without forcing a download;
 deeper metadata analysis waits until those files are locally available.
+
+LensLedger runs on **Windows**, **macOS**, and **Linux**. The core features
+(library scanning, search, face detection, metadata editing, and publishing)
+work on all three platforms. Text recognition (OCR) currently requires
+Windows, as it uses the built-in Windows OCR engine.
 
 ## Highlights
 
@@ -135,7 +140,21 @@ into a handoff to the managed installation. Existing old shortcuts therefore
 continue to work, but always start the current version. The handoff location is
 remembered and checked again during later managed updates.
 
-### Run from source
+### macOS / Linux
+
+```bash
+git clone https://github.com/WeirDave/LensLedger.git
+cd LensLedger
+python3 -m pip install -r requirements.txt
+python3 src/photo_search.py
+```
+
+The folder picker dialog uses native system tools: on macOS it uses
+AppleScript's `choose folder`, on Linux it uses `zenity` or `kdialog`
+(install one if neither is present). Text recognition (OCR) is Windows-only
+and will show a clear message if attempted on other platforms.
+
+### Run from source (Windows)
 
 ```powershell
 git clone https://github.com/WeirDave/LensLedger.git
@@ -170,14 +189,21 @@ model; review the model provider's separate usage terms before downloading one.
 The repository and release contain no database and no personal photo data.
 LensLedger creates runtime files under:
 
+| Platform | Default location |
+|----------|-----------------|
+| Windows  | `%LOCALAPPDATA%\LensLedger\` |
+| macOS    | `~/.local/share/LensLedger/` |
+| Linux    | `$XDG_DATA_HOME/LensLedger/` (default `~/.local/share/LensLedger/`) |
+
+Inside that directory:
+
 ```text
-%LOCALAPPDATA%\LensLedger\
-  library-state.json
-  Libraries\
-  Metadata Backups\
-  Database Backups\
-  Review Bin\
-  Face Data\
+library-state.json
+Libraries/
+Metadata Backups/
+Database Backups/
+Review Bin/
+Face Data/
 ```
 
 Each selected library receives its own database, and LensLedger remembers prior

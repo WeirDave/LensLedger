@@ -350,9 +350,8 @@ function openLarge(face, card) {
   photo.src = '/media?id=' + face.asset_id;
   if (lbZoom) lbZoom.attach(photo);
   markFace($('largePhotoBox'), photo, face);
-  const fullPath = (face.folder ? face.folder + '/' : '') + face.filename;
-  $('lightboxPathText').textContent = fullPath;
-  $('lightboxPathText').title = fullPath;
+  $('lightboxPathText').textContent = face.relative_path;
+  $('lightboxPathText').title = face.relative_path;
   lbPicker.reset();
   $('lightbox').classList.add('open');
 }
@@ -406,13 +405,14 @@ function buildCard(face) {
   // The filename identifies which exact photo this is (folder + date alone
   // often don't, e.g. several faces from the same burst); show it first so
   // ellipsis truncation eats the folder path instead of the useful part.
-  const folderParts = (face.folder || '').split('/').filter(Boolean);
+  const folderParts = (face.folder || '').split(/[/\\]/).filter(Boolean);
+  const sep = (face.folder || '').includes('\\') ? '\\' : '/';
   const shortPath = folderParts.length
-    ? '…/' + folderParts[folderParts.length - 1] + '/' + face.filename
+    ? '…' + sep + folderParts[folderParts.length - 1] + sep + face.filename
     : face.filename;
   const small = card.querySelector('small');
   small.textContent = shortPath;
-  small.title = (face.capture_date || 'Date unknown') + ' · ' + (face.folder ? face.folder + '/' : '') + face.filename;
+  small.title = (face.capture_date || 'Date unknown') + ' · ' + face.relative_path;
   const notPersonButton = card.querySelector('.not-person');
   const unknownButton = card.querySelector('.unknown-person');
   const status = card.querySelector('.face-status');
@@ -489,7 +489,7 @@ async function loadMore() {
     loading = false;
     initialLoadDone = true;
     $('loadingOverlay').classList.add('done');
-    document.querySelector('.intro').hidden = false;
+    try { if (!localStorage.getItem('ll-faces-intro-dismissed')) document.querySelector('.intro').hidden = false; } catch(e) { document.querySelector('.intro').hidden = false; }
     $('matchGroups').hidden = false;
     $('faceGrid').hidden = false;
     checkEmpty();

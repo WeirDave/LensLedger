@@ -6,6 +6,19 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.83.0 — 2026-08-30
+
+- Added cross-platform support for folder and file picker dialogs: native dialogs on macOS (AppleScript) and Linux (zenity/kdialog), with Windows SetForegroundWindow fix for the browse button appearing behind the browser.
+- Added cross-platform library root suggestions for macOS (/Volumes) and Linux (/media, /run/media, /mnt).
+- Added OCR platform guard with a clear message when attempted on macOS or Linux.
+- Added skip-navigation link for keyboard and screen reader users.
+- Added ARIA landmark roles to header and search form.
+- Added modal focus management: modals save the trigger element and restore focus on close.
+- Made the faces review intro card dismissible with localStorage persistence.
+- Added example-based placeholder text for the Meaning search scope.
+- Updated README with macOS/Linux quick start, platform badge, and data location table.
+- Replaced the bug backlog file with a structured roadmap of remaining work.
+
 ## 0.82.6 — 2026-08-30
 
 - Fixed JavaScript syntax error in viewer.js caused by Unicode smart quotes (U+2018/U+2019) introduced during the v0.82.5 inline-style refactor, which broke the entire viewer page.

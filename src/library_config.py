@@ -7,7 +7,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from app_paths import default_library_root, libraries_root, settings_path
@@ -179,7 +181,7 @@ def suggested_library_roots() -> list[dict[str, str]]:
         value = os.environ.get(variable, "").strip()
         if value:
             candidates.append((label, Path(value) / "Pictures" if variable == "OneDrive" else Path(value) / "Photos"))
-    if os.name == "nt":
+    if sys.platform == "win32":
         for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
             root = Path(f"{letter}:\\")
             try:
@@ -187,6 +189,24 @@ def suggested_library_roots() -> list[dict[str, str]]:
                     candidates.append((f"Removable drive {letter}:", root))
             except (AttributeError, OSError):
                 pass
+    elif sys.platform == "linux":
+        for mount_dir in [Path("/media") / os.getlogin(), Path("/run/media") / os.getlogin(), Path("/mnt")]:
+            try:
+                if mount_dir.is_dir():
+                    for child in mount_dir.iterdir():
+                        if child.is_dir():
+                            candidates.append((f"Mount: {child.name}", child))
+            except OSError:
+                pass
+    elif sys.platform == "darwin":
+        volumes = Path("/Volumes")
+        try:
+            if volumes.is_dir():
+                for child in volumes.iterdir():
+                    if child.is_dir() and child.name != "Macintosh HD":
+                        candidates.append((f"Volume: {child.name}", child))
+        except OSError:
+            pass
     result: list[dict[str, str]] = []
     seen: set[str] = set()
     for label, path in candidates:
@@ -202,18 +222,31 @@ def suggested_library_roots() -> list[dict[str, str]]:
 
 
 def choose_library_folder() -> str:
+    if sys.platform == "win32":
+        return _choose_folder_windows()
+    if sys.platform == "darwin":
+        return _choose_folder_macos()
+    return _choose_folder_linux()
+
+
+def _choose_folder_windows() -> str:
     script = """
 Add-Type -AssemblyName System.Windows.Forms
-$form = New-Object System.Windows.Forms.Form
-$form.TopMost = $true
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Choose a photo library folder'
-$dialog.UseDescriptionForTitle = $true
-if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
+Add-Type -Name FgW -Namespace Util -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);'
+$f = New-Object System.Windows.Forms.Form
+$f.TopMost = $true
+$f.ShowInTaskbar = $false
+$f.WindowState = 'Minimized'
+$f.Show()
+[Util.FgW]::SetForegroundWindow($f.Handle) | Out-Null
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = 'Choose a photo library folder'
+$d.UseDescriptionForTitle = $true
+if ($d.ShowDialog($f) -eq [System.Windows.Forms.DialogResult]::OK) {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    Write-Output $dialog.SelectedPath
+    Write-Output $d.SelectedPath
 }
-$form.Dispose()
+$f.Dispose()
 """
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
@@ -223,3 +256,90 @@ $form.Dispose()
     if result.returncode:
         raise ValueError((result.stderr or "The folder chooser could not open").strip())
     return result.stdout.strip()
+
+
+def _choose_folder_macos() -> str:
+    result = subprocess.run(
+        ["osascript", "-e", 'POSIX path of (choose folder with prompt "Choose a photo library folder")'],
+        capture_output=True, text=True, timeout=600, check=False,
+    )
+    if result.returncode:
+        return ""
+    return result.stdout.strip().rstrip("/")
+
+
+def _choose_folder_linux() -> str:
+    for cmd, args in [
+        ("zenity", ["zenity", "--file-selection", "--directory", "--title=Choose a photo library folder"]),
+        ("kdialog", ["kdialog", "--getexistingdirectory", str(Path.home()), "--title", "Choose a photo library folder"]),
+    ]:
+        if shutil.which(cmd):
+            result = subprocess.run(args, capture_output=True, text=True, timeout=600, check=False)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+            return ""
+    raise ValueError("No folder picker available — install zenity or kdialog")
+
+
+def choose_file(title: str = "Choose a file", filter_label: str = "All files", filter_ext: str = "*") -> str:
+    if sys.platform == "win32":
+        return _choose_file_windows(title, filter_label, filter_ext)
+    if sys.platform == "darwin":
+        return _choose_file_macos(title, filter_ext)
+    return _choose_file_linux(title, filter_ext)
+
+
+def _choose_file_windows(title: str, filter_label: str, filter_ext: str) -> str:
+    win_filter = f"{filter_label} (*.{filter_ext})|*.{filter_ext}" if filter_ext != "*" else "All files (*.*)|*.*"
+    script = f"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -Name FgW -Namespace Util -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);'
+$f = New-Object System.Windows.Forms.Form
+$f.TopMost = $true
+$f.ShowInTaskbar = $false
+$f.WindowState = 'Minimized'
+$f.Show()
+[Util.FgW]::SetForegroundWindow($f.Handle) | Out-Null
+$d = New-Object System.Windows.Forms.OpenFileDialog
+$d.Title = '{title}'
+$d.Filter = '{win_filter}'
+if ($d.ShowDialog($f) -eq [System.Windows.Forms.DialogResult]::OK) {{
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    Write-Output $d.FileName
+}}
+$f.Dispose()
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=600, check=False,
+    )
+    if result.returncode:
+        raise ValueError((result.stderr or "The file chooser could not open").strip())
+    return result.stdout.strip()
+
+
+def _choose_file_macos(title: str, filter_ext: str) -> str:
+    type_clause = f' of type {{"{filter_ext}"}}' if filter_ext != "*" else ""
+    script = f'POSIX path of (choose file with prompt "{title}"{type_clause})'
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True, text=True, timeout=600, check=False,
+    )
+    if result.returncode:
+        return ""
+    return result.stdout.strip()
+
+
+def _choose_file_linux(title: str, filter_ext: str) -> str:
+    file_filter = f"*.{filter_ext}" if filter_ext != "*" else "*"
+    for cmd, args in [
+        ("zenity", ["zenity", "--file-selection", f"--title={title}", f"--file-filter={file_filter}"]),
+        ("kdialog", ["kdialog", "--getopenfilename", str(Path.home()), file_filter, "--title", title]),
+    ]:
+        if shutil.which(cmd):
+            result = subprocess.run(args, capture_output=True, text=True, timeout=600, check=False)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+            return ""
+    raise ValueError("No file picker available — install zenity or kdialog")
