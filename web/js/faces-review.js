@@ -448,6 +448,13 @@ function buildCard(face) {
   const small = card.querySelector('small');
   small.textContent = shortPath;
   small.title = (face.capture_date || 'Date unknown') + ' · ' + face.relative_path;
+  if (face.publishable === false) {
+    const badge = document.createElement('span');
+    badge.className = 'not-publishable-badge';
+    badge.textContent = 'Not publishable';
+    badge.title = 'This file type does not support embedded metadata — tagging still works for search';
+    small.after(badge);
+  }
   const notPersonButton = card.querySelector('.not-person');
   const unknownButton = card.querySelector('.unknown-person');
   const status = card.querySelector('.face-status');

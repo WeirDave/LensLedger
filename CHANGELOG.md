@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.91.0 — 2026-08-30
+
+- Filtered non-publishable file types (PNG, GIF, BMP, TIFF, WebP) out of the Publish page so they no longer appear as failures.
+- Publish pending counts and the publish reminder banner now reflect only files that support embedded metadata (JPEG, HEIC/HEIF).
+- Added "Not publishable" badge on Tag Faces cards for non-publishable file types, with a tooltip explaining that tagging still works for search.
+- Face detection and tagging still work on all image types — only metadata publishing is filtered.
+
 ## 0.90.0 — 2026-08-30
 
 - Added bulk group management page at `/people/groups` for mass-assigning people to groups.

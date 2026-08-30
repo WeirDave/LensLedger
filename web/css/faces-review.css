@@ -31,6 +31,7 @@ main{padding:18px 20px 60px}
 .face-form{min-width:0}
 .face-actions{display:flex;gap:6px}
 .face-actions button{flex:1;background:var(--btn-secondary);color:var(--btn-secondary-text);font-size:12px;padding:7px 8px}
+.not-publishable-badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:var(--warning-bg,#fff3cd);color:var(--warning-text,#856404);border:1px solid var(--warning-border,#ffc107);white-space:nowrap}
 .face-status{min-height:15px;color:var(--accent);font-size:12px}
 .face-status .retry{margin-left:6px;background:var(--btn-secondary);color:var(--btn-secondary-text);font-size:11px;padding:3px 8px}
 .loading-overlay{min-height:50vh;display:grid;place-items:center;text-align:center}.loading-content h2{font-size:28px;color:var(--text-secondary);margin:16px 0 0;font-weight:600}.loading-overlay.done{display:none}

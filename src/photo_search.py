@@ -70,6 +70,7 @@ TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
 PAGE_SIZE = 250  # default; overridden per-request from settings
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
+_PUBLISHABLE_SQL = "a.extension IN ('.jpg','.jpeg','.heic','.heif')"
 WEB_ROOT = Path(__file__).parent.parent / "web"
 WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)|img/[a-z][a-z0-9-]*\.(?:png|jpg|svg)")
 WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
@@ -2487,19 +2488,21 @@ class SearchHandler(BaseHTTPRequestHandler):
     def publish_pending(self):
         with self.db() as con:
             rows = con.execute(
-                """SELECT p.id AS person_id, p.name, COUNT(*) AS pending
+                f"""SELECT p.id AS person_id, p.name, COUNT(*) AS pending
                    FROM asset_people ap
                    JOIN people p ON p.id = ap.person_id
                    JOIN assets a ON a.id = ap.asset_id
                    WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0
+                     AND {_PUBLISHABLE_SQL}
                    GROUP BY p.id
                    ORDER BY pending DESC"""
             ).fetchall()
             total_photos = con.execute(
-                """SELECT COUNT(DISTINCT ap.asset_id)
+                f"""SELECT COUNT(DISTINCT ap.asset_id)
                    FROM asset_people ap
                    JOIN assets a ON a.id = ap.asset_id
-                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0"""
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0
+                     AND {_PUBLISHABLE_SQL}"""
             ).fetchone()[0]
         people = [{"person_id": r["person_id"], "name": r["name"], "pending": r["pending"]} for r in rows]
         self.send_json({"ok": True, "people": people, "total_photos": total_photos})
@@ -2514,15 +2517,15 @@ class SearchHandler(BaseHTTPRequestHandler):
                         JOIN assets a ON a.id = ap.asset_id
                         WHERE ap.person_id IN ({placeholders})
                               AND ap.state = 'confirmed' AND ap.published_at IS NULL
-                              AND a.in_review_bin = 0""",
+                              AND a.in_review_bin = 0 AND {_PUBLISHABLE_SQL}""",
                     [int(pid) for pid in person_ids],
                 ).fetchall()]
             else:
                 asset_ids = [r["asset_id"] for r in con.execute(
-                    """SELECT DISTINCT ap.asset_id FROM asset_people ap
+                    f"""SELECT DISTINCT ap.asset_id FROM asset_people ap
                        JOIN assets a ON a.id = ap.asset_id
                        WHERE ap.state = 'confirmed' AND ap.published_at IS NULL
-                             AND a.in_review_bin = 0"""
+                             AND a.in_review_bin = 0 AND {_PUBLISHABLE_SQL}"""
                 ).fetchall()]
         total = len(asset_ids)
         if not total:
@@ -3015,10 +3018,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                     ).fetchone()
             suggestions = []
             if person:
-                suggestions = [dict(row) for row in con.execute(
+                suggestions = [
+                    {**dict(row), "publishable": row["extension"] in PUBLISHABLE_EXTENSIONS}
+                    for row in con.execute(
                     """SELECT a.id,a.filename,a.folder,a.capture_date,ap.confidence,ap.face_id,
                               f.box_left,f.box_top,f.box_right,f.box_bottom,
-                              f.localization_similarity
+                              f.localization_similarity, a.extension
                        FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                        LEFT JOIN face_embeddings f ON f.id=ap.face_id
                        WHERE ap.person_id=? AND ap.state='suggested' AND a.in_review_bin=0
@@ -3417,13 +3422,13 @@ class SearchHandler(BaseHTTPRequestHandler):
             rows = con.execute(
                 f"""WITH ranked AS (
                         SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.relative_path, a.capture_date,
-                               f.box_left, f.box_top, f.box_right, f.box_bottom, f.embedding_f32,
+                               f.box_left, f.box_top, f.box_right, f.box_bottom, f.embedding_f32, a.extension,
                                ROW_NUMBER() OVER (PARTITION BY f.asset_id ORDER BY f.id) AS rn
                         FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
                         WHERE {where}
                     )
                     SELECT face_id, asset_id, filename, folder, relative_path, capture_date,
-                           box_left, box_top, box_right, box_bottom, embedding_f32
+                           box_left, box_top, box_right, box_bottom, embedding_f32, extension
                     FROM ranked WHERE rn=1 ORDER BY RANDOM() LIMIT ?""",
                 (pool_limit,),
             ).fetchall()
@@ -3434,16 +3439,18 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "SELECT pa.alias, p.name FROM person_aliases pa JOIN people p ON p.id=pa.person_id"
             )}
             unpublished_people = int(con.execute(
-                """SELECT COUNT(DISTINCT ap.person_id)
+                f"""SELECT COUNT(DISTINCT ap.person_id)
                    FROM asset_people ap
                    JOIN assets a ON a.id = ap.asset_id
-                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0"""
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0
+                     AND {_PUBLISHABLE_SQL}"""
             ).fetchone()[0])
             unpublished_photos = int(con.execute(
-                """SELECT COUNT(DISTINCT ap.asset_id)
+                f"""SELECT COUNT(DISTINCT ap.asset_id)
                    FROM asset_people ap
                    JOIN assets a ON a.id = ap.asset_id
-                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0"""
+                   WHERE ap.state = 'confirmed' AND ap.published_at IS NULL AND a.in_review_bin = 0
+                     AND {_PUBLISHABLE_SQL}"""
             ).fetchone()[0])
 
         DIVERSITY_THRESHOLD = 0.78
@@ -3484,6 +3491,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "capture_date": row["capture_date"],
                     "box_left": row["box_left"], "box_top": row["box_top"],
                     "box_right": row["box_right"], "box_bottom": row["box_bottom"],
+                    "publishable": row["extension"] in PUBLISHABLE_EXTENSIONS,
                 }
                 for row in selected
             ],
@@ -3640,9 +3648,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             if not person:
                 raise ValueError("person not found")
             asset_ids = [int(row["asset_id"]) for row in con.execute(
-                """SELECT DISTINCT ap.asset_id FROM asset_people ap
+                f"""SELECT DISTINCT ap.asset_id FROM asset_people ap
                    JOIN assets a ON a.id=ap.asset_id
-                   WHERE ap.person_id=? AND ap.state='confirmed' AND a.in_review_bin=0""",
+                   WHERE ap.person_id=? AND ap.state='confirmed' AND a.in_review_bin=0
+                     AND {_PUBLISHABLE_SQL}""",
                 (person_id,),
             ).fetchall()]
         name = person["name"]
@@ -4055,16 +4064,30 @@ class SearchHandler(BaseHTTPRequestHandler):
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Manage groups</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><a href="/?scope=people" class="button secondary gm-back-link">← People Index</a><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people-directory", str(self.library_root))}
 <div class="gm-layout">
-<div class="gm-sidebar">
-<div class="gm-sidebar-header"><h3>Groups</h3><div class="gm-new-group"><input type="text" id="newGroupInput" placeholder="New group name"><button type="button" id="newGroupBtn">Create</button></div></div>
+<aside class="gm-sidebar">
+<div class="gm-sidebar-header">
+<h3>Groups</h3>
+<div class="gm-new-group"><input type="text" id="newGroupInput" placeholder="New group name"><button type="button" id="newGroupBtn">+ Create</button></div>
+</div>
 <div class="gm-group-list" id="groupList"></div>
-</div>
+<div class="gm-sidebar-hint" id="sidebarHint">Select a group, then check people to add or remove</div>
+</aside>
 <div class="gm-main">
-<div class="gm-toolbar"><label class="gm-select-all-wrap"><input type="checkbox" id="selectAll"><span>All</span></label><input type="text" class="gm-search" id="searchInput" placeholder="Search people by name, alias, or group"><span class="gm-selection-count" id="selectionCount"></span><div class="gm-actions"><button type="button" class="gm-add" id="addToGroup" disabled>Add to group</button><button type="button" class="gm-remove" id="removeFromGroup" disabled>Remove from group</button></div></div>
+<div class="gm-toolbar">
+<label class="gm-select-all-wrap"><input type="checkbox" id="selectAll"><span>All</span></label>
+<input type="text" class="gm-search" id="searchInput" placeholder="Search people by name, alias, or group…">
+<span class="gm-selection-count" id="selectionCount"></span>
+<div class="gm-actions">
+<button type="button" class="gm-add" id="addToGroup" disabled>Add to group</button>
+<button type="button" class="gm-remove" id="removeFromGroup" disabled>Remove from group</button>
+</div>
+</div>
 <div class="gm-status" id="statusMsg"></div>
-<div class="gm-people-list" id="peopleList"></div>
+<div class="gm-alpha-bar" id="alphaBar"></div>
+<div class="gm-people-grid" id="peopleGrid"></div>
 </div>
 </div>
+<div class="gm-toast" id="toast"></div>
 <script src="{asset_url('js/group-manager.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
@@ -4074,7 +4097,16 @@ class SearchHandler(BaseHTTPRequestHandler):
             rows = con.execute(
                 """SELECT p.id, p.name,
                        (SELECT COUNT(*) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
-                        WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0) confirmed_count
+                        WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0) confirmed_count,
+                       COALESCE(
+                         p.card_asset_id,
+                         (SELECT ap.asset_id FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                          WHERE ap.person_id=p.id AND ap.state='confirmed' AND a.in_review_bin=0 AND a.media_type='image'
+                          ORDER BY a.capture_date DESC,a.id DESC LIMIT 1),
+                         (SELECT ap.asset_id FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                          WHERE ap.person_id=p.id AND ap.state='suggested' AND a.in_review_bin=0 AND a.media_type='image'
+                          ORDER BY ap.confidence DESC,a.id DESC LIMIT 1)
+                       ) representative_id
                    FROM people p ORDER BY p.name COLLATE NOCASE"""
             ).fetchall()
             people = []
@@ -4093,6 +4125,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 people.append({
                     "id": pid, "name": row["name"],
                     "confirmed_count": row["confirmed_count"],
+                    "representative_id": row["representative_id"],
                     "aliases": aliases, "groups": groups,
                 })
         self.send_json({"people": people})
