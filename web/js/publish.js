@@ -111,7 +111,7 @@ $('publishAll').onclick = async () => {
       details.append(summary);
       const table = document.createElement('table');
       table.className = 'publish-table';
-      table.innerHTML = '<thead><tr><th>File</th><th>Reason</th></tr></thead>';
+      table.innerHTML = '<thead><tr><th>File</th><th>Reason</th><th></th></tr></thead>';
       const tbody = document.createElement('tbody');
       failed.forEach(f => {
         const tr = document.createElement('tr');
@@ -124,7 +124,31 @@ $('publishAll').onclick = async () => {
         pathTd.append(link);
         const reasonTd = document.createElement('td');
         reasonTd.textContent = f.reason;
-        tr.append(pathTd, reasonTd);
+        const actionTd = document.createElement('td');
+        const ext = (f.path.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+        if (['.jpg', '.jpeg', '.heic', '.heif'].includes(ext)) {
+          const btn = document.createElement('button');
+          btn.className = 'repair-btn';
+          btn.textContent = 'Repair';
+          btn.title = 'Re-save through Pillow to fix corrupt/truncated image data (backup created first)';
+          btn.onclick = async () => {
+            btn.disabled = true;
+            btn.textContent = 'Repairing…';
+            try {
+              await api('/api/publish/repair', { path: f.path });
+              btn.textContent = 'Repaired';
+              btn.classList.add('repaired');
+              reasonTd.textContent = 'Repaired — re-publish to write metadata';
+              reasonTd.style.color = 'var(--accent)';
+            } catch (e) {
+              btn.textContent = 'Failed';
+              btn.disabled = false;
+              btn.title = e.message;
+            }
+          };
+          actionTd.append(btn);
+        }
+        tr.append(pathTd, reasonTd, actionTd);
         tbody.append(tr);
       });
       table.append(tbody);

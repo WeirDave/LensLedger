@@ -1056,6 +1056,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.publish_metadata(body)
             if route == "/api/publish/restore":
                 return self.restore_published_metadata(body)
+            if route == "/api/publish/repair":
+                return self.repair_image(body)
             if route == "/api/library/browse":
                 return self.browse_library(body)
             if route == "/api/library/add":
@@ -2937,6 +2939,53 @@ class SearchHandler(BaseHTTPRequestHandler):
             set_source_tags(con, asset_id, "embedded_xmp", extract_xmp_keywords(source))
             rebuild_search_row(con, asset_id)
         self.send_json({"ok": True, "message": "The photo was restored from its safety backup"})
+
+    def repair_image(self, body):
+        rel = body.get("path", "")
+        if not rel:
+            raise ValueError("Missing path")
+        path = (self.library_root / Path(rel)).resolve()
+        path.relative_to(self.library_root)
+        if not path.is_file():
+            raise ValueError("File not found on disk")
+        if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS:
+            raise ValueError("Only publishable file types can be repaired")
+        timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        relative = Path(rel)
+        backup = (BACKUP_ROOT / relative.parent / f"{relative.stem}.before-repair-{timestamp}{relative.suffix}").resolve()
+        backup.relative_to(BACKUP_ROOT.resolve())
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, backup)
+        if backup.stat().st_size != path.stat().st_size:
+            backup.unlink(missing_ok=True)
+            raise ValueError("Could not create a safety backup")
+        try:
+            ImageFile.LOAD_TRUNCATED_IMAGES = True
+            with Image.open(path) as img:
+                original_format = img.format
+                rgb = img.convert("RGB")
+                exif_data = img.info.get("exif", b"")
+                save_kwargs: dict = {"quality": 95}
+                if original_format == "JPEG":
+                    save_kwargs["subsampling"] = "keep"
+                if exif_data:
+                    save_kwargs["exif"] = exif_data
+                rgb.save(str(path), "JPEG", **save_kwargs)
+        except Exception as exc:
+            shutil.copy2(backup, path)
+            raise ValueError(f"Repair failed — original restored: {exc}")
+        stat = path.stat()
+        with self.db() as con:
+            row = con.execute(
+                "SELECT id FROM assets WHERE relative_path=? AND in_review_bin=0", (rel,)
+            ).fetchone()
+            if row:
+                con.execute(
+                    "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+                    (stat.st_size, stat.st_mtime_ns, utc_now(), int(row["id"])),
+                )
+        console_log(f"[Publish] Repaired: {rel} (backup at {backup})")
+        self.send_json({"ok": True, "message": f"Repaired — backup saved", "backup": str(backup)})
 
     def trash_history(self):
         with self.db() as con:

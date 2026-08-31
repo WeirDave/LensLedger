@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.2 — 2026-08-30
+
+- Added built-in JPEG repair for corrupt or truncated images on the Publish page.
+- Repair button appears next to each failed publishable file, re-saves through Pillow to fix common issues (missing EOI marker, PNG-masquerading-as-JPEG).
+- A safety backup is always created before repair; the original is restored if repair fails.
+- Preserves EXIF data and JPEG subsampling settings when possible.
+
 ## 0.92.1 — 2026-08-30
 
 - Widened the Publish page layout from 900px to 1200px max-width to use more screen space.
