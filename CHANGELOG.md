@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.1 — 2026-08-30
+
+- Widened the Publish page layout from 900px to 1200px max-width to use more screen space.
+- Made failed file paths clickable — clicking opens the containing folder in Explorer/Finder.
+- Added responsive styles for mobile screens (smaller padding, font sizes, and logo).
+
 ## 0.92.0 — 2026-08-30
 
 - Redesigned the group manager page with photo cards showing representative thumbnails, circular avatars, group badges, and a check indicator.

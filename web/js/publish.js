@@ -98,22 +98,38 @@ $('publishAll').onclick = async () => {
         + ' of ' + result.total.toLocaleString() + ' photo' + (result.total === 1 ? '' : 's') + '.';
       $('globalProgress').textContent = 'Up to date';
     } else {
-      let html = '<p>Published metadata to ' + result.published.toLocaleString()
-        + ' of ' + result.total.toLocaleString() + ' photo' + (result.total === 1 ? '' : 's') + '.</p>'
-        + '<details class="publish-failures"><summary>' + failed.length
-        + ' photo' + (failed.length === 1 ? '' : 's') + ' failed</summary>'
-        + '<table class="publish-table"><thead><tr><th>File</th><th>Reason</th></tr></thead><tbody>';
+      done.innerHTML = '';
+      const p = document.createElement('p');
+      p.textContent = 'Published metadata to ' + result.published.toLocaleString()
+        + ' of ' + result.total.toLocaleString() + ' photo' + (result.total === 1 ? '' : 's') + '.';
+      done.append(p);
+      const details = document.createElement('details');
+      details.className = 'publish-failures';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = failed.length + ' photo' + (failed.length === 1 ? '' : 's') + ' failed';
+      details.append(summary);
+      const table = document.createElement('table');
+      table.className = 'publish-table';
+      table.innerHTML = '<thead><tr><th>File</th><th>Reason</th></tr></thead>';
+      const tbody = document.createElement('tbody');
       failed.forEach(f => {
-        const pathEl = document.createElement('td');
-        pathEl.textContent = f.path;
-        const reasonEl = document.createElement('td');
-        reasonEl.textContent = f.reason;
         const tr = document.createElement('tr');
-        tr.append(pathEl, reasonEl);
-        html += tr.outerHTML;
+        const pathTd = document.createElement('td');
+        const link = document.createElement('button');
+        link.className = 'reveal-link';
+        link.textContent = f.path;
+        link.title = 'Open containing folder';
+        link.onclick = () => api('/api/reveal-path', { path: f.path }).catch(() => {});
+        pathTd.append(link);
+        const reasonTd = document.createElement('td');
+        reasonTd.textContent = f.reason;
+        tr.append(pathTd, reasonTd);
+        tbody.append(tr);
       });
-      html += '</tbody></table></details>';
-      done.innerHTML = html;
+      table.append(tbody);
+      details.append(table);
+      done.append(details);
       $('globalProgress').textContent = failed.length + ' failed';
     }
   } catch (e) {
