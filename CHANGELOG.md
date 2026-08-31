@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.5 — 2026-08-30
+
+- Changed group membership highlight from background fill to a thick 4px accent border — clean in both themes.
+- Fixed film strip stretching full-width under letter headers; now constrained to natural size.
+- Fixed light mode in-group cards using dark brown background that made text illegible.
+
 ## 0.92.4 — 2026-08-30
 
 - Entire card now highlights when a person belongs to the selected group, making membership instantly visible at a glance.
