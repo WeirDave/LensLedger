@@ -117,15 +117,16 @@ function errorListNode(errors) {
     const msgEl = document.createElement('span');
     msgEl.className = 'msg';
     msgEl.textContent = error;
+    const fileName = displayPath.split(/[\\/]/).pop() || displayPath;
     const copyPathBtn = document.createElement('button');
     copyPathBtn.type = 'button';
     copyPathBtn.className = 'copy-path-btn';
-    copyPathBtn.textContent = 'Copy path';
-    copyPathBtn.title = 'Copy full path to clipboard';
+    copyPathBtn.textContent = 'Copy filename';
+    copyPathBtn.title = 'Copy filename to clipboard (paste into Explorer search after Open folder)';
     copyPathBtn.onclick = () => {
-      navigator.clipboard.writeText(displayPath).then(() => {
+      navigator.clipboard.writeText(fileName).then(() => {
         copyPathBtn.textContent = 'Copied!';
-        setTimeout(() => { copyPathBtn.textContent = 'Copy path'; }, 1500);
+        setTimeout(() => { copyPathBtn.textContent = 'Copy filename'; }, 1500);
       });
     };
     const openBtn = document.createElement('button');

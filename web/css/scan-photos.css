@@ -45,8 +45,7 @@ main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .error-list{display:grid;gap:6px}
 .error-list-wrapper{display:flex;flex-direction:column;gap:12px}
 .error-row{background:var(--scan-detail-bg);border-radius:6px;padding:8px 10px}
-.error-row .path{display:block;color:var(--accent);font-size:12px;word-break:break-all;font-weight:650;text-decoration:none}
-.error-row .path:hover{text-decoration:underline}
+.error-row .path{display:block;color:var(--accent);font-size:12px;word-break:break-all;font-weight:650;user-select:all;cursor:text}
 .error-row .copy-path-btn{display:inline-block;font-size:10px;padding:2px 7px;margin-top:3px;border:1px solid var(--border);border-radius:4px;background:var(--btn-secondary);color:var(--btn-secondary-text);cursor:pointer;vertical-align:middle}
 .error-row .copy-path-btn:hover{background:var(--btn-secondary-hover,var(--border))}
 .error-row .msg{display:block;color:var(--text-secondary);font-size:11px;margin-top:2px;word-break:break-word}

@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.7 — 2026-08-30
+
+- Changed "Copy path" to "Copy filename" in scan error dialogs so the copied text can be pasted into Explorer/Finder search after opening the folder.
+- Removed non-functional link styling from file paths in error dialogs — paths are now plain selectable text.
+
 ## 0.93.6 — 2026-08-30
 
 - Fixed group tag picker: dropdown no longer auto-opens when the Edit Person modal loads.
