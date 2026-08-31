@@ -4171,10 +4171,24 @@ class SearchHandler(BaseHTTPRequestHandler):
                        WHERE pgm.person_id=? ORDER BY pg.name COLLATE NOCASE""",
                     (pid,),
                 )]
+                face_id = None
+                rep_id = row["representative_id"]
+                if rep_id:
+                    fb = con.execute(
+                        """SELECT fe.id
+                           FROM asset_people ap
+                           JOIN face_embeddings fe ON fe.id=ap.face_id
+                           WHERE ap.asset_id=? AND ap.person_id=?
+                             AND fe.box_left IS NOT NULL""",
+                        (rep_id, pid),
+                    ).fetchone()
+                    if fb:
+                        face_id = fb[0]
                 people.append({
                     "id": pid, "name": row["name"],
                     "confirmed_count": row["confirmed_count"],
-                    "representative_id": row["representative_id"],
+                    "representative_id": rep_id,
+                    "face_id": face_id,
                     "aliases": aliases, "groups": groups,
                 })
         self.send_json({"people": people})

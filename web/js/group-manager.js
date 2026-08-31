@@ -156,6 +156,23 @@ function renderPeople(){
       else{selectedPeople.delete(p.id);card.classList.remove('checked')}
       updateActions();
     };
+    var avatar=document.createElement('div');
+    avatar.className='gm-person-avatar';
+    if(p.face_id){
+      var img=document.createElement('img');
+      img.src='/media-face?face_id='+p.face_id;
+      img.alt=p.name;
+      img.loading='lazy';
+      avatar.append(img);
+    }else if(p.representative_id){
+      var img=document.createElement('img');
+      img.src='/media?id='+p.representative_id;
+      img.alt=p.name;
+      img.loading='lazy';
+      avatar.append(img);
+    }else{
+      avatar.textContent='👤';
+    }
     var info=document.createElement('div');
     info.className='gm-person-info';
     var nameEl=document.createElement('div');
@@ -183,7 +200,7 @@ function renderPeople(){
     var indicator=document.createElement('div');
     indicator.className='gm-check-indicator';
     indicator.textContent='✓';
-    card.append(check,info,indicator);
+    card.append(check,avatar,info,indicator);
     grid.append(card);
   });
   updateSelectAll();

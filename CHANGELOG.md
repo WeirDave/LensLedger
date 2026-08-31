@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.1 — 2026-08-30
+
+- Added face-cropped avatar thumbnails to group manager cards using server-side face cropping.
+- Falls back to full photo thumbnail when no face bounding box is available, or a person icon when no photo exists.
+
 ## 0.93.0 — 2026-08-30
 
 - Replaced plain-text groups input in the Edit Person modal with a tag/chip picker that shows existing groups in a dropdown and supports creating new groups inline.
