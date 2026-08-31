@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.8 — 2026-08-30
+
+- Redesigned the About LensLedger dialog with a centered logo, polished visual hierarchy, version pill, styled library path card, and project links as individual hoverable cards instead of a plain bullet list.
+
 ## 0.93.7 — 2026-08-30
 
 - Changed "Copy path" to "Copy filename" in scan error dialogs so the copied text can be pasted into Explorer/Finder search after opening the folder.
