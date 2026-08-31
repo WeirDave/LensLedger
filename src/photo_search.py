@@ -4301,92 +4301,102 @@ class SearchHandler(BaseHTTPRequestHandler):
             if alias and key not in seen:
                 aliases.append(alias); seen.add(key)
 
-        published = []
-        try:
-            with self.db() as con:
-                person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
-                if not person:
-                    raise ValueError("person is no longer available")
-                old_name = str(person["name"])
-                primary_conflict = con.execute(
-                    "SELECT id FROM people WHERE name=? COLLATE NOCASE AND id<>?",
-                    (primary_name, person_id),
+        assets_to_publish: list[int] = []
+        with self.db() as con:
+            person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
+            if not person:
+                raise ValueError("person is no longer available")
+            old_name = str(person["name"])
+            primary_conflict = con.execute(
+                "SELECT id FROM people WHERE name=? COLLATE NOCASE AND id<>?",
+                (primary_name, person_id),
+            ).fetchone()
+            primary_alias_conflict = con.execute(
+                "SELECT person_id FROM person_aliases WHERE alias=? COLLATE NOCASE AND person_id<>?",
+                (primary_name, person_id),
+            ).fetchone()
+            if primary_conflict or primary_alias_conflict:
+                raise ValueError(f"“{primary_name}” already belongs to another person")
+            for alias in aliases:
+                name_conflict = con.execute(
+                    "SELECT id FROM people WHERE name=? COLLATE NOCASE AND id<>?", (alias, person_id)
                 ).fetchone()
-                primary_alias_conflict = con.execute(
+                alias_conflict = con.execute(
                     "SELECT person_id FROM person_aliases WHERE alias=? COLLATE NOCASE AND person_id<>?",
-                    (primary_name, person_id),
+                    (alias, person_id),
                 ).fetchone()
-                if primary_conflict or primary_alias_conflict:
-                    raise ValueError(f"“{primary_name}” already belongs to another person")
-                for alias in aliases:
-                    name_conflict = con.execute(
-                        "SELECT id FROM people WHERE name=? COLLATE NOCASE AND id<>?", (alias, person_id)
-                    ).fetchone()
-                    alias_conflict = con.execute(
-                        "SELECT person_id FROM person_aliases WHERE alias=? COLLATE NOCASE AND person_id<>?",
-                        (alias, person_id),
-                    ).fetchone()
-                    if name_conflict or alias_conflict:
-                        raise ValueError(f"“{alias}” already belongs to another person")
+                if name_conflict or alias_conflict:
+                    raise ValueError(f"“{alias}” already belongs to another person")
 
-                affected = con.execute(
-                    """SELECT DISTINCT a.id,a.relative_path FROM asset_people ap
-                       JOIN assets a ON a.id=ap.asset_id
-                       WHERE ap.person_id=? AND ap.state='confirmed'""",
-                    (person_id,),
-                ).fetchall()
-                embedded_old_assets: set[int] = set()
-                if old_name.casefold() != primary_name.casefold():
-                    embedded_old_assets = {
-                        int(row[0]) for row in con.execute(
-                            """SELECT at.asset_id FROM asset_tags at JOIN tags t ON t.id=at.tag_id
-                               WHERE at.asset_id IN (
-                                   SELECT asset_id FROM asset_people WHERE person_id=? AND state='confirmed'
-                               ) AND at.source='embedded_xmp' AND t.name=? COLLATE NOCASE""",
-                            (person_id, old_name),
-                        )
-                    }
-
-                con.execute("DELETE FROM person_aliases WHERE person_id=?", (person_id,))
-                con.execute("UPDATE people SET name=? WHERE id=?", (primary_name, person_id))
-                con.executemany(
-                    "INSERT INTO person_aliases(person_id,alias) VALUES (?,?)",
-                    [(person_id, alias) for alias in aliases],
-                )
-                name_changed = old_name != primary_name
-                for asset in affected:
-                    asset_id = int(asset["id"])
-                    if asset_id in embedded_old_assets:
-                        con.execute(
-                            "INSERT OR IGNORE INTO asset_tag_exclusions(relative_path,tag) VALUES (?,?)",
-                            (asset["relative_path"], old_name),
-                        )
-                    sync_person_tags(con, asset_id)
-                    rebuild_search_row(con, asset_id)
-                    if name_changed:
-                        published.append(self._publish_people_metadata(
-                            con, asset_id, [old_name], operation="people-rename"
-                        ))
-                if old_name.casefold() != primary_name.casefold():
-                    con.execute(
-                        """DELETE FROM tags WHERE name=? COLLATE NOCASE AND NOT EXISTS (
-                               SELECT 1 FROM asset_tags at WHERE at.tag_id=tags.id
-                           )""",
-                        (old_name,),
+            affected = con.execute(
+                """SELECT DISTINCT a.id,a.relative_path FROM asset_people ap
+                   JOIN assets a ON a.id=ap.asset_id
+                   WHERE ap.person_id=? AND ap.state='confirmed'""",
+                (person_id,),
+            ).fetchall()
+            embedded_old_assets: set[int] = set()
+            if old_name.casefold() != primary_name.casefold():
+                embedded_old_assets = {
+                    int(row[0]) for row in con.execute(
+                        """SELECT at.asset_id FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+                           WHERE at.asset_id IN (
+                               SELECT asset_id FROM asset_people WHERE person_id=? AND state='confirmed'
+                           ) AND at.source='embedded_xmp' AND t.name=? COLLATE NOCASE""",
+                        (person_id, old_name),
                     )
-        except Exception:
-            self._restore_people_batch(published)
-            raise
+                }
+
+            con.execute("DELETE FROM person_aliases WHERE person_id=?", (person_id,))
+            con.execute("UPDATE people SET name=? WHERE id=?", (primary_name, person_id))
+            con.executemany(
+                "INSERT INTO person_aliases(person_id,alias) VALUES (?,?)",
+                [(person_id, alias) for alias in aliases],
+            )
+            name_changed = old_name != primary_name
+            for asset in affected:
+                asset_id = int(asset["id"])
+                if asset_id in embedded_old_assets:
+                    con.execute(
+                        "INSERT OR IGNORE INTO asset_tag_exclusions(relative_path,tag) VALUES (?,?)",
+                        (asset["relative_path"], old_name),
+                    )
+                sync_person_tags(con, asset_id)
+                rebuild_search_row(con, asset_id)
+                if name_changed:
+                    assets_to_publish.append(asset_id)
+            if old_name.casefold() != primary_name.casefold():
+                con.execute(
+                    """DELETE FROM tags WHERE name=? COLLATE NOCASE AND NOT EXISTS (
+                           SELECT 1 FROM asset_tags at WHERE at.tag_id=tags.id
+                       )""",
+                    (old_name,),
+                )
         if old_name != primary_name:
-            console_log(f'[People] Renamed "{old_name}" → "{primary_name}", updated {len(affected)} photo(s), published {len(published)}')
+            console_log(f'[People] Renamed "{old_name}" → "{primary_name}", updated {len(affected)} photo(s), publishing {len(assets_to_publish)} in background')
         if aliases:
             console_log(f'[People] Aliases for "{primary_name}": {", ".join(aliases)}')
         elif old_name == primary_name:
             console_log(f'[People] Updated aliases for "{primary_name}"')
         self.send_json({
             "ok": True, "name": primary_name, "aliases": aliases,
-            "updated_photos": len(affected), "published": len(published),
+            "updated_photos": len(affected), "published": len(assets_to_publish),
         })
+        if assets_to_publish:
+            handler = self
+            def publish_worker():
+                published = []
+                try:
+                    with handler.db() as bg_con:
+                        for aid in assets_to_publish:
+                            published.append(handler._publish_people_metadata(
+                                bg_con, aid, [old_name], operation="people-rename"
+                            ))
+                    published = [p for p in published if p]
+                    console_log(f'[People] Background publish complete for "{primary_name}": {len(published)} file(s) updated')
+                except Exception as exc:
+                    handler._restore_people_batch([p for p in published if p])
+                    console_log(f'[People] Background publish failed for "{primary_name}": {exc}')
+            threading.Thread(target=publish_worker, name="LensLedger-people-rename-publish", daemon=True).start()
 
     @classmethod
     def _assert_catalog_idle_for_people_merge(cls) -> None:

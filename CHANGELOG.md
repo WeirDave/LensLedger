@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.4 — 2026-08-30
+
+- Renaming a person with many confirmed photos no longer freezes the GUI — JPEG metadata publishing now runs in the background.
+
 ## 0.93.3 — 2026-08-30
 
 - Fixed polaroid avatars overflowing card boundaries by removing the rotation transform.
