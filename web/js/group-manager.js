@@ -145,8 +145,9 @@ function renderPeople(){
       header.append(charSpan,strip);
       grid.append(header);
     }
+    var inGroup=selectedGroupName&&p.groups&&p.groups.indexOf(selectedGroupName)!==-1;
     var card=document.createElement('label');
-    card.className='gm-person-card'+(selectedPeople.has(p.id)?' checked':'');
+    card.className='gm-person-card'+(selectedPeople.has(p.id)?' checked':'')+(inGroup?' in-group':'');
     var check=document.createElement('input');
     check.type='checkbox';
     check.checked=selectedPeople.has(p.id);
@@ -155,17 +156,6 @@ function renderPeople(){
       else{selectedPeople.delete(p.id);card.classList.remove('checked')}
       updateActions();
     };
-    var avatar=document.createElement('div');
-    avatar.className='gm-person-avatar';
-    if(p.representative_id){
-      var img=document.createElement('img');
-      img.src='/media?id='+p.representative_id;
-      img.alt=p.name;
-      img.loading='lazy';
-      avatar.append(img);
-    }else{
-      avatar.textContent='👤';
-    }
     var info=document.createElement('div');
     info.className='gm-person-info';
     var nameEl=document.createElement('div');
@@ -173,13 +163,12 @@ function renderPeople(){
     nameEl.textContent=p.name;
     nameEl.title=p.name;
     info.append(nameEl);
-    var meta=document.createElement('div');
-    meta.className='gm-person-meta';
-    meta.textContent=p.confirmed_count+' photo'+(p.confirmed_count!==1?'s':'');
     if(p.aliases&&p.aliases.length){
-      meta.textContent+=' · aka '+p.aliases.join(', ');
+      var meta=document.createElement('div');
+      meta.className='gm-person-meta';
+      meta.textContent='aka '+p.aliases.join(', ');
+      info.append(meta);
     }
-    info.append(meta);
     if(p.groups&&p.groups.length){
       var badges=document.createElement('div');
       badges.className='gm-person-badges';
@@ -194,7 +183,7 @@ function renderPeople(){
     var indicator=document.createElement('div');
     indicator.className='gm-check-indicator';
     indicator.textContent='✓';
-    card.append(check,avatar,info,indicator);
+    card.append(check,info,indicator);
     grid.append(card);
   });
   updateSelectAll();

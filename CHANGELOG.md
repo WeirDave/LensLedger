@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.4 — 2026-08-30
+
+- Entire card now highlights when a person belongs to the selected group, making membership instantly visible at a glance.
+- Removed avatar thumbnails from group manager cards — at 48px most photos were illegible as identifiers.
+- Removed photo count from cards — irrelevant to group management.
+- Moved film strip separator below the letter heading instead of beside it.
+
 ## 0.92.3 — 2026-08-30
 
 - Added tooltips to truncated person names and group names on the group manager page so hovering reveals the full text.
