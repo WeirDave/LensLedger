@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.2 — 2026-08-30
+
+- Styled avatar thumbnails as polaroid-style frames with white border, thicker at the bottom, and a subtle tilt.
+- Fixed inconsistent avatar sizes by enforcing a fixed 36x36 image area inside each frame.
+
 ## 0.93.1 — 2026-08-30
 
 - Added face-cropped avatar thumbnails to group manager cards using server-side face cropping.
