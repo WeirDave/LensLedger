@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.3 — 2026-08-30
+
+- Added tooltips to truncated person names and group names on the group manager page so hovering reveals the full text.
+
 ## 0.92.2 — 2026-08-30
 
 - Added built-in JPEG repair for corrupt or truncated images on the Publish page.

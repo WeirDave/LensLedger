@@ -47,6 +47,7 @@ function renderGroups(){
     var nameSpan=document.createElement('span');
     nameSpan.className='gm-group-name';
     nameSpan.textContent=g.name;
+    nameSpan.title=g.name;
     var countSpan=document.createElement('span');
     countSpan.className='gm-count';
     countSpan.textContent=g.member_count;
@@ -170,6 +171,7 @@ function renderPeople(){
     var nameEl=document.createElement('div');
     nameEl.className='gm-person-name';
     nameEl.textContent=p.name;
+    nameEl.title=p.name;
     info.append(nameEl);
     var meta=document.createElement('div');
     meta.className='gm-person-meta';
