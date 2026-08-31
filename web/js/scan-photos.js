@@ -111,16 +111,17 @@ function errorListNode(errors) {
     const row = document.createElement('div');
     row.className = 'error-row';
     const displayPath = full_path || path;
-    const pathEl = document.createElement('span');
-    pathEl.className = 'path';
-    pathEl.textContent = displayPath;
-    const msgEl = document.createElement('span');
-    msgEl.className = 'msg';
-    msgEl.textContent = error;
     const fileName = displayPath.split(/[\\/]/).pop() || displayPath;
+
+    const pathEl = document.createElement('div');
+    pathEl.className = 'error-path';
+    pathEl.textContent = displayPath;
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'error-toolbar';
     const copyPathBtn = document.createElement('button');
     copyPathBtn.type = 'button';
-    copyPathBtn.className = 'copy-path-btn';
+    copyPathBtn.className = 'error-btn';
     copyPathBtn.textContent = 'Copy filename';
     copyPathBtn.title = 'Copy filename to clipboard (paste into Explorer search after Open folder)';
     copyPathBtn.onclick = () => {
@@ -131,16 +132,22 @@ function errorListNode(errors) {
     };
     const openBtn = document.createElement('button');
     openBtn.type = 'button';
-    openBtn.className = 'copy-path-btn';
+    openBtn.className = 'error-btn';
     openBtn.textContent = 'Open folder';
     openBtn.title = 'Open the containing folder';
     openBtn.onclick = () => {
       api('/api/reveal-path', { path }).catch(() => {});
     };
-    row.append(pathEl, copyPathBtn, openBtn, msgEl);
+    toolbar.append(copyPathBtn, openBtn);
+
+    const msgEl = document.createElement('pre');
+    msgEl.className = 'error-detail';
+    msgEl.textContent = error;
+
     const hint = explainError(error);
+    row.append(pathEl, toolbar, msgEl);
     if (hint) {
-      const hintEl = document.createElement('span');
+      const hintEl = document.createElement('div');
       hintEl.className = 'error-hint';
       hintEl.textContent = hint;
       row.append(hintEl);
