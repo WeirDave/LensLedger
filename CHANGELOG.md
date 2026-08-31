@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.0 — 2026-08-30
+
+- Replaced plain-text groups input in the Edit Person modal with a tag/chip picker that shows existing groups in a dropdown and supports creating new groups inline.
+
 ## 0.92.6 — 2026-08-30
 
 - Changed group sidebar icon from megaphone to people silhouette emoji (👥).
