@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.3 — 2026-08-30
+
+- Fixed polaroid avatars overflowing card boundaries by removing the rotation transform.
+
 ## 0.93.2 — 2026-08-30
 
 - Styled avatar thumbnails as polaroid-style frames with white border, thicker at the bottom, and a subtle tilt.

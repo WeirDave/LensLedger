@@ -55,7 +55,7 @@ body{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;height:1
 .gm-person-card.in-group{border:4px solid var(--accent)}
 .gm-person-card.in-group.checked{border-color:var(--accent);background:var(--badge-bg)}
 .gm-person-card input[type="checkbox"]{position:absolute;opacity:0;width:0;height:0}
-.gm-person-avatar{width:42px;flex-shrink:0;background:#fff;padding:3px 3px 9px;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-secondary);transform:rotate(-2deg)}
+.gm-person-avatar{width:42px;flex-shrink:0;background:#fff;padding:3px 3px 9px;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-secondary)}
 .gm-person-avatar img{width:36px;height:36px;object-fit:cover;display:block}
 .gm-person-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .gm-person-name{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
