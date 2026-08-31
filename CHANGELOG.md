@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.6 — 2026-08-30
+
+- Fixed group tag picker: dropdown no longer auto-opens when the Edit Person modal loads.
+- Added full keyboard navigation to the group picker — ArrowDown/Up to navigate, Enter to select, Escape to close dropdown without closing the modal, Backspace to remove the last tag, Tab to move on.
+- Fixed Escape key conflict so pressing Escape with the dropdown open closes only the dropdown, not the entire modal.
+
 ## 0.93.5 — 2026-08-30
 
 - Fixed polaroid avatar images overflowing their frames by adding explicit height and overflow clipping.
