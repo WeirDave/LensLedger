@@ -43,7 +43,7 @@ function renderGroups(){
     item.className='gm-group-item'+(selectedGroupName===g.name?' selected':'');
     var icon=document.createElement('div');
     icon.className='gm-group-icon';
-    icon.textContent='📢';
+    icon.textContent='👥';
     var nameSpan=document.createElement('span');
     nameSpan.className='gm-group-name';
     nameSpan.textContent=g.name;
@@ -73,7 +73,7 @@ function renderGroups(){
   if(!groups.length){
     var empty=document.createElement('div');
     empty.className='gm-empty';
-    empty.innerHTML='<div class="gm-empty-icon">📢</div><div class="gm-empty-text">No groups yet.<br>Create one above to get started.</div>';
+    empty.innerHTML='<div class="gm-empty-icon">👥</div><div class="gm-empty-text">No groups yet.<br>Create one above to get started.</div>';
     list.append(empty);
   }
 }

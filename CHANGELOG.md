@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.92.6 — 2026-08-30
+
+- Changed group sidebar icon from megaphone to people silhouette emoji (👥).
+
 ## 0.92.5 — 2026-08-30
 
 - Changed group membership highlight from background fill to a thick 4px accent border — clean in both themes.
