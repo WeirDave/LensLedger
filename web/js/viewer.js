@@ -516,4 +516,5 @@ function checkServerVersion(){
     document.body.prepend(b);
   }).catch(()=>{});
 }
-checkServerVersion();setInterval(checkServerVersion,30000)
+checkServerVersion();setInterval(checkServerVersion,30000);
+{const _p=new URLSearchParams(location.search).get('panel');if(_p)openMenuPanel(_p)}

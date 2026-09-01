@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.93.10 — 2026-08-31
+
+- Fixed "Check for updates" menu item not opening the update panel — the URL parameter was never read on page load.
+
 ## 0.93.9 — 2026-08-30
 
 - Redesigned scan error dialogs: file paths as selectable header text, buttons in a clean toolbar with proper padding, raw error messages in a monospace code box, and hints as styled callouts.
