@@ -304,5 +304,104 @@ class UpdaterTests(unittest.TestCase):
         mocked_close.assert_not_called()
 
 
+def _git(args, cwd):
+    import subprocess
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+
+
+def _write_version(root: Path, version: str) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "product.py").write_text(
+        f'APP_VERSION = "{version}"\n', encoding="utf-8")
+
+
+@unittest.skipUnless(updater.git_available(), "git is not installed")
+class GitUpdateTests(unittest.TestCase):
+    """A source checkout can now update itself. It could not before, which made
+    a git install the one shape with no in-app update path."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        base = Path(self.temp.name)
+        self.origin = base / "origin"
+        self.origin.mkdir()
+        _git(["init", "--bare", "--initial-branch=main"], self.origin)
+
+        seed = base / "seed"
+        _write_version(seed, "0.9.0")
+        _git(["init", "--initial-branch=main"], seed)
+        _git(["add", "-A"], seed)
+        _git(["-c", "user.email=t@t", "-c", "user.name=T", "commit", "-m", "v0.9.0"], seed)
+        _git(["tag", "v0.9.0"], seed)
+        _write_version(seed, "0.9.1")
+        _git(["add", "-A"], seed)
+        _git(["-c", "user.email=t@t", "-c", "user.name=T", "commit", "-m", "v0.9.1"], seed)
+        _git(["tag", "v0.9.1"], seed)
+        _git(["remote", "add", "origin", str(self.origin)], seed)
+        _git(["push", "--quiet", "origin", "main", "--tags"], seed)
+
+        self.clone = base / "clone"
+        _git(["clone", "--quiet", str(self.origin), str(self.clone)], base)
+        _git(["-c", "advice.detachedHead=false", "checkout", "v0.9.0"], self.clone)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_updates_to_the_newest_release_tag(self):
+        result = updater.git_update(self.clone)
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["previous_version"], "0.9.0")
+        self.assertEqual(result["new_version"], "0.9.1")
+        self.assertEqual(result["target"], "v0.9.1")
+        self.assertEqual(updater.read_tree_version(self.clone), "0.9.1")
+
+    def test_already_current_does_not_check_anything_out(self):
+        updater.git_update(self.clone)
+        head_before = _git(["rev-parse", "HEAD"], self.clone).stdout.strip()
+        result = updater.git_update(self.clone)
+        self.assertFalse(result["changed"])
+        self.assertEqual(_git(["rev-parse", "HEAD"], self.clone).stdout.strip(), head_before)
+
+    def test_tags_are_ordered_by_version_not_text(self):
+        _git(["tag", "v0.9.10"], self.clone)
+        _git(["tag", "v0.9.9"], self.clone)
+        self.assertEqual(updater._latest_release_tag(self.clone), "v0.9.10")
+
+    def test_refuses_when_tracked_files_are_edited(self):
+        (self.clone / "src" / "product.py").write_text('APP_VERSION = "9.9.9"\n',
+                                                       encoding="utf-8")
+        with self.assertRaises(updater.UpdateError) as ctx:
+            updater.git_update(self.clone)
+        self.assertIn("local", str(ctx.exception).lower())
+
+    def test_untracked_files_do_not_block_an_update(self):
+        (self.clone / "notes.txt").write_text("mine", encoding="utf-8")
+        result = updater.git_update(self.clone)
+        self.assertTrue(result["changed"])
+        self.assertTrue((self.clone / "notes.txt").is_file(), "must be left alone")
+
+    def test_refuses_a_working_copy_with_unpushed_commits(self):
+        _git(["checkout", "main"], self.clone)
+        (self.clone / "extra.txt").write_text("wip", encoding="utf-8")
+        _git(["add", "-A"], self.clone)
+        _git(["-c", "user.email=t@t", "-c", "user.name=T", "commit", "-m", "wip"], self.clone)
+        self.assertTrue(updater.is_dev_checkout(self.clone))
+        with self.assertRaises(updater.UpdateError):
+            updater.git_update(self.clone)
+
+    def test_a_detached_release_checkout_is_not_a_dev_checkout(self):
+        self.assertFalse(updater.is_dev_checkout(self.clone))
+
+    def test_a_clean_branch_clone_is_not_a_dev_checkout(self):
+        _git(["checkout", "main"], self.clone)
+        self.assertFalse(updater.is_dev_checkout(self.clone))
+
+    def test_refuses_a_directory_that_is_not_a_checkout(self):
+        plain = Path(self.temp.name) / "plain"
+        _write_version(plain, "0.9.0")
+        with self.assertRaises(updater.UpdateError):
+            updater.git_update(plain)
+
+
 if __name__ == "__main__":
     unittest.main()

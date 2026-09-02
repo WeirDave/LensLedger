@@ -48,7 +48,10 @@ from ingest_pipeline import IngestPipeline
 from settings_config import (
     AVAILABLE_MODELS, get_setting, load_settings, save_settings,
 )
-from lensledger_updater import check_for_update, is_managed_install, managed_install_root, updates_root
+from lensledger_updater import (check_for_update, is_managed_install, managed_install_root,
+                                updates_root, git_available, git_update, is_dev_checkout,
+                                is_git_install,
+                                UpdateError)
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
     SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
@@ -4764,7 +4767,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).update_lock:
             job = dict(type(self).update_job)
         install_root = Path(__file__).parent.parent.resolve()
-        source_checkout = (install_root / ".git").exists()
+        source_checkout = is_git_install(install_root)
         on_disk_version = _on_disk_app_version(install_root) if source_checkout else None
         job.update({
             "current_version": APP_VERSION,
@@ -4779,6 +4782,15 @@ class SearchHandler(BaseHTTPRequestHandler):
             # panel tell "you're behind the on-disk code" apart from "you're behind
             # the latest GitHub release" and offer a plain restart for the former.
             "restart_ready": bool(source_checkout and on_disk_version and on_disk_version != APP_VERSION),
+            # A source checkout used to be a dead end -- the panel could only
+            # tell the user to run `git pull` themselves. It can now fetch and
+            # check out the newest release tag in place, except on a working
+            # copy with unpushed commits or edited files, which must be left
+            # for its owner to handle with git directly.
+            "git_available": git_available(),
+            "can_git_update": bool(
+                source_checkout and git_available() and not is_dev_checkout(install_root)
+            ),
         })
         self.send_json(job)
 
@@ -4813,6 +4825,67 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def install_update(self, _body):
         install_root = Path(__file__).parent.parent.resolve()
+
+        # A git checkout updates by fetching and checking out the newest release
+        # tag. That is quick enough to do inline, and it reuses restart-source
+        # for the reload rather than the managed install's helper handoff.
+        if is_git_install(install_root):
+            if not git_available():
+                raise ValueError(
+                    "This copy is a git checkout, but git is not installed or not on PATH. "
+                    "Install git, or run Install LensLedger.cmd once to create a managed copy."
+                )
+            try:
+                result = git_update(install_root)
+            except UpdateError as exc:
+                with type(self).update_lock:
+                    type(self).update_job = {
+                        "state": "error",
+                        "message": str(exc),
+                        "current_version": APP_VERSION,
+                        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    }
+                raise ValueError(str(exc)) from exc
+
+            if not result.get("changed"):
+                with type(self).update_lock:
+                    type(self).update_job = {
+                        "state": "current",
+                        "message": f"LensLedger {APP_VERSION} is up to date.",
+                        "current_version": APP_VERSION,
+                        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    }
+                self.send_json({
+                    "ok": True,
+                    "state": "current",
+                    "message": f"Already on the newest release ({result.get('new_version')}).",
+                })
+                return
+
+            with type(self).update_lock:
+                type(self).update_job = {
+                    "state": "restarting",
+                    "message": (f"Updated to LensLedger {result.get('new_version')}. "
+                                "Restarting…"),
+                    "current_version": APP_VERSION,
+                }
+            self._spawn_updater_helper([
+                "restart-source",
+                "--current-root", str(install_root),
+                "--wait-pid", str(os.getpid()),
+                "--old-window-pid", str(os.getppid()),
+            ])
+            self._schedule_shutdown()
+            self.send_json({
+                "ok": True,
+                "state": "restarting",
+                "previous_version": result.get("previous_version"),
+                "new_version": result.get("new_version"),
+                "message": (f"Updated {result.get('previous_version')} -> "
+                            f"{result.get('new_version')}. LensLedger will reopen automatically."),
+            }, 202)
+            return
+
         if not is_managed_install(install_root):
             raise ValueError(
                 "This copy is not a managed installation, so it cannot update itself. "

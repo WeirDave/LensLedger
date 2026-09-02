@@ -211,6 +211,151 @@ def check_for_update(current_version: str, token: str | None = None) -> dict[str
     }
 
 
+# ---------------------------------------------------------------- git path --
+# A checkout installed with `git clone` can update itself by fetching and
+# checking out the newest release tag, which is far cheaper than downloading and
+# swapping a whole tree. Before this existed, a source checkout was told to run
+# `git pull` by hand — the one install shape that could not update itself.
+#
+# The managed-install path below is untouched: it stays the ZIP mechanism, with
+# its staging, verification and rollback. This only fills the source-checkout
+# gap. FORBIDDEN_ROOT_NAMES already refuses to let a ZIP install stomp a .git
+# directory, so the two mechanisms cannot collide.
+
+GIT_TIMEOUT = 120
+TAG_PATTERN = re.compile(r"^v[0-9]+(?:\.[0-9]+)+$")
+
+
+def _run_git(args: list[str], cwd: Path, check: bool = True):
+    try:
+        proc = subprocess.run(
+            ["git", *args], cwd=str(cwd), capture_output=True, text=True,
+            timeout=GIT_TIMEOUT, creationflags=_creation_flags(),
+        )
+    except FileNotFoundError:
+        raise UpdateError("Git is not installed or not on PATH.")
+    except subprocess.TimeoutExpired:
+        raise UpdateError(f"git {' '.join(args)} timed out.")
+    if check and proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        raise UpdateError(
+            f"git {' '.join(args)} failed: {detail[-1] if detail else 'unknown error'}"
+        )
+    return proc
+
+
+def git_available() -> bool:
+    try:
+        subprocess.run(["git", "--version"], capture_output=True, timeout=10,
+                       creationflags=_creation_flags())
+        return True
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def is_git_install(root: Path) -> bool:
+    return (root / ".git").exists()
+
+
+def _latest_release_tag(root: Path) -> str | None:
+    """Newest release tag known locally, by version order (not commit date)."""
+    tags = [
+        line.strip()
+        for line in _run_git(["tag", "--list", "v*"], root).stdout.splitlines()
+        if TAG_PATTERN.match(line.strip())
+    ]
+    return max(tags, key=version_tuple) if tags else None
+
+
+def _dirty_paths(root: Path) -> list[str]:
+    out = []
+    for line in _run_git(["status", "--porcelain"], root).stdout.splitlines():
+        if not line.strip():
+            continue
+        status, path = line[:2], line[3:]
+        if status.strip() == "??":
+            continue  # untracked files never block a checkout
+        out.append(path.strip().strip('"'))
+    return out
+
+
+def is_dev_checkout(root: Path) -> bool:
+    """True for a working copy with work in progress, which must not be updated.
+
+    Deliberately not based on which files are present — a user who installs by
+    cloning gets tests/ and .github/ too. Installing leaves HEAD detached at a
+    release tag, so a detached HEAD is always a plain install; an attached
+    branch only counts as a dev checkout when there is something to lose.
+    """
+    if not is_git_install(root):
+        return False
+    head = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], root, check=False)
+    ref = (head.stdout or "").strip()
+    if head.returncode != 0 or not ref or ref == "HEAD":
+        return False
+    ahead = _run_git(["rev-list", "--count", "@{u}..HEAD"], root, check=False)
+    count = (ahead.stdout or "").strip()
+    if ahead.returncode == 0 and count.isdigit() and int(count) > 0:
+        return True
+    try:
+        return bool(_dirty_paths(root))
+    except UpdateError:
+        return False
+
+
+def git_update(root: Path, log: Callable[[str], None] | None = None) -> dict[str, object]:
+    """Fetch and check out the newest release tag in an existing checkout."""
+    say = log or (lambda message: None)
+    root = root.resolve()
+    if not is_git_install(root):
+        raise UpdateError("This copy is not a git checkout.")
+    if not git_available():
+        raise UpdateError("Git is not installed or not on PATH.")
+    if is_dev_checkout(root):
+        raise UpdateError(
+            "This checkout has local work — unpushed commits or edited files. "
+            "Updating would check a release tag out over it. Use git directly."
+        )
+
+    before = read_tree_version(root)
+    dirty = _dirty_paths(root)
+    if dirty:
+        listed = ", ".join(dirty[:5]) + ("…" if len(dirty) > 5 else "")
+        raise UpdateError(
+            f"This copy has local edits that an update would overwrite: {listed}. "
+            "Revert or move them, then try again."
+        )
+
+    say("Fetching from GitHub…")
+    _run_git(["fetch", "--tags", "--prune", "origin"], root)
+    tag = _latest_release_tag(root)
+    if not tag:
+        raise UpdateError("No release tags found on the remote.")
+
+    # Nothing newer: return without checking anything out. Skipping this would
+    # detach HEAD from a branch to land on the commit it already points at,
+    # which changes nothing but looks alarming in an otherwise healthy clone.
+    if version_tuple(tag) <= version_tuple(before):
+        say(f"Already on the newest release ({before}).")
+        return {
+            "ok": True, "mode": "git", "previous_version": before,
+            "new_version": before, "target": tag, "changed": False,
+        }
+
+    say(f"Checking out {tag}…")
+    _run_git(["-c", "advice.detachedHead=false", "checkout", "--force", tag], root)
+    after = read_tree_version(root)
+    say(f"Now on {after}.")
+    return {
+        "ok": True,
+        "mode": "git",
+        "previous_version": before,
+        "new_version": after,
+        "target": tag,
+        "changed": version_tuple(after) != version_tuple(before),
+    }
+
+
 def _download_release(release: ReleaseInfo, destination: Path, token: str,
                       progress: Callable[[int, int], None] | None = None) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)

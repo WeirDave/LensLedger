@@ -232,12 +232,57 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertFalse(status["available"])
         self.assertIn("managed_install_root", status)
 
-    def test_install_update_is_refused_for_an_unmanaged_source_checkout(self):
-        with self.assertRaises(urllib.error.HTTPError) as rejected:
-            self.post("/api/update/install", {})
+    def test_install_update_is_refused_for_an_unmanaged_non_git_copy(self):
+        """An extracted download with no .git still has nothing it can do."""
+        with patch.object(self.photo_search, "is_git_install", return_value=False):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/update/install", {})
         self.assertEqual(rejected.exception.code, 400)
         body = json.loads(rejected.exception.read().decode("utf-8"))
         self.assertIn("not a managed installation", body["error"])
+        rejected.exception.close()
+
+    def test_install_update_uses_git_for_a_source_checkout(self):
+        """A source checkout used to be a dead end. It now fetches and checks
+        out the newest release tag instead of telling the user to run git."""
+        result = {"ok": True, "mode": "git", "previous_version": "0.9.0",
+                  "new_version": "0.9.1", "target": "v0.9.1", "changed": True}
+        with patch.object(self.photo_search, "is_git_install", return_value=True),              patch.object(self.photo_search, "git_available", return_value=True),              patch.object(self.photo_search, "git_update", return_value=result),              patch.object(self.photo_search.SearchHandler, "_spawn_updater_helper",
+                          lambda self, extra_args: None),              patch.object(self.photo_search.SearchHandler, "_schedule_shutdown",
+                          lambda self: None):
+            body = self.json_response(self.post("/api/update/install", {}))
+        self.assertEqual(body["state"], "restarting")
+        self.assertEqual(body["new_version"], "0.9.1")
+
+    def test_install_update_reports_already_current_without_restarting(self):
+        result = {"ok": True, "mode": "git", "previous_version": "0.9.1",
+                  "new_version": "0.9.1", "target": "v0.9.1", "changed": False}
+        spawned = []
+        with patch.object(self.photo_search, "is_git_install", return_value=True),              patch.object(self.photo_search, "git_available", return_value=True),              patch.object(self.photo_search, "git_update", return_value=result),              patch.object(self.photo_search.SearchHandler, "_spawn_updater_helper",
+                          lambda self, extra_args: spawned.append(extra_args)):
+            body = self.json_response(self.post("/api/update/install", {}))
+        self.assertEqual(body["state"], "current")
+        self.assertEqual(spawned, [], "nothing to install means nothing to restart")
+
+    def test_install_update_surfaces_a_git_refusal_to_the_user(self):
+        """A dirty or in-progress checkout must fail loudly, not silently reset."""
+        with patch.object(self.photo_search, "is_git_install", return_value=True),              patch.object(self.photo_search, "git_available", return_value=True),              patch.object(self.photo_search, "git_update",
+                          side_effect=self.photo_search.UpdateError(
+                              "This checkout has local work")):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/update/install", {})
+        self.assertEqual(rejected.exception.code, 400)
+        body = json.loads(rejected.exception.read().decode("utf-8"))
+        self.assertIn("local work", body["error"])
+        rejected.exception.close()
+
+    def test_install_update_requires_git_to_be_installed(self):
+        with patch.object(self.photo_search, "is_git_install", return_value=True),              patch.object(self.photo_search, "git_available", return_value=False):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/update/install", {})
+        self.assertEqual(rejected.exception.code, 400)
+        body = json.loads(rejected.exception.read().decode("utf-8"))
+        self.assertIn("git is not installed", body["error"].lower())
         rejected.exception.close()
 
     def test_update_status_reports_restart_ready_when_running_process_is_stale(self):

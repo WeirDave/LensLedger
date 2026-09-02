@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.94.0 — 2026-09-01
+
+- A source checkout can now update itself from the update panel. Previously it could only tell you to run `git pull` by hand, which made a git install the one shape with no in-app update path.
+- Updating a checkout fetches and checks out the newest release tag, then restarts — no download or tree swap.
+- A checkout with unpushed commits or edited files is refused with an explanation, so in-progress work is never checked out from under you.
+- Files you added yourself are left alone; only tracked files are touched.
+
 ## 0.93.10 — 2026-08-31
 
 - Fixed "Check for updates" menu item not opening the update panel — the URL parameter was never read on page load.
