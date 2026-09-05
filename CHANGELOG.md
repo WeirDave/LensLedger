@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.94.2 — 2026-09-05
+
+- Added GitHub Sponsors badge to the README badge row.
+
 ## 0.94.1 — 2026-09-05
 
 - Added GitHub Sponsors funding configuration to enable the Sponsor button on the repository.

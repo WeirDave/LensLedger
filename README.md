@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational?style=flat-square" alt="Windows | macOS | Linux">
   <img src="https://img.shields.io/github/license/WeirDave/LensLedger?style=flat-square" alt="License">
+  <a href="https://github.com/sponsors/WeirDave"><img src="https://img.shields.io/badge/sponsor-%E2%99%A5-ea4aaa?style=flat-square" alt="Sponsor"></a>
 </p>
 
 ---
