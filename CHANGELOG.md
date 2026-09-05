@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.94.1 — 2026-09-05
+
+- Added GitHub Sponsors funding configuration to enable the Sponsor button on the repository.
+
 ## 0.94.0 — 2026-09-01
 
 - A source checkout can now update itself from the update panel. Previously it could only tell you to run `git pull` by hand, which made a git install the one shape with no in-app update path.
