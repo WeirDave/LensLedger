@@ -5,12 +5,15 @@
 <h3 align="center">Your photos, understood.</h3>
 
 <p align="center">
-  <a href="https://github.com/WeirDave/LensLedger/releases/latest"><img src="https://img.shields.io/github/v/release/WeirDave/LensLedger?style=flat-square&color=6f55b5" alt="Latest Release"></a>
-  <a href="https://github.com/WeirDave/LensLedger/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/WeirDave/LensLedger/tests.yml?branch=main&style=flat-square&label=Windows%20tests" alt="Windows tests"></a>
+  <a href="https://github.com/WeirDave/LensLedger/releases/latest"><img src="https://img.shields.io/github/v/release/WeirDave/LensLedger?style=for-the-badge&color=6f55b5" alt="Latest Release"></a>
+  <a href="https://github.com/WeirDave/LensLedger/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/WeirDave/LensLedger/tests.yml?branch=main&style=for-the-badge&label=Windows%20tests" alt="Windows tests"></a>
+  <a href="https://github.com/WeirDave/LensLedger/blob/main/LICENSE"><img src="https://img.shields.io/github/license/WeirDave/LensLedger?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/sponsors/WeirDave"><img src="https://img.shields.io/badge/sponsor-%E2%99%A5-ea4aaa?style=for-the-badge" alt="Sponsor"></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational?style=flat-square" alt="Windows | macOS | Linux">
-  <img src="https://img.shields.io/github/license/WeirDave/LensLedger?style=flat-square" alt="License">
-  <a href="https://github.com/sponsors/WeirDave"><img src="https://img.shields.io/badge/sponsor-%E2%99%A5-ea4aaa?style=flat-square" alt="Sponsor"></a>
 </p>
 
 ---

@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.94.4 — 2026-09-05
+
+- Redesigned README badge layout with two tiers: large for-the-badge style for primary badges (release, tests, license, sponsor) and flat-square for secondary info badges (Python, platform).
+
 ## 0.94.3 — 2026-09-05
 
 - Updated release workflow to softprops/action-gh-release v3, fixing the Node.js 20 deprecation warning.
