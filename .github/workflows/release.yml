@@ -76,7 +76,7 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: LensLedger ${{ env.TAG }}
           body_path: docs/releases/${{ env.TAG }}.md
