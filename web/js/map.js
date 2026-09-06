@@ -425,7 +425,7 @@ viewport.onpointermove = function (event) {
   var sensitivity = 0.005;
   targetRotY = drag.ry - dx * sensitivity;
   targetRotX = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05,
-    drag.rx - dy * sensitivity));
+    drag.rx + dy * sensitivity));
 };
 viewport.onpointerup = function () {
   drag = null;

@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.96.3 — 2026-09-06
+
+- Fixed vertical globe drag direction to match physical globe behavior: pulling down now reveals the north pole, pushing up reveals the south pole.
+
 ## 0.96.2 — 2026-09-06
 
 - Added an extra globe zoom level before the street view transition, giving a more gradual drill-down.
