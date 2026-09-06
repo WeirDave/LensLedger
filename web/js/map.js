@@ -98,7 +98,7 @@ function isOnFrontSide(worldPos) {
   return toPoint.dot(toCamera) > 0.05;
 }
 
-var wasAnimating = false, needsRecluster = true;
+var wasAnimating = false, needsRecluster = false;
 
 function cameraIsSettled() {
   return Math.abs(targetRotX - rotX) < 0.002 &&
@@ -192,7 +192,16 @@ function clusterPoints(points) {
 
 function scheduleRecluster() {
   needsRecluster = true;
+  if (!reclusterTimer) reclusterTimer = setTimeout(function () {
+    reclusterTimer = null;
+    if (!needsRecluster || !viewport.clientHeight) return;
+    updateCamera();
+    renderer.render(scene, camera);
+    needsRecluster = false;
+    renderMarkers();
+  }, 80);
 }
+var reclusterTimer = null;
 
 function renderMarkers() {
   var clustered = clusterPoints(rawPoints);
@@ -310,9 +319,11 @@ document.getElementById('closeDetails').onclick = function () {
   if (selectedMarker) { selectedMarker.classList.remove('selected'); selectedMarker = null; }
 };
 window.onresize = function () {
+  if (!viewport.clientHeight) return;
   camera.aspect = viewport.clientWidth / viewport.clientHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+  if (rawPoints.length) scheduleRecluster();
 };
 
 /* --- Init --- */
@@ -331,7 +342,7 @@ fetch('/api/map/points').then(function (r) { return r.json(); }).then(function (
     if (data.pending) document.getElementById('emptyText').innerHTML =
       Number(data.pending).toLocaleString() + ' cataloged files still need a location scan. Run <a href="/scan-photos">Scan your photos</a> → "Scan for photo locations", then return here.';
   }
-  renderMarkers();
+  scheduleRecluster();
   var deepLat = parseFloat(new URLSearchParams(location.search).get('lat'));
   var deepLon = parseFloat(new URLSearchParams(location.search).get('lon'));
   if (!isNaN(deepLat) && !isNaN(deepLon) && rawPoints.length) {
