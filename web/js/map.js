@@ -262,17 +262,50 @@ function selectMarker(button, cluster) {
   selectedCluster = cluster;
 }
 
+var lightbox = document.getElementById('lightbox');
+var lbPhotos = [], lbIndex = 0;
+
+function showLightbox(point) {
+  lbPhotos = point._sources ? point._sources.slice() : [point];
+  lbIndex = 0;
+  lightbox.classList.add('open');
+  renderLightboxPhoto();
+}
+
+function renderLightboxPhoto() {
+  var p = lbPhotos[lbIndex];
+  document.getElementById('lightboxImg').src = '/media?id=' + p.asset_id;
+  document.getElementById('lightboxTitle').textContent = (p.filename || 'Photo') + (p.photo_count > 1 ? ' (+' + (p.photo_count - 1) + ' more)' : '');
+  document.getElementById('lightboxDate').textContent = p.first_date === p.last_date
+    ? (p.first_date || 'Date unknown')
+    : (p.first_date || 'Unknown') + ' – ' + (p.last_date || 'Unknown');
+  document.getElementById('lightboxCoords').textContent = p.latitude.toFixed(5) + ', ' + p.longitude.toFixed(5);
+  document.getElementById('lightboxCounter').textContent = lbPhotos.length > 1 ? (lbIndex + 1) + ' / ' + lbPhotos.length : '';
+  document.getElementById('lightboxOpen').href = '/?date=' + (p.first_date || '') + '&selected=' + p.asset_id;
+  document.getElementById('lightboxAll').href = '/?near=' + p.latitude.toFixed(1) + ',' + p.longitude.toFixed(1) + '&scope=all&sort=newest';
+  document.getElementById('lightboxOsm').href = 'https://www.openstreetmap.org/?mlat=' + p.latitude.toFixed(6) + '&mlon=' + p.longitude.toFixed(6) + '#map=16/' + p.latitude.toFixed(6) + '/' + p.longitude.toFixed(6);
+  document.getElementById('lightboxPrev').disabled = lbIndex === 0;
+  document.getElementById('lightboxNext').disabled = lbIndex === lbPhotos.length - 1;
+}
+
+function closeLightbox() {
+  lightbox.classList.remove('open');
+  lbPhotos = [];
+}
+
+document.getElementById('lightboxClose').onclick = closeLightbox;
+document.getElementById('lightboxPrev').onclick = function () { if (lbIndex > 0) { lbIndex--; renderLightboxPhoto(); } };
+document.getElementById('lightboxNext').onclick = function () { if (lbIndex < lbPhotos.length - 1) { lbIndex++; renderLightboxPhoto(); } };
+lightbox.onclick = function (e) { if (e.target === lightbox) closeLightbox(); };
+document.addEventListener('keydown', function (e) {
+  if (!lightbox.classList.contains('open')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft' && lbIndex > 0) { lbIndex--; renderLightboxPhoto(); }
+  else if (e.key === 'ArrowRight' && lbIndex < lbPhotos.length - 1) { lbIndex++; renderLightboxPhoto(); }
+});
+
 function show(point) {
-  document.getElementById('preview').src = '/media?id=' + point.asset_id;
-  document.getElementById('placeTitle').textContent = point.photo_count.toLocaleString() + ' photo' + (point.photo_count === 1 ? '' : 's') + ' near this location';
-  document.getElementById('placeDates').textContent = point.first_date === point.last_date
-    ? (point.first_date || 'Date unknown')
-    : (point.first_date || 'Unknown') + ' – ' + (point.last_date || 'Unknown');
-  document.getElementById('placeCoords').textContent = point.latitude.toFixed(5) + ', ' + point.longitude.toFixed(5);
-  document.getElementById('openPhoto').href = '/?date=' + (point.first_date || '') + '&selected=' + point.asset_id;
-  document.getElementById('viewAllHere').href = '/?near=' + point.latitude.toFixed(1) + ',' + point.longitude.toFixed(1) + '&scope=all&sort=newest';
-  document.getElementById('openStreetMap').href = 'https://www.openstreetmap.org/?mlat=' + point.latitude.toFixed(6) + '&mlon=' + point.longitude.toFixed(6) + '#map=16/' + point.latitude.toFixed(6) + '/' + point.longitude.toFixed(6);
-  details.classList.add('open');
+  showLightbox(point);
 }
 
 function centerOn(lat, lon, dist) {

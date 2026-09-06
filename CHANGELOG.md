@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.97.0 — 2026-09-06
+
+- Added lightbox overlay on the Photo Map page: clicking a marker now shows the photo in a full-screen overlay instead of navigating away.
+- Lightbox includes prev/next navigation for browsing all photos at a location.
+- Action buttons in the lightbox: "Open in viewer" to see the photo in the main viewer, "View all photos here" to browse nearby photos, and "OpenStreetMap" to see the location on OSM.
+- Lightbox closes with the × button, Escape key, or clicking the backdrop.
+- Keyboard arrow keys navigate between photos in the lightbox.
+
 ## 0.96.3 — 2026-09-06
 
 - Fixed vertical globe drag direction to match physical globe behavior: pulling down now reveals the north pole, pushing up reveals the south pole.
