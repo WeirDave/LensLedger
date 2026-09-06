@@ -8,7 +8,7 @@ var viewport = document.getElementById('viewport');
 var markerLayer = document.getElementById('markerLayer');
 var details = document.getElementById('details');
 var GLOBE_RADIUS = 1;
-var TRANSITION_DIST = 1.7;
+var TRANSITION_DIST = 1.3;
 var inStreetView = false, leafletMap = null, streetMarkers = [];
 
 function initScene() {
@@ -232,11 +232,11 @@ function renderMarkers() {
       btn.onclick = function (event) {
         event.stopPropagation();
         if (cluster._sources.length > 1) {
-          var nextDist = Math.max(MIN_DIST, targetDist * 0.75);
-          if (nextDist <= TRANSITION_DIST) {
+          var rawNext = targetDist * 0.75;
+          if (rawNext <= TRANSITION_DIST) {
             enterStreetView(cluster.latitude, cluster.longitude);
           } else {
-            centerOn(cluster.latitude, cluster.longitude, nextDist);
+            centerOn(cluster.latitude, cluster.longitude, Math.max(MIN_DIST, rawNext));
             scheduleRecluster();
           }
         } else {
@@ -324,7 +324,7 @@ function exitStreetView() {
   clearStreetMarkers();
   renderer.domElement.hidden = false;
   markerLayer.hidden = false;
-  centerOn(center.lat, center.lng, TRANSITION_DIST + 0.3);
+  centerOn(center.lat, center.lng, 2.2);
   scheduleRecluster();
 }
 

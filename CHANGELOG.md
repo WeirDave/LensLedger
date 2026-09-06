@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.96.2 — 2026-09-06
+
+- Added an extra globe zoom level before the street view transition, giving a more gradual drill-down.
+- Fixed the exit transition from street view returning the globe at too close a distance; the globe now returns at a comfortable altitude showing the earth's curvature.
+
 ## 0.96.1 — 2026-09-06
 
 - Fixed street map tiles not filling the full viewport on the initial transition from globe to street view.
