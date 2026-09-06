@@ -8,6 +8,8 @@ var viewport = document.getElementById('viewport');
 var markerLayer = document.getElementById('markerLayer');
 var details = document.getElementById('details');
 var GLOBE_RADIUS = 1;
+var TRANSITION_DIST = 1.7;
+var inStreetView = false, leafletMap = null, streetMarkers = [];
 
 function initScene() {
   scene = new THREE.Scene();
@@ -150,7 +152,7 @@ function updateMarkerPositions() {
 }
 
 function clusterPoints(points) {
-  var cellSize = Math.max(28, 56 / (MAX_DIST / camDist));
+  var cellSize = Math.max(24, camDist * 25);
   var cells = new Map();
   for (var i = 0; i < points.length; i++) {
     var p = points[i];
@@ -195,6 +197,7 @@ function scheduleRecluster() {
   if (!reclusterTimer) reclusterTimer = setTimeout(function () {
     reclusterTimer = null;
     if (!needsRecluster || !viewport.clientHeight) return;
+    rotX = targetRotX; rotY = targetRotY; camDist = targetDist;
     updateCamera();
     renderer.render(scene, camera);
     needsRecluster = false;
@@ -228,9 +231,14 @@ function renderMarkers() {
     (function (cluster, btn) {
       btn.onclick = function (event) {
         event.stopPropagation();
-        if (cluster._sources.length > 1 && camDist > MIN_DIST + 0.3) {
-          centerOn(cluster.latitude, cluster.longitude, camDist * 0.4);
-          scheduleRecluster();
+        if (cluster._sources.length > 1) {
+          var nextDist = Math.max(MIN_DIST, targetDist * 0.75);
+          if (nextDist <= TRANSITION_DIST) {
+            enterStreetView(cluster.latitude, cluster.longitude);
+          } else {
+            centerOn(cluster.latitude, cluster.longitude, nextDist);
+            scheduleRecluster();
+          }
         } else {
           selectMarker(btn, cluster);
           show(cluster);
@@ -273,15 +281,136 @@ function centerOn(lat, lon, dist) {
   targetDist = Math.max(MIN_DIST, Math.min(MAX_DIST, dist));
 }
 
+/* --- Street view (Leaflet) --- */
+var streetMapEl = document.getElementById('streetMap');
+
+function initLeaflet() {
+  if (leafletMap) return;
+  leafletMap = L.map(streetMapEl, {
+    zoomControl: false,
+    attributionControl: true,
+    minZoom: 3,
+    maxZoom: 19,
+  });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(leafletMap);
+  leafletMap.on('moveend', updateStreetMarkers);
+  leafletMap.on('zoomend', function () {
+    if (leafletMap.getZoom() <= 3) exitStreetView();
+    else updateStreetMarkers();
+  });
+}
+
+function enterStreetView(lat, lon) {
+  initLeaflet();
+  inStreetView = true;
+  renderer.domElement.hidden = true;
+  markerLayer.hidden = true;
+  streetMapEl.hidden = false;
+  leafletMap.invalidateSize();
+  leafletMap.setView([lat, lon], 13);
+  updateStreetMarkers();
+}
+
+function exitStreetView() {
+  if (!inStreetView) return;
+  inStreetView = false;
+  var center = leafletMap.getCenter();
+  streetMapEl.hidden = true;
+  clearStreetMarkers();
+  renderer.domElement.hidden = false;
+  markerLayer.hidden = false;
+  centerOn(center.lat, center.lng, TRANSITION_DIST + 0.3);
+  scheduleRecluster();
+}
+
+function clearStreetMarkers() {
+  for (var i = 0; i < streetMarkers.length; i++) leafletMap.removeLayer(streetMarkers[i]);
+  streetMarkers = [];
+}
+
+function clusterStreetPoints(points, bounds, zoom) {
+  var cellPx = zoom >= 16 ? 30 : zoom >= 14 ? 40 : 60;
+  var cells = new Map();
+  for (var i = 0; i < points.length; i++) {
+    var p = points[i];
+    if (!bounds.contains(L.latLng(p.latitude, p.longitude))) continue;
+    var px = leafletMap.latLngToContainerPoint([p.latitude, p.longitude]);
+    var key = Math.floor(px.x / cellPx) + ',' + Math.floor(px.y / cellPx);
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(p);
+  }
+  var result = [];
+  cells.forEach(function (group) {
+    var totalLat = 0, totalLon = 0, totalCount = 0;
+    var firstDate = null, lastDate = null, assetId = null, filename = null;
+    for (var j = 0; j < group.length; j++) {
+      var p = group[j];
+      totalLat += p.latitude * p.photo_count;
+      totalLon += p.longitude * p.photo_count;
+      totalCount += p.photo_count;
+      if (!firstDate || (p.first_date && p.first_date < firstDate)) firstDate = p.first_date;
+      if (!lastDate || (p.last_date && p.last_date > lastDate)) lastDate = p.last_date;
+      if (!assetId) { assetId = p.asset_id; filename = p.filename; }
+    }
+    result.push({
+      latitude: totalLat / totalCount,
+      longitude: totalLon / totalCount,
+      photo_count: totalCount,
+      first_date: firstDate,
+      last_date: lastDate,
+      asset_id: assetId,
+      filename: filename,
+      _sources: group,
+    });
+  });
+  return result;
+}
+
+function updateStreetMarkers() {
+  if (!inStreetView || !leafletMap) return;
+  clearStreetMarkers();
+  var bounds = leafletMap.getBounds().pad(0.1);
+  var zoom = leafletMap.getZoom();
+  var clustered = clusterStreetPoints(rawPoints, bounds, zoom);
+  for (var i = 0; i < clustered.length; i++) {
+    var c = clustered[i];
+    var isMulti = c.photo_count > 1;
+    var size = isMulti ? Math.min(36, 18 + Math.log2(c.photo_count) * 3) : 18;
+    var icon = L.divIcon({
+      className: 'street-marker' + (isMulti ? ' multi' : ''),
+      html: isMulti ? '<span>' + (c.photo_count >= 1000 ? Math.round(c.photo_count / 1000) + 'k' : c.photo_count) + '</span>' : '',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    });
+    var marker = L.marker([c.latitude, c.longitude], { icon: icon });
+    (function (cluster) {
+      marker.on('click', function () {
+        if (cluster._sources.length > 1 && zoom < 18) {
+          leafletMap.setView([cluster.latitude, cluster.longitude], zoom + 2);
+        } else {
+          show(cluster);
+        }
+      });
+    })(c);
+    marker.addTo(leafletMap);
+    streetMarkers.push(marker);
+  }
+}
+
 /* --- Input handling --- */
 viewport.onwheel = function (event) {
   event.preventDefault();
+  if (inStreetView) return;
   targetDist *= event.deltaY > 0 ? 1.1 : 0.9;
   targetDist = Math.max(MIN_DIST, Math.min(MAX_DIST, targetDist));
   scheduleRecluster();
 };
 
 viewport.onpointerdown = function (event) {
+  if (inStreetView) return;
   if (event.target.closest('button,a,.details')) return;
   drag = { x: event.clientX, y: event.clientY, rx: targetRotX, ry: targetRotY };
   viewport.setPointerCapture(event.pointerId);
@@ -302,14 +431,21 @@ viewport.onpointerup = function () {
 };
 
 document.getElementById('zoomIn').onclick = function () {
+  if (inStreetView) { leafletMap.zoomIn(); return; }
   targetDist = Math.max(MIN_DIST, targetDist * 0.7);
   scheduleRecluster();
 };
 document.getElementById('zoomOut').onclick = function () {
+  if (inStreetView) {
+    if (leafletMap.getZoom() <= 4) exitStreetView();
+    else leafletMap.zoomOut();
+    return;
+  }
   targetDist = Math.min(MAX_DIST, targetDist * 1.4);
   scheduleRecluster();
 };
 document.getElementById('reset').onclick = function () {
+  if (inStreetView) { exitStreetView(); return; }
   targetRotX = 0.52; targetRotY = 0.7;
   targetDist = 3.2;
 };
@@ -320,10 +456,11 @@ document.getElementById('closeDetails').onclick = function () {
 };
 window.onresize = function () {
   if (!viewport.clientHeight) return;
+  if (inStreetView && leafletMap) leafletMap.invalidateSize();
   camera.aspect = viewport.clientWidth / viewport.clientHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-  if (rawPoints.length) scheduleRecluster();
+  if (rawPoints.length && !inStreetView) scheduleRecluster();
 };
 
 /* --- Init --- */

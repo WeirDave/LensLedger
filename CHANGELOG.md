@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.96.0 — 2026-09-06
+
+- Added multi-level zoom from globe down to street-level OpenStreetMap view on the Photo Map page.
+- Clicking a cluster on the globe progressively zooms in, revealing more markers at each level.
+- At close zoom, clicking a cluster transitions seamlessly to an interactive street map powered by Leaflet and OpenStreetMap tiles.
+- Street-level markers cluster dynamically and can be clicked to zoom further or view individual photo details.
+- The home button exits street view and returns to the globe at the matching position.
+- Street map tiles respect dark mode with an automatic brightness/contrast filter.
+
 ## 0.95.1 — 2026-09-05
 
 - Fixed photo markers not appearing on initial page load of the 3D globe map.
