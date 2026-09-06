@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.95.0 — 2026-09-05
+
+- Replaced the flat equirectangular photo map with an interactive 3D globe using Three.js, providing accurate geographic representation without the distortions of a flat projection.
+- Globe supports drag-to-rotate, scroll-to-zoom, marker clustering, and the same details panel for browsing photos by location.
+- Added atmospheric glow effect around the globe edges.
+
 ## 0.94.4 — 2026-09-05
 
 - Redesigned README badge layout with two tiers: large for-the-badge style for primary badges (release, tests, license, sponsor) and flat-square for secondary info badges (Python, platform).
