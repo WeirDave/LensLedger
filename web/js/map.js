@@ -304,14 +304,16 @@ function initLeaflet() {
 }
 
 function enterStreetView(lat, lon) {
-  initLeaflet();
   inStreetView = true;
   renderer.domElement.hidden = true;
   markerLayer.hidden = true;
   streetMapEl.hidden = false;
-  leafletMap.invalidateSize();
-  leafletMap.setView([lat, lon], 13);
-  updateStreetMarkers();
+  setTimeout(function () {
+    initLeaflet();
+    leafletMap.invalidateSize();
+    leafletMap.setView([lat, lon], 13);
+    updateStreetMarkers();
+  }, 0);
 }
 
 function exitStreetView() {

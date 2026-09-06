@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.96.1 — 2026-09-06
+
+- Fixed street map tiles not filling the full viewport on the initial transition from globe to street view.
+
 ## 0.96.0 — 2026-09-06
 
 - Added multi-level zoom from globe down to street-level OpenStreetMap view on the Photo Map page.
