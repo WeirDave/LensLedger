@@ -9,6 +9,7 @@ let settings=B.settings||{};
 let libraries=B.libraries||[];
 let currentRoot=B.currentRoot||'';
 let models=B.models||[];
+let modelCache={};
 
 function toast(msg,isError){
   const t=$('#toast');t.textContent=msg;
@@ -41,17 +42,37 @@ function renderModels(){
   const current=(settings.scan||{}).semantic_model||'ViT-B-32/openai';
   el.innerHTML='';
   models.forEach(m=>{
+    const info=modelCache[m.id]||{};
+    const downloaded=info.downloaded||false;
+    const sizeMb=info.size_mb?info.size_mb.toFixed(0)+' MB':'';
+    const isCurrent=m.id===current;
     const item=document.createElement('label');
-    item.className='model-item'+(m.id===current?' active':'');
-    item.innerHTML=`<input type="radio" name="semantic_model" value="${esc(m.id)}" ${m.id===current?'checked':''}>`
+    item.className='model-item'+(isCurrent?' active':'');
+    const statusBadge=downloaded
+      ?`<span class="model-status downloaded">Downloaded${sizeMb?' · '+sizeMb:''}</span>`
+      :`<span class="model-status not-downloaded">Not downloaded</span>`;
+    const deleteBtn=downloaded&&!isCurrent
+      ?`<button type="button" class="secondary model-delete-btn" title="Delete downloaded model">Delete</button>`:'';
+    item.innerHTML=`<input type="radio" name="semantic_model" value="${esc(m.id)}" ${isCurrent?'checked':''}>`
       +`<div class="model-info"><div class="model-name">${esc(m.name)}</div><div class="model-desc">${esc(m.description)}</div></div>`
-      +`<span class="model-size">${esc(m.size)}</span>`;
+      +`<div class="model-meta">${statusBadge}<span class="model-size">${esc(m.size)}</span>${deleteBtn}</div>`;
     item.querySelector('input').onchange=()=>{
       $$('.model-item').forEach(i=>i.classList.remove('active'));
       item.classList.add('active');
     };
+    const delBtn=item.querySelector('.model-delete-btn');
+    if(delBtn)delBtn.onclick=e=>{e.preventDefault();e.stopPropagation();deleteModel(m.id,m.name)};
     el.appendChild(item);
   });
+}
+
+async function deleteModel(modelId,modelName){
+  if(!confirm('Delete the downloaded model "'+modelName+'"? You can re-download it later by selecting it and running meaning search.'))return;
+  const res=await post('/api/semantic/delete-model',{model:modelId});
+  if(res.error){toast(res.error,true);return}
+  if(modelCache[modelId])modelCache[modelId]={downloaded:false,size_mb:0};
+  renderModels();
+  toast('Model deleted: '+modelName);
 }
 
 function collectSettings(){
@@ -199,11 +220,13 @@ async function checkSemanticStatus(){
     const barWrap=$('#semanticInstallBarWrap');
     const installBtn=$('#installSemantic');
     const install=data.install||{};
+    if(data.model_cache)modelCache=data.model_cache;
     if(data.installed){
       semanticInstalled=true;
       setupArea.hidden=true;
       intro.hidden=false;
       modelList.hidden=false;
+      renderModels();
       semanticPolling=false;
     }else{
       intro.hidden=true;
@@ -222,6 +245,8 @@ async function checkSemanticStatus(){
         setupArea.hidden=true;
         intro.hidden=false;
         modelList.hidden=false;
+        if(data.model_cache)modelCache=data.model_cache;
+        renderModels();
         semanticPolling=false;
         toast('Meaning search installed successfully.');
         return;
@@ -261,9 +286,9 @@ $('#installSemantic').onclick=async(e)=>{
   }
 };
 
-if(location.hash==='#meaning-search'){
-  const el=$('#meaning-search');
-  if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+if(location.hash){
+  const el=$(location.hash);
+  if(el){const y=el.getBoundingClientRect().top+window.scrollY-80;try{window.scrollTo({top:y,behavior:'smooth'})}catch(_){window.scrollTo(0,y)}}
 }
 
 renderLibraries();
@@ -282,8 +307,12 @@ if(tocLinks.length){
   window.addEventListener('scroll',updateToc,{passive:true});
   updateToc();
   tocLinks.forEach(a=>a.addEventListener('click',e=>{
-    e.preventDefault();const t=document.querySelector(a.getAttribute('href'));
-    if(t)t.scrollIntoView({behavior:'smooth',block:'start'});
+    e.preventDefault();
+    const t=document.querySelector(a.getAttribute('href'));
+    if(!t)return;
+    const y=t.getBoundingClientRect().top+window.scrollY-80;
+    try{window.scrollTo({top:y,behavior:'smooth'})}catch(_){window.scrollTo(0,y)}
+    history.replaceState(null,'',a.getAttribute('href'));
   }));
 }
 

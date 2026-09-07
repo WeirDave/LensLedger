@@ -125,6 +125,42 @@ SUPPORTED_MODELS = {
     "ViT-L-14/openai": ("ViT-L-14", "openai"),
 }
 
+MODEL_FILENAMES = {
+    "ViT-B-32/openai": "ViT-B-32.pt",
+    "ViT-B-16/openai": "ViT-B-16.pt",
+    "ViT-L-14/openai": "ViT-L-14.pt",
+}
+
+
+def _clip_cache_dir() -> Path:
+    return Path.home() / ".cache" / "clip"
+
+
+def model_cache_info() -> dict[str, dict]:
+    """Return download status and file size for each supported model."""
+    cache_dir = _clip_cache_dir()
+    result: dict[str, dict] = {}
+    for model_id, filename in MODEL_FILENAMES.items():
+        path = cache_dir / filename
+        if path.is_file():
+            size_mb = path.stat().st_size / (1024 * 1024)
+            result[model_id] = {"downloaded": True, "size_mb": round(size_mb, 1), "path": str(path)}
+        else:
+            result[model_id] = {"downloaded": False, "size_mb": 0, "path": str(path)}
+    return result
+
+
+def delete_cached_model(model_id: str) -> bool:
+    """Delete a downloaded model file from the cache. Returns True if deleted."""
+    filename = MODEL_FILENAMES.get(model_id)
+    if not filename:
+        raise ValueError(f"Unknown model: {model_id}")
+    path = _clip_cache_dir() / filename
+    if path.is_file():
+        path.unlink()
+        return True
+    return False
+
 
 def encoder_for(model: str = DEFAULT_MODEL):
     parts = SUPPORTED_MODELS.get(model)

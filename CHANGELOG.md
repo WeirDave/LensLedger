@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.98.0 — 2026-09-07
+
+- Fixed settings page TOC navigation not scrolling to sections when clicked.
+- Meaning search model section now shows whether each model is downloaded and its size on disk.
+- Added ability to delete unused downloaded models to reclaim disk space.
+- TOC navigation now updates the URL hash for bookmarkable deep links.
+- Hash-based navigation on page load now works for all settings sections, not just meaning search.
+
 ## 0.97.0 — 2026-09-06
 
 - Added lightbox overlay on the Photo Map page: clicking a marker now shows the photo in a full-screen overlay instead of navigating away.

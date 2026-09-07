@@ -63,7 +63,9 @@ _STARTUP_VERSION = APP_VERSION
 _STARTED_AT = dt.datetime.now(dt.timezone.utc).isoformat()
 from semantic_index import (
     build_index as build_semantic_index,
+    delete_cached_model as semantic_delete_model,
     is_available as semantic_is_available,
+    model_cache_info as semantic_model_cache_info,
     search as semantic_search,
     status as semantic_status,
 )
@@ -897,6 +899,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.ocr_errors()
         if url.path == "/api/semantic/status":
             return self.semantic_job_status()
+        if url.path == "/api/semantic/models":
+            return self.send_json({"models": semantic_model_cache_info()})
         if url.path == "/api/semantic/errors":
             return self.semantic_errors()
         if url.path == "/api/faces/status":
@@ -1088,6 +1092,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.cancel_semantic_index(body)
             if route == "/api/semantic/install":
                 return self.install_semantic_requirements(body)
+            if route == "/api/semantic/delete-model":
+                return self.delete_semantic_model(body)
             if route == "/api/faces/start":
                 return self.start_face_scan(body)
             if route == "/api/faces/cancel":
@@ -1270,7 +1276,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="field"><label for="ocrWorkers">OCR worker threads</label><input type="number" id="ocrWorkers" min="1" max="16" value="{int(scan.get('ocr_workers', 4))}"><span class="hint">More workers scan faster but use more CPU. Default: 4</span></div>
 <div class="field"><label for="ocrBatchSize">OCR batch size</label><input type="number" id="ocrBatchSize" min="10" max="500" value="{int(scan.get('ocr_batch_size', 50))}"><span class="hint">Photos processed per OCR commit. Default: 50</span></div>
 <div class="field"><label for="semanticBatchSize">Meaning search batch</label><input type="number" id="semanticBatchSize" min="1" max="128" value="{int(scan.get('semantic_batch_size', 16))}"><span class="hint">Images per CLIP encoding batch. Default: 16</span></div></section>
-<section class="card" id="meaning-search"><h2>Meaning search model</h2><div id="semanticSetupArea"><p id="semanticSetupMsg">Checking meaning search status…</p><div class="progress-bar" id="semanticInstallBarWrap" hidden><span id="semanticInstallBar"></span></div><div class="semantic-install-actions" id="semanticInstallActions"><button type="button" id="installSemantic">Set up meaning search</button></div></div><p class="model-intro" id="modelIntro" hidden>Choose the CLIP model for meaning search. Better models produce higher quality results but are larger and slower. Changing the model will re-index your photos on the next meaning search run.</p><div class="model-list" id="modelList"></div></section>
+<section class="card" id="meaning-search"><h2>Meaning search model</h2><div id="semanticSetupArea"><p id="semanticSetupMsg">Checking meaning search status…</p><div class="progress-bar" id="semanticInstallBarWrap" hidden><span id="semanticInstallBar"></span></div><div class="semantic-install-actions" id="semanticInstallActions"><button type="button" id="installSemantic">Set up meaning search</button></div></div><p class="model-intro" id="modelIntro" hidden>Choose the CLIP model for meaning search. Better models produce higher quality results but are larger and slower. Changing the model will re-index your photos on the next meaning search run. The selected model is downloaded automatically when you first run meaning search. You can delete unused models to reclaim disk space.</p><div class="model-list" id="modelList"></div></section>
 <section class="card" id="display-prefs"><h2>Display preferences</h2>
 <div class="field"><label for="photosPerPage">Photos per page</label><input type="number" id="photosPerPage" min="50" max="1000" value="{int(display.get('photos_per_page', 250))}"><span class="hint">Number of photos loaded per filmstrip page. Default: 250</span></div>
 <div class="field"><label for="defaultSort">Default sort order</label><select id="defaultSort"><option value="newest" {"selected" if display.get("default_sort", "newest") == "newest" else ""}>Newest first</option><option value="oldest" {"selected" if display.get("default_sort") == "oldest" else ""}>Oldest first</option><option value="name" {"selected" if display.get("default_sort") == "name" else ""}>By name</option></select></div>
@@ -5043,7 +5049,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             job = dict(type(self).semantic_job)
         with type(self).semantic_install_lock:
             install = dict(type(self).semantic_install_job)
-        self.send_json({**coverage, **job, "install": install})
+        cache = semantic_model_cache_info() if coverage.get("installed") else {}
+        self.send_json({**coverage, **job, "install": install, "model_cache": cache})
 
     def semantic_errors(self):
         with self.db() as con:
@@ -5149,6 +5156,17 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         threading.Thread(target=worker, name="LensLedger-semantic-install", daemon=True).start()
         self.send_json({"ok": True, "state": "installing"}, 202)
+
+    def delete_semantic_model(self, body):
+        model_id = str(body.get("model", ""))
+        if not model_id:
+            raise ValueError("No model specified")
+        settings = load_settings()
+        active_model = settings.get("scan", {}).get("semantic_model", "ViT-B-32/openai")
+        if model_id == active_model:
+            raise ValueError("Cannot delete the currently selected model. Switch to a different model first.")
+        deleted = semantic_delete_model(model_id)
+        self.send_json({"ok": True, "deleted": deleted})
 
     def face_scan_job_status(self):
         coverage = face_scan_status(type(self).db_path)

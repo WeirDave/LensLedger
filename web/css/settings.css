@@ -34,7 +34,12 @@ main{width:min(1060px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .model-item .model-info{flex:1}
 .model-item .model-name{font-weight:700;color:var(--text)}
 .model-item .model-desc{color:var(--text-secondary);font-size:11px;margin-top:2px}
+.model-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
 .model-item .model-size{color:var(--badge-text);background:var(--badge-bg);border:1px solid var(--badge-border);border-radius:999px;padding:2px 8px;font-size:10px;font-weight:700;white-space:nowrap}
+.model-status{border-radius:999px;padding:2px 8px;font-size:10px;font-weight:700;white-space:nowrap}
+.model-status.downloaded{color:var(--publish-label,var(--green));background:var(--publish-bg,rgba(106,152,88,0.15));border:1px solid var(--publish-border,var(--green))}
+.model-status.not-downloaded{color:var(--text-secondary);background:var(--surface2);border:1px solid var(--border)}
+.model-delete-btn{padding:3px 8px;font-size:10px;margin-top:1px}
 .rule-list{display:grid;gap:5px;margin:6px 0}
 .rule-item{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;background:var(--scan-card-bg,var(--surface2));border-radius:8px;font-size:12.5px}
 .rule-item input,.rule-item select{border:1px solid var(--border);border-radius:5px;background:var(--input-bg);color:var(--text);padding:5px 7px;font-size:12px}
