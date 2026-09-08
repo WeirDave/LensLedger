@@ -277,7 +277,8 @@ $('#installSemantic').onclick=async(e)=>{
   const btn=$('#installSemantic');
   btn.disabled=true;
   try{
-    await post('/api/semantic/install',{});
+    const res=await post('/api/semantic/install',{});
+    if(res.error){toast(res.error,true);btn.disabled=false;checkSemanticStatus();return}
     semanticPolling=true;
     checkSemanticStatus();
   }catch(err){

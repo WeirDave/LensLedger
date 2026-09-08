@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import array
 import math
-from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -106,17 +105,32 @@ class OpenClipEncoder:
         return tuple(float(value) for value in vector[0].cpu().tolist())
 
 
-@lru_cache(maxsize=2)
+_available_cache: bool | None = None
+
+
 def is_available() -> bool:
     """Whether the optional meaning-search packages are importable, without
     loading the (large) model itself -- cheap enough to call on every
-    status check."""
+    status check.  Caches the result, but a True result sticks permanently
+    while a False result is re-checked on the next call to
+    ``clear_available_cache()`` (called after pip-installing the packages)."""
+    global _available_cache
+    if _available_cache is True:
+        return True
     try:
         import open_clip  # noqa: F401
         import torch  # noqa: F401
     except ImportError:
+        _available_cache = False
         return False
+    _available_cache = True
     return True
+
+
+def clear_available_cache() -> None:
+    """Allow ``is_available()`` to re-check after a pip install."""
+    global _available_cache
+    _available_cache = None
 
 
 SUPPORTED_MODELS = {

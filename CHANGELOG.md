@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.98.1 — 2026-09-07
+
+- Fixed meaning search setup not being detected after installation: the availability check was cached and never refreshed, so the setup button could reappear or the install could silently fail.
+- Install button now shows an error toast if the server rejects the install request (e.g. already installed).
+
 ## 0.98.0 — 2026-09-07
 
 - Fixed settings page TOC navigation not scrolling to sections when clicked.

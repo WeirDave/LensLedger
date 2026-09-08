@@ -63,6 +63,7 @@ _STARTUP_VERSION = APP_VERSION
 _STARTED_AT = dt.datetime.now(dt.timezone.utc).isoformat()
 from semantic_index import (
     build_index as build_semantic_index,
+    clear_available_cache as semantic_clear_cache,
     delete_cached_model as semantic_delete_model,
     is_available as semantic_is_available,
     model_cache_info as semantic_model_cache_info,
@@ -5138,6 +5139,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     capture_output=True, text=True, timeout=1800,
                 )
                 if result.returncode == 0:
+                    semantic_clear_cache()
                     with handler_class.semantic_install_lock:
                         handler_class.semantic_install_job = {
                             "state": "complete",
