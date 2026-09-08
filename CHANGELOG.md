@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.0.1 — 2026-09-08
+
+- Fixed meaning search errors showing stale paths after files were moved or renamed. Moved files are now re-queued for meaning search indexing at their new location.
+- Fixed double backslashes in error message paths displayed in the error dialog.
+
 ## 1.0.0 — 2026-09-08
 
 - Folder watcher now chains all scan types automatically: library → OCR → meaning search → face detection. New photos are fully processed without manual intervention.

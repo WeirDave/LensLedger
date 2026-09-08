@@ -142,7 +142,7 @@ function errorListNode(errors) {
 
     const msgEl = document.createElement('pre');
     msgEl.className = 'error-detail';
-    msgEl.textContent = error;
+    msgEl.textContent = error.replaceAll('\\\\', '\\');
 
     const hint = explainError(error);
     row.append(pathEl, toolbar, msgEl);

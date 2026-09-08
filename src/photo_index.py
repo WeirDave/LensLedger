@@ -783,7 +783,7 @@ def scan_library(
                     new_filename = Path(new_rel).name
                     con.execute(
                         """UPDATE assets SET path=?, relative_path=?, folder=?, filename=?,
-                           scan_error='' WHERE id=?""",
+                           scan_error='', semantic_error='' WHERE id=?""",
                         (new_path, new_rel, new_folder, new_filename, old_id),
                     )
                     apply_asset_annotation(con, old_id, new_rel)
