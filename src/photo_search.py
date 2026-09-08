@@ -5821,6 +5821,15 @@ def main():
         with SearchHandler.library_lock:
             if SearchHandler.library_job.get("state") == "scanning":
                 return
+        for lock_attr, job_attr in (
+            ("scan_all_lock", "scan_all_job"),
+            ("semantic_lock", "semantic_job"),
+            ("ocr_lock", "ocr_job"),
+            ("face_scan_lock", "face_scan_job"),
+        ):
+            with getattr(SearchHandler, lock_attr):
+                if getattr(SearchHandler, job_attr).get("state") == "running":
+                    return
         try:
             scan_library(SearchHandler.library_root, SearchHandler.db_path, quiet=True)
         except Exception as exc:

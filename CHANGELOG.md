@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.99.2 — 2026-09-07
+
+- Fixed folder watcher triggering a library scan while another scan (meaning search, OCR, or face detection) was running, which caused "database is locked" errors.
+
 ## 0.99.1 — 2026-09-07
 
 - Fixed model download detection to look in the HuggingFace hub cache instead of the legacy `~/.cache/clip/` directory.
