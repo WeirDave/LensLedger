@@ -53,17 +53,50 @@ function renderModels(){
       :`<span class="model-status not-downloaded">Not downloaded</span>`;
     const deleteBtn=downloaded&&!isCurrent
       ?`<button type="button" class="secondary model-delete-btn" title="Delete downloaded model">Delete</button>`:'';
+    const dlBtn=!downloaded
+      ?`<button type="button" class="secondary model-download-btn" title="Download model now">Download</button>`:'';
     item.innerHTML=`<input type="radio" name="semantic_model" value="${esc(m.id)}" ${isCurrent?'checked':''}>`
       +`<div class="model-info"><div class="model-name">${esc(m.name)}</div><div class="model-desc">${esc(m.description)}</div></div>`
-      +`<div class="model-meta">${statusBadge}<span class="model-size">${esc(m.size)}</span>${deleteBtn}</div>`;
+      +`<div class="model-meta">${statusBadge}<span class="model-size">${esc(m.size)}</span>${dlBtn}${deleteBtn}</div>`;
     item.querySelector('input').onchange=()=>{
       $$('.model-item').forEach(i=>i.classList.remove('active'));
       item.classList.add('active');
     };
-    const delBtn=item.querySelector('.model-delete-btn');
-    if(delBtn)delBtn.onclick=e=>{e.preventDefault();e.stopPropagation();deleteModel(m.id,m.name)};
+    const delBtnEl=item.querySelector('.model-delete-btn');
+    if(delBtnEl)delBtnEl.onclick=e=>{e.preventDefault();e.stopPropagation();deleteModel(m.id,m.name)};
+    const dlBtnEl=item.querySelector('.model-download-btn');
+    if(dlBtnEl)dlBtnEl.onclick=e=>{e.preventDefault();e.stopPropagation();downloadModel(m.id,m.name)};
     el.appendChild(item);
   });
+}
+
+let downloadPolling=false;
+async function downloadModel(modelId,modelName){
+  const res=await post('/api/semantic/download-model',{model:modelId});
+  if(res.error){toast(res.error,true);return}
+  toast('Downloading '+modelName+'… this may take several minutes.');
+  if(!downloadPolling){downloadPolling=true;pollDownload();}
+}
+async function pollDownload(){
+  try{
+    const res=await fetch('/api/semantic/status');
+    const data=await res.json();
+    if(data.model_cache)modelCache=data.model_cache;
+    const dl=data.model_download||{};
+    if(dl.state==='downloading'){
+      renderModels();
+      setTimeout(pollDownload,3000);
+      return;
+    }
+    if(dl.state==='complete'){
+      renderModels();
+      toast('Model downloaded successfully.');
+    }else if(dl.state==='error'){
+      renderModels();
+      toast('Model download failed: '+(dl.message||'unknown error'),true);
+    }
+  }catch(e){}
+  downloadPolling=false;
 }
 
 async function deleteModel(modelId,modelName){

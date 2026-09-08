@@ -834,6 +834,8 @@ class SearchHandler(BaseHTTPRequestHandler):
     semantic_cancel = threading.Event()
     semantic_install_lock = threading.Lock()
     semantic_install_job: dict[str, object] = {"state": "idle", "message": ""}
+    model_download_lock = threading.Lock()
+    model_download_job: dict[str, object] = {"state": "idle", "message": ""}
     face_scan_lock = threading.Lock()
     face_scan_job: dict[str, object] = {"state": "idle", "message": ""}
     face_scan_cancel = threading.Event()
@@ -1115,6 +1117,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.install_semantic_requirements(body)
             if route == "/api/semantic/delete-model":
                 return self.delete_semantic_model(body)
+            if route == "/api/semantic/download-model":
+                return self.download_semantic_model(body)
             if route == "/api/faces/start":
                 return self.start_face_scan(body)
             if route == "/api/faces/cancel":
@@ -5071,7 +5075,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).semantic_install_lock:
             install = dict(type(self).semantic_install_job)
         cache = semantic_model_cache_info() if coverage.get("installed") else {}
-        self.send_json({**coverage, **job, "install": install, "model_cache": cache})
+        with type(self).model_download_lock:
+            download = dict(type(self).model_download_job)
+        self.send_json({**coverage, **job, "install": install, "model_cache": cache, "model_download": download})
 
     def semantic_errors(self):
         with self.db() as con:
@@ -5189,6 +5195,40 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise ValueError("Cannot delete the currently selected model. Switch to a different model first.")
         deleted = semantic_delete_model(model_id)
         self.send_json({"ok": True, "deleted": deleted})
+
+    def download_semantic_model(self, body):
+        model_id = str(body.get("model", ""))
+        if not model_id or model_id not in SEMANTIC_SUPPORTED_MODELS:
+            raise ValueError("Unsupported model")
+        cache = semantic_model_cache_info()
+        if cache.get(model_id, {}).get("downloaded"):
+            raise ValueError("Model is already downloaded")
+        handler_class = type(self)
+        with handler_class.model_download_lock:
+            if handler_class.model_download_job.get("state") == "downloading":
+                raise ValueError("A model download is already in progress")
+            model_name = model_id.split("/")[0]
+            size_label = next((m["size"] for m in AVAILABLE_MODELS if m["id"] == model_id), "")
+            handler_class.model_download_job = {
+                "state": "downloading",
+                "model": model_id,
+                "message": f"Downloading {model_name} ({size_label})…",
+            }
+
+        def worker():
+            try:
+                console_log(f"Model download: downloading {model_id} ({size_label})…")
+                semantic_encoder_for(model_id)
+                console_log(f"Model download: {model_id} complete")
+                with handler_class.model_download_lock:
+                    handler_class.model_download_job = {"state": "complete", "model": model_id, "message": "Download complete"}
+            except Exception as exc:
+                console_log(f"Model download: failed — {exc}")
+                with handler_class.model_download_lock:
+                    handler_class.model_download_job = {"state": "error", "model": model_id, "message": str(exc)}
+
+        threading.Thread(target=worker, name="LensLedger-model-download", daemon=True).start()
+        self.send_json({"ok": True, "state": "downloading"}, 202)
 
     def face_scan_job_status(self):
         coverage = face_scan_status(type(self).db_path)
