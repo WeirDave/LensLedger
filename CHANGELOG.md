@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.99.1 — 2026-09-07
+
+- Fixed model download detection to look in the HuggingFace hub cache instead of the legacy `~/.cache/clip/` directory.
+- Model deletion now removes the entire HuggingFace hub repo directory for the model.
+
 ## 0.99.0 — 2026-09-07
 
 - Added download buttons to each model on the Settings page so models can be pre-downloaded without running a scan.

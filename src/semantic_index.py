@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import array
 import math
+import os
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -139,39 +140,48 @@ SUPPORTED_MODELS = {
     "ViT-L-14/openai": ("ViT-L-14", "openai"),
 }
 
-MODEL_FILENAMES = {
-    "ViT-B-32/openai": "ViT-B-32.pt",
-    "ViT-B-16/openai": "ViT-B-16.pt",
-    "ViT-L-14/openai": "ViT-L-14.pt",
+MODEL_HF_REPOS = {
+    "ViT-B-32/openai": "models--timm--vit_base_patch32_clip_224.openai",
+    "ViT-B-16/openai": "models--timm--vit_base_patch16_clip_224.openai",
+    "ViT-L-14/openai": "models--timm--vit_large_patch14_clip_224.openai",
 }
 
 
-def _clip_cache_dir() -> Path:
-    return Path.home() / ".cache" / "clip"
+def _hf_cache_dir() -> Path:
+    return Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
 
 def model_cache_info() -> dict[str, dict]:
     """Return download status and file size for each supported model."""
-    cache_dir = _clip_cache_dir()
+    hub_dir = _hf_cache_dir()
     result: dict[str, dict] = {}
-    for model_id, filename in MODEL_FILENAMES.items():
-        path = cache_dir / filename
-        if path.is_file():
-            size_mb = path.stat().st_size / (1024 * 1024)
-            result[model_id] = {"downloaded": True, "size_mb": round(size_mb, 1), "path": str(path)}
+    for model_id, repo_dir in MODEL_HF_REPOS.items():
+        model_dir = hub_dir / repo_dir / "snapshots"
+        found = False
+        total_bytes = 0
+        if model_dir.is_dir():
+            for snapshot in model_dir.iterdir():
+                for f in snapshot.iterdir():
+                    if f.suffix in (".safetensors", ".pt", ".bin"):
+                        found = True
+                        total_bytes += f.stat().st_size
+        if found:
+            size_mb = total_bytes / (1024 * 1024)
+            result[model_id] = {"downloaded": True, "size_mb": round(size_mb, 1)}
         else:
-            result[model_id] = {"downloaded": False, "size_mb": 0, "path": str(path)}
+            result[model_id] = {"downloaded": False, "size_mb": 0}
     return result
 
 
 def delete_cached_model(model_id: str) -> bool:
-    """Delete a downloaded model file from the cache. Returns True if deleted."""
-    filename = MODEL_FILENAMES.get(model_id)
-    if not filename:
+    """Delete a downloaded model from the HuggingFace cache. Returns True if deleted."""
+    repo_dir = MODEL_HF_REPOS.get(model_id)
+    if not repo_dir:
         raise ValueError(f"Unknown model: {model_id}")
-    path = _clip_cache_dir() / filename
-    if path.is_file():
-        path.unlink()
+    path = _hf_cache_dir() / repo_dir
+    if path.is_dir():
+        import shutil
+        shutil.rmtree(path)
         return True
     return False
 
