@@ -528,8 +528,29 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
 
 def _run_semantic_index_job(handler_class, database, batch_size, started_at):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
+    from semantic_index import encoder_for, model_cache_info, SUPPORTED_MODELS
+    from settings_config import AVAILABLE_MODELS
+
+    settings = load_settings()
+    model_id = settings.get("scan", {}).get("semantic_model", "ViT-B-32/openai")
+    if model_id not in SUPPORTED_MODELS:
+        model_id = "ViT-B-32/openai"
+
     console_log("Meaning search: starting")
     try:
+        cache = model_cache_info()
+        model_info = cache.get(model_id, {})
+        if not model_info.get("downloaded"):
+            model_name = model_id.split("/")[0]
+            size_label = next((m["size"] for m in AVAILABLE_MODELS if m["id"] == model_id), "")
+            dl_msg = f"Downloading model {model_name} ({size_label})… this may take several minutes"
+            console_log(f"Meaning search: {dl_msg}")
+            with handler_class.semantic_lock:
+                handler_class.semantic_job.update({"message": dl_msg})
+        else:
+            console_log(f"Meaning search: loading model {model_id}")
+
+        encoder = encoder_for(model_id)
 
         _sem_started_logged = False
         _sem_last_log_time = time.monotonic()
@@ -560,7 +581,7 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
                 }
 
         result = build_semantic_index(
-            database, batch_size=batch_size, progress=update_progress,
+            database, encoder=encoder, batch_size=batch_size, progress=update_progress,
             should_cancel=handler_class.semantic_cancel.is_set,
         )
         with handler_class.semantic_lock:
