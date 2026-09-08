@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -871,7 +871,11 @@ class ServerWorkflowTests(unittest.TestCase):
             kwargs["progress"](counts)
             return counts
 
-        with patch.object(self.photo_search, "build_semantic_index", side_effect=fake_build):
+        mock_encoder = MagicMock()
+        fake_cache = {"ViT-B-32/openai": {"downloaded": True, "size_bytes": 100}}
+        with patch.object(self.photo_search, "build_semantic_index", side_effect=fake_build), \
+             patch.object(self.photo_search, "semantic_encoder_for", return_value=mock_encoder), \
+             patch.object(self.photo_search, "semantic_model_cache_info", return_value=fake_cache):
             started = self.json_response(self.post("/api/semantic/start", {"batch_size": 1}))
             self.assertEqual(started["state"], "running")
             for _ in range(100):
@@ -1017,9 +1021,13 @@ class ServerWorkflowTests(unittest.TestCase):
             kwargs["progress"](counts)
             return counts
 
+        mock_encoder = MagicMock()
+        fake_cache = {"ViT-B-32/openai": {"downloaded": True, "size_bytes": 100}}
         with patch.object(self.photo_search, "semantic_is_available", return_value=True), \
              patch.object(self.photo_search, "face_is_available", return_value=True), \
              patch.object(self.photo_search, "build_semantic_index", side_effect=fake_semantic), \
+             patch.object(self.photo_search, "semantic_encoder_for", return_value=mock_encoder), \
+             patch.object(self.photo_search, "semantic_model_cache_info", return_value=fake_cache), \
              patch.object(self.photo_search, "scan_for_faces", side_effect=fake_faces), \
              patch("photo_index.run_windows_ocr", return_value=(str(self.photo), "sample recognized text", None)):
             started = self.json_response(self.post("/api/scan-all/start", {}))

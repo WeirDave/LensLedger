@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 0.98.3 — 2026-09-07
+
+- Fixed CI test failures caused by model management functions not being patchable in tests.
+
 ## 0.98.2 — 2026-09-07
 
 - Model download progress now shows in the terminal log and scan page status when a new model is being downloaded for the first time.

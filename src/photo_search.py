@@ -62,9 +62,11 @@ from product import APP_NAME, APP_TAGLINE, APP_VERSION
 _STARTUP_VERSION = APP_VERSION
 _STARTED_AT = dt.datetime.now(dt.timezone.utc).isoformat()
 from semantic_index import (
+    SUPPORTED_MODELS as SEMANTIC_SUPPORTED_MODELS,
     build_index as build_semantic_index,
     clear_available_cache as semantic_clear_cache,
     delete_cached_model as semantic_delete_model,
+    encoder_for as semantic_encoder_for,
     is_available as semantic_is_available,
     model_cache_info as semantic_model_cache_info,
     search as semantic_search,
@@ -528,17 +530,14 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
 
 def _run_semantic_index_job(handler_class, database, batch_size, started_at):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
-    from semantic_index import encoder_for, model_cache_info, SUPPORTED_MODELS
-    from settings_config import AVAILABLE_MODELS
-
     settings = load_settings()
     model_id = settings.get("scan", {}).get("semantic_model", "ViT-B-32/openai")
-    if model_id not in SUPPORTED_MODELS:
+    if model_id not in SEMANTIC_SUPPORTED_MODELS:
         model_id = "ViT-B-32/openai"
 
     console_log("Meaning search: starting")
     try:
-        cache = model_cache_info()
+        cache = semantic_model_cache_info()
         model_info = cache.get(model_id, {})
         if not model_info.get("downloaded"):
             model_name = model_id.split("/")[0]
@@ -550,7 +549,7 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
         else:
             console_log(f"Meaning search: loading model {model_id}")
 
-        encoder = encoder_for(model_id)
+        encoder = semantic_encoder_for(model_id)
 
         _sem_started_logged = False
         _sem_last_log_time = time.monotonic()
