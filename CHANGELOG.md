@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.1.0 — 2026-09-08
+
+- Added EXIF/XMP metadata writeback so scan results (tags, people, OCR text) can be written back to photos for other apps to read.
+- Added semantic auto-classification that tags photos with categories (landscape, portrait, food, etc.) using CLIP meaning search embeddings.
+- Added XMP sidecar file support as a safer alternative to modifying original photo files.
+- Added configurable write mode (embedded, sidecar, or both) in Settings under "Metadata publishing."
+- Added "Write tags to photos" batch action on the Publish page that combines semantic tags, people names, and OCR text.
+- Added "Classify photos" action on the Publish page to run vocabulary classification on demand.
+- Added optional auto-classify after meaning search completes (enable in Settings).
+- Updated photo_index.py docstring to reflect metadata writeback capability.
+
 ## 1.0.1 — 2026-09-08
 
 - Fixed meaning search errors showing stale paths after files were moved or renamed. Moved files are now re-queued for meaning search indexing at their new location.

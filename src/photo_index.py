@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only incremental indexer for the organized photo library.
+"""Incremental indexer for the organized photo library.
 
-The index database is separate from the media. This program never writes to,
-moves, renames, or deletes photo/video files.
+The index database is separate from the media. Scan results (tags, people,
+OCR text) can optionally be written back to photo XMP/IPTC metadata via
+the publish system in photo_search.py, either embedded in the file or as
+XMP sidecar files.
 """
 
 from __future__ import annotations

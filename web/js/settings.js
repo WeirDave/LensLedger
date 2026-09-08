@@ -131,6 +131,9 @@ function collectSettings(){
   s.ingest.interval_minutes=Math.max(5,Math.min(1440,n('ingestInterval')||10));
   s.startup=s.startup||{};
   s.startup.show_library_picker=c('showLibraryPicker');
+  s.publish=s.publish||{};
+  s.publish.write_mode=v('writeMode')||'embedded';
+  s.publish.auto_classify=c('autoClassify');
   return s;
 }
 

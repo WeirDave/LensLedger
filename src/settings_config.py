@@ -35,6 +35,12 @@ DEFAULTS: dict[str, object] = {
     "startup": {
         "show_library_picker": False,
     },
+    "publish": {
+        "write_mode": "embedded",
+        "auto_classify": False,
+        "classify_threshold": 0.22,
+        "classify_top_n": 5,
+    },
 }
 
 AVAILABLE_MODELS: list[dict[str, str]] = [

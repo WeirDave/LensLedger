@@ -181,4 +181,47 @@ document.querySelector('.theme-toggle')?.addEventListener('click', () => {
   try { localStorage.setItem('theme', next); } catch {}
 });
 
+if ($('classifyPhotos')) {
+  $('classifyPhotos').onclick = async () => {
+    $('classifyPhotos').disabled = true;
+    const status = $('classifyStatus');
+    status.hidden = false;
+    status.textContent = 'Starting classification…';
+    try {
+      await api('/api/classify/start', {});
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/classify/status');
+          const s = await r.json();
+          status.textContent = s.message || s.state;
+          if (s.state !== 'running') {
+            clearInterval(poll);
+            $('classifyPhotos').disabled = false;
+          }
+        } catch {}
+      }, 1000);
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+      $('classifyPhotos').disabled = false;
+    }
+  };
+}
+
+if ($('writeAllTags')) {
+  $('writeAllTags').onclick = async () => {
+    $('writeAllTags').disabled = true;
+    const status = $('writeTagsStatus');
+    status.hidden = false;
+    status.textContent = 'Writing tags to photos…';
+    try {
+      const result = await api('/api/write-tags/batch', { scope: 'all' });
+      status.textContent = 'Wrote tags to ' + result.written + ' of ' + result.total + ' photos.'
+        + (result.failed && result.failed.length ? ' (' + result.failed.length + ' failed)' : '');
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+    }
+    $('writeAllTags').disabled = false;
+  };
+}
+
 loadPending();

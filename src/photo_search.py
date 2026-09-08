@@ -62,6 +62,10 @@ from product import APP_NAME, APP_TAGLINE, APP_VERSION
 
 _STARTUP_VERSION = APP_VERSION
 _STARTED_AT = dt.datetime.now(dt.timezone.utc).isoformat()
+from semantic_classify import (
+    classify_library,
+    get_asset_classifications,
+)
 from semantic_index import (
     SUPPORTED_MODELS as SEMANTIC_SUPPORTED_MODELS,
     build_index as build_semantic_index,
@@ -73,6 +77,7 @@ from semantic_index import (
     search as semantic_search,
     status as semantic_status,
 )
+from xmp_sidecar import write_sidecar
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -622,6 +627,14 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
             console_log(f"Meaning search: done — {indexed:,} indexed, {error_count:,} error(s)")
         else:
             console_log(f"Meaning search: done — {indexed:,} images indexed")
+
+        if not result["cancelled"] and get_setting("publish", "auto_classify", default=False):
+            console_log("Auto-classify: starting after meaning search…")
+            try:
+                cls_result = classify_library(database, encoder=encoder)
+                console_log(f"Auto-classify: {cls_result['classified']} photos, {cls_result['tags_added']} tags added")
+            except Exception as cls_exc:
+                console_log(f"Auto-classify: failed — {cls_exc}")
     except Exception as exc:
         console_log(f"Meaning search: failed — {exc}")
         with handler_class.semantic_lock:
@@ -877,6 +890,9 @@ class SearchHandler(BaseHTTPRequestHandler):
     scan_all_job: dict[str, object] = {"state": "idle", "message": ""}
     scan_all_cancel = threading.Event()
     publish_progress: dict[str, object] = {"state": "idle", "done": 0, "total": 0, "current": ""}
+    classify_lock = threading.Lock()
+    classify_job: dict[str, object] = {"state": "idle", "message": ""}
+    classify_cancel = threading.Event()
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
@@ -1001,6 +1017,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.publish_pending()
         if url.path == "/api/publish/progress":
             return self.send_json(SearchHandler.publish_progress)
+        if url.path == "/api/classify/status":
+            return self.send_json(SearchHandler.classify_job)
         if url.path == "/map":
             return self.map_page()
         if url.path == "/scan-photos":
@@ -1173,6 +1191,14 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.reveal_path(body)
             if route == "/api/dev/set":
                 return self.set_dev_override(body)
+            if route == "/api/classify/start":
+                return self.start_classify(body)
+            if route == "/api/classify/cancel":
+                return self.cancel_classify(body)
+            if route == "/api/write-tags":
+                return self.write_tags_to_photo(body)
+            if route == "/api/write-tags/batch":
+                return self.write_tags_batch(body)
             if route == "/api/settings/save":
                 return self.save_settings_api(body)
             if route == "/api/settings/remove-library":
@@ -1322,11 +1348,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         display = settings.get("display", {})
         watch = settings.get("watch", {})
         ingest = settings.get("ingest", {})
+        publish = settings.get("publish", {})
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
 {nav_menu("settings", str(self.library_root))}
-<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#display-prefs">Display preferences</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
+<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#display-prefs">Display preferences</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#metadata-publishing">Metadata publishing</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
 <section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div>
 <div class="toggle-row toggle-row-spaced"><label class="toggle-switch"><input type="checkbox" id="showLibraryPicker" {"checked" if startup_cfg.get("show_library_picker") else ""}><span class="slider"></span></label><label for="showLibraryPicker">Ask which library to open at startup</label></div></section>
 <section class="card" id="scan-prefs"><h2>Scan preferences</h2>
@@ -1341,6 +1368,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card" id="folder-watching"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
+<section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos. Sidecar mode writes a separate .xmp file next to each photo instead of modifying the original.</p>
+<div class="field"><label for="writeMode">Write mode</label><select id="writeMode"><option value="embedded" {"selected" if publish.get("write_mode", "embedded") == "embedded" else ""}>Embedded (modify photo files)</option><option value="sidecar" {"selected" if publish.get("write_mode") == "sidecar" else ""}>Sidecar (.xmp files)</option><option value="both" {"selected" if publish.get("write_mode") == "both" else ""}>Both (embedded + sidecar)</option></select><span class="hint">Embedded writes metadata directly into JPEG/HEIC files with safety backups. Sidecar creates .xmp files that Lightroom, Capture One, and other apps can read without changing originals.</span></div>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoClassify" {"checked" if publish.get("auto_classify") else ""}><span class="slider"></span></label><label for="autoClassify">Auto-classify photos after meaning search</label></div>
+<span class="hint" style="margin-left:3.5rem">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span></section>
 <section class="card" id="auto-import"><h2>Auto-import photos</h2><p>Automatically import new photos from a source folder and sort them into your library. <a href="/auto-import">Configure source, destination, and sorting rules →</a></p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable automatic photo import</label></div>
 <div class="field"><label for="ingestInterval">Check interval (minutes)</label><input type="number" id="ingestInterval" min="5" max="1440" value="{int(ingest.get('interval_minutes', 10))}"><span class="hint">How often to check for new photos when import is enabled. Default: 10</span></div></section>
@@ -2544,6 +2575,17 @@ class SearchHandler(BaseHTTPRequestHandler):
 {nav_menu("publish", str(self.library_root))}
 <main>
 <p class="intro">Names confirmed in People are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
+<section class="card" id="writeTagsSection">
+<h3>Write tags to photos</h3>
+<p>Write all accumulated metadata (auto-classified tags, people, OCR text) to your photos. Configure the write mode in <a href="/settings#metadata-publishing">Settings</a>.</p>
+<div class="publish-actions">
+<button type="button" class="secondary" id="classifyPhotos">Classify photos</button>
+<button type="button" class="secondary" id="writeAllTags">Write all tags</button>
+</div>
+<div class="classify-status" id="classifyStatus" hidden></div>
+<div class="write-tags-status" id="writeTagsStatus" hidden></div>
+</section>
+<h3>People metadata</h3>
 <div class="publish-summary" id="publishSummary"><div class="loading-spinner"></div> Loading&hellip;</div>
 <div class="publish-table-wrap" id="publishTableWrap" hidden></div>
 <div class="publish-actions" id="publishActions" hidden>
@@ -2721,14 +2763,25 @@ class SearchHandler(BaseHTTPRequestHandler):
                 )]
                 confirmed_keys = {person["name"].casefold() for person in confirmed_people}
                 image_tags = [tag for tag in image_tags if tag["name"].casefold() not in confirmed_keys]
+                auto_tags = [
+                    {"name": r["name"], "confidence": r["confidence"]}
+                    for r in con.execute(
+                        """SELECT t.name, at.confidence FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+                           WHERE at.asset_id=? AND at.source='semantic_auto' ORDER BY at.confidence DESC""",
+                        (asset_id,),
+                    )
+                ]
+                publish_settings = load_settings().get("publish", {})
                 return self.send_json({
                     "id": asset_id, "filename": asset["filename"], "folder": asset["folder"],
                     "capture_date": asset["capture_date"], "media_type": asset["media_type"],
                     "subject": annotation["subject"] if annotation else "",
                     "image_tags": image_tags, "context_tags": context_tags,
+                    "auto_tags": auto_tags,
                     "confirmed_people": confirmed_people, "suggested_people": suggested_people,
                     "focused_person_face": focused_person_face,
                     "all_faces": all_faces,
+                    "write_mode": publish_settings.get("write_mode", "embedded"),
                     "people_options": [row[0] for row in con.execute(
                         "SELECT name FROM people ORDER BY name COLLATE NOCASE"
                     )],
@@ -3059,6 +3112,183 @@ class SearchHandler(BaseHTTPRequestHandler):
                 )
         console_log(f"[Publish] Repaired: {rel} (backup at {backup})")
         self.send_json({"ok": True, "message": f"Repaired — backup saved", "backup": str(backup)})
+
+    def start_classify(self, body):
+        if not semantic_is_available():
+            return self.send_json({"error": "Meaning search is not installed"}, 400)
+        if not SearchHandler.classify_lock.acquire(blocking=False):
+            return self.send_json({"state": "running", "message": "Classification is already running"})
+        SearchHandler.classify_cancel.clear()
+        SearchHandler.classify_job = {"state": "running", "message": "Starting classification…"}
+
+        def run():
+            try:
+                encoder = semantic_encoder_for()
+                def on_progress(c):
+                    SearchHandler.classify_job = {
+                        "state": "running",
+                        "message": f"Classified {c['classified']}/{c['total']} photos ({c['tags_added']} tags)",
+                    }
+                result = classify_library(
+                    self.db_path, encoder=encoder,
+                    progress=on_progress,
+                    should_cancel=SearchHandler.classify_cancel.is_set,
+                )
+                if result["cancelled"]:
+                    SearchHandler.classify_job = {"state": "cancelled", "message": "Classification was cancelled"}
+                else:
+                    SearchHandler.classify_job = {
+                        "state": "complete",
+                        "message": f"Classified {result['classified']} photos, added {result['tags_added']} tags",
+                    }
+            except Exception as exc:
+                SearchHandler.classify_job = {"state": "error", "message": str(exc)}
+            finally:
+                SearchHandler.classify_lock.release()
+
+        threading.Thread(target=run, daemon=True).start()
+        self.send_json({"state": "running", "message": "Classification started"})
+
+    def cancel_classify(self, body):
+        SearchHandler.classify_cancel.set()
+        self.send_json({"ok": True})
+
+    def _gather_write_tags_data(self, con, asset_id: int) -> dict:
+        """Gather all tag data for writing to a photo's metadata."""
+        asset = self.get_active_asset(con, asset_id)
+        path = (self.library_root / Path(asset["relative_path"])).resolve()
+        path.relative_to(self.library_root)
+
+        excluded = {row[0].casefold() for row in con.execute(
+            "SELECT tag FROM asset_tag_exclusions WHERE relative_path=?", (asset["relative_path"],)
+        )}
+
+        keywords: list[str] = []
+        seen: set[str] = set()
+        for row in con.execute(
+            """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+               WHERE at.asset_id=? AND at.source<>'subject' ORDER BY t.name""", (asset_id,)
+        ):
+            key = row["name"].casefold()
+            if key not in excluded and key not in seen:
+                keywords.append(row["name"]); seen.add(key)
+
+        people = [row[0] for row in con.execute(
+            """SELECT p.name FROM asset_people ap JOIN people p ON p.id=ap.person_id
+               WHERE ap.asset_id=? AND ap.state='confirmed' ORDER BY p.name""", (asset_id,)
+        )]
+        for name in people:
+            key = name.casefold()
+            if key not in seen:
+                keywords.append(name); seen.add(key)
+
+        text_row = con.execute(
+            "SELECT ocr_text, caption FROM text_data WHERE asset_id=?", (asset_id,)
+        ).fetchone()
+        description = ""
+        if text_row:
+            description = str(text_row["caption"] or text_row["ocr_text"] or "").strip()[:2000]
+
+        annotation = con.execute(
+            "SELECT subject FROM asset_annotations WHERE relative_path=?", (asset["relative_path"],)
+        ).fetchone()
+        subject = annotation["subject"] if annotation else ""
+
+        return {
+            "asset": asset, "path": path, "keywords": keywords,
+            "people": people, "description": description, "subject": subject,
+        }
+
+    def write_tags_to_photo(self, body):
+        asset_id = int(body["id"])
+        write_mode = str(body.get("write_mode", "") or get_setting("publish", "write_mode", default="embedded"))
+        with self.db() as con:
+            data = self._gather_write_tags_data(con, asset_id)
+            path = data["path"]
+            if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS:
+                if write_mode == "embedded":
+                    raise ValueError(f"Embedded writing is not supported for {data['asset']['filename']}")
+                write_mode = "sidecar"
+
+            result = {"ok": True, "wrote_embedded": False, "wrote_sidecar": False}
+
+            if write_mode in ("sidecar", "both"):
+                sidecar_path = write_sidecar(
+                    path,
+                    title=data["subject"],
+                    description=data["description"],
+                    keywords=data["keywords"],
+                    people=data["people"],
+                )
+                result["wrote_sidecar"] = True
+                result["sidecar_path"] = str(sidecar_path)
+                console_log(f"[Write Tags] Sidecar: {data['asset']['relative_path']}")
+
+            if write_mode in ("embedded", "both"):
+                if path.suffix.lower() in PUBLISHABLE_EXTENSIONS:
+                    self._publish_people_metadata(con, asset_id, operation="write_tags")
+                    result["wrote_embedded"] = True
+                    console_log(f"[Write Tags] Embedded: {data['asset']['relative_path']}")
+
+        self.send_json(result)
+
+    def write_tags_batch(self, body):
+        write_mode = str(body.get("write_mode", "") or get_setting("publish", "write_mode", default="embedded"))
+        scope = str(body.get("scope", "all"))
+        with self.db() as con:
+            if scope == "classified":
+                asset_ids = [r[0] for r in con.execute(
+                    """SELECT DISTINCT at.asset_id FROM asset_tags at
+                       JOIN assets a ON a.id = at.asset_id
+                       WHERE at.source = 'semantic_auto' AND a.in_review_bin = 0"""
+                ).fetchall()]
+            elif scope == "people":
+                asset_ids = [r[0] for r in con.execute(
+                    f"""SELECT DISTINCT ap.asset_id FROM asset_people ap
+                       JOIN assets a ON a.id = ap.asset_id
+                       WHERE ap.state = 'confirmed' AND a.in_review_bin = 0
+                             AND {_PUBLISHABLE_SQL}"""
+                ).fetchall()]
+            else:
+                asset_ids = [r[0] for r in con.execute(
+                    """SELECT a.id FROM assets a
+                       WHERE a.in_review_bin = 0 AND a.media_type = 'image'
+                       AND (EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id AND at.source IN ('semantic_auto','folder_rule','embedded_xmp'))
+                            OR EXISTS (SELECT 1 FROM asset_people ap WHERE ap.asset_id = a.id AND ap.state = 'confirmed')
+                            OR EXISTS (SELECT 1 FROM text_data td WHERE td.asset_id = a.id AND td.ocr_text <> ''))"""
+                ).fetchall()]
+
+        total = len(asset_ids)
+        if not total:
+            return self.send_json({"ok": True, "written": 0, "total": 0})
+
+        console_log(f"[Write Tags] Writing tags to {total} photos (mode={write_mode})…")
+        written = 0
+        failed: list[dict] = []
+        for asset_id in asset_ids:
+            try:
+                with self.db() as con:
+                    data = self._gather_write_tags_data(con, int(asset_id))
+                    path = data["path"]
+                    can_embed = path.suffix.lower() in PUBLISHABLE_EXTENSIONS
+                    mode = write_mode if can_embed else "sidecar"
+
+                    if mode in ("sidecar", "both"):
+                        write_sidecar(
+                            path,
+                            title=data["subject"],
+                            description=data["description"],
+                            keywords=data["keywords"],
+                            people=data["people"],
+                        )
+                    if mode in ("embedded", "both") and can_embed:
+                        self._publish_people_metadata(con, int(asset_id), operation="write_tags")
+                written += 1
+            except Exception as exc:
+                failed.append({"asset_id": asset_id, "reason": str(exc)})
+
+        console_log(f"[Write Tags] Done — {written}/{total} photos updated, {len(failed)} failed.")
+        self.send_json({"ok": True, "written": written, "total": total, "failed": failed})
 
     def trash_history(self):
         with self.db() as con:
