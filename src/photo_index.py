@@ -823,6 +823,30 @@ def scan_library(
     return 0 if counts["errors"] == 0 else 2
 
 
+def pending_scan_counts(db_path: Path) -> dict[str, int]:
+    """Return counts of photos still needing each scan type."""
+    con = connect(db_path)
+    try:
+        ocr = int(con.execute(
+            """SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
+               WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0
+                 AND x.ocr_scanned=0"""
+        ).fetchone()[0])
+        face = int(con.execute(
+            "SELECT COUNT(*) FROM assets WHERE face_scanned=0 AND metadata_scanned=1 AND in_review_bin=0"
+        ).fetchone()[0])
+        semantic = int(con.execute(
+            """SELECT COUNT(*) FROM assets a
+               WHERE a.metadata_scanned=1 AND a.in_review_bin=0
+                 AND NOT EXISTS (SELECT 1 FROM semantic_embeddings e WHERE e.asset_id=a.id)"""
+        ).fetchone()[0])
+    except Exception:
+        return {"ocr": 0, "semantic": 0, "face": 0}
+    finally:
+        con.close()
+    return {"ocr": ocr, "semantic": semantic, "face": face}
+
+
 def import_folder_tags(db_path: Path, csv_path: Path) -> int:
     con = connect(db_path)
     imported = 0

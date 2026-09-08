@@ -54,7 +54,8 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
                                 UpdateError)
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 from photo_index import (
-    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords, ocr_assets, rebuild_search_row, scan_library,
+    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords, ocr_assets,
+    pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
@@ -459,6 +460,22 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             console_log(f"Photo locations: done with {errors:,} error(s) — {changed:,} changed, {removed:,} removed, {total:,} total assets")
         else:
             console_log(f"Photo locations: done — {changed:,} changed, {removed:,} removed, {total:,} total assets")
+        if state == "complete":
+            try:
+                pending = pending_scan_counts(database)
+                parts = []
+                if pending["ocr"]:
+                    parts.append(f"{pending['ocr']:,} need OCR")
+                if pending["semantic"]:
+                    parts.append(f"{pending['semantic']:,} need meaning search")
+                if pending["face"]:
+                    parts.append(f"{pending['face']:,} need face detection")
+                if parts:
+                    console_log("Scan status: " + ", ".join(parts))
+                else:
+                    console_log("Scan status: all photos fully processed")
+            except Exception:
+                pass
     except Exception as exc:
         console_log(f"Photo locations: failed — {exc}")
         with handler_class.library_lock:
@@ -783,6 +800,21 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         if skipped:
             message += " Skipped (not set up yet): " + ", ".join(skipped) + " — set up below."
         console_log(f"Run all scans: complete — {', '.join(ran)}, {total_errors} error(s)")
+        try:
+            pending = pending_scan_counts(database)
+            parts = []
+            if pending["ocr"]:
+                parts.append(f"{pending['ocr']:,} need OCR")
+            if pending["semantic"]:
+                parts.append(f"{pending['semantic']:,} need meaning search")
+            if pending["face"]:
+                parts.append(f"{pending['face']:,} need face detection")
+            if parts:
+                console_log("Scan status: " + ", ".join(parts))
+            else:
+                console_log("Scan status: all photos fully processed")
+        except Exception:
+            pass
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {
                 "state": "complete", "step": None, "message": message,
@@ -1267,7 +1299,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><details class="scan-details"><summary>Database &amp; folder details</summary><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></details></section>
 <section class="card job-card"><div class="section-title"><h2>Run all scans</h2><button type="button" class="info-button" data-help="scanAllHelp" aria-label="About Run all scans">i</button></div><div class="help-popover" id="scanAllHelp">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</div><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="progress-bar" id="locationBarWrap" hidden><span id="locationBar"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Only since <input type="date" id="ocrSince" title="Skip photos taken before this date — useful for scanning only recent additions"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><button type="button" id="installFaceScan">Set up face detection</button></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div></section>
@@ -1437,7 +1469,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><th>Setting</th><th>Range</th><th>Default</th><th>Description</th></tr>
 <tr><td>OCR workers</td><td>1&ndash;16</td><td>4</td><td>More workers scan faster but use more CPU</td></tr>
 <tr><td>Batch size</td><td>10&ndash;500</td><td>50</td><td>Photos processed per commit</td></tr>
-<tr><td>Only since</td><td>Date</td><td>&mdash;</td><td>Skip photos taken before this date</td></tr>
+<tr><td>Skip photos before</td><td>Date</td><td>&mdash;</td><td>Only process photos taken on or after this date (leave empty to scan everything)</td></tr>
 </table>
 <h3>Meaning search (optional)</h3>
 <p>Uses a local AI vision model (CLIP) to search photos by natural language descriptions like &ldquo;a birthday cake&rdquo; or &ldquo;sunset over water.&rdquo; Requires a one-time model download.</p>
@@ -5818,20 +5850,99 @@ def main():
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
     server = LensLedgerHTTPServer(("localhost", args.port), SearchHandler); url = f"http://localhost:{args.port}/"
     def watcher_scan():
-        with SearchHandler.library_lock:
-            if SearchHandler.library_job.get("state") == "scanning":
-                return
-        for lock_attr, job_attr in (
-            ("scan_all_lock", "scan_all_job"),
-            ("semantic_lock", "semantic_job"),
-            ("ocr_lock", "ocr_job"),
-            ("face_scan_lock", "face_scan_job"),
-        ):
-            with getattr(SearchHandler, lock_attr):
-                if getattr(SearchHandler, job_attr).get("state") == "running":
-                    return
+        def _any_scan_running():
+            with SearchHandler.library_lock:
+                if SearchHandler.library_job.get("state") == "scanning":
+                    return True
+            for lock_attr, job_attr in (
+                ("scan_all_lock", "scan_all_job"),
+                ("semantic_lock", "semantic_job"),
+                ("ocr_lock", "ocr_job"),
+                ("face_scan_lock", "face_scan_job"),
+            ):
+                with getattr(SearchHandler, lock_attr):
+                    if getattr(SearchHandler, job_attr).get("state") == "running":
+                        return True
+            return False
+
+        if _any_scan_running():
+            return
+
+        root = SearchHandler.library_root
+        db = SearchHandler.db_path
+        ran = []
         try:
-            scan_library(SearchHandler.library_root, SearchHandler.db_path, quiet=True)
+            # Step 1: library/location scan
+            with SearchHandler.library_lock:
+                SearchHandler.library_job = {
+                    "state": "scanning", "message": "Discovering photos and videos…",
+                    "target_root": str(root), "scanned": 0, "changed": 0,
+                    "unchanged": 0, "removed": 0, "errors": 0, "placeholders": 0,
+                    "started_at": utc_now(),
+                }
+                SearchHandler.library_cancel.clear()
+            _run_library_scan_job(SearchHandler, root, db, SearchHandler.library_job["started_at"])
+            lib_state = SearchHandler.library_job.get("state")
+            if lib_state not in ("complete",):
+                return
+            ran.append("photo locations")
+
+            pending = pending_scan_counts(db)
+            parts = []
+            if pending["ocr"]:
+                parts.append(f"{pending['ocr']:,} need OCR")
+            if pending["semantic"]:
+                parts.append(f"{pending['semantic']:,} need meaning search")
+            if pending["face"]:
+                parts.append(f"{pending['face']:,} need face detection")
+            if parts:
+                console_log("Scan status: " + ", ".join(parts))
+
+            # Step 2: OCR
+            if pending["ocr"] > 0:
+                with SearchHandler.ocr_lock:
+                    SearchHandler.ocr_job = {
+                        "state": "running", "message": "Preparing local text recognition…",
+                        "total": 0, "attempted": 0, "with_text": 0, "errors": 0,
+                        "started_at": utc_now(),
+                    }
+                    SearchHandler.ocr_cancel.clear()
+                _run_ocr_job(SearchHandler, db, None, 4, SearchHandler.ocr_job["started_at"])
+                if SearchHandler.ocr_job.get("state") == "complete":
+                    ran.append("OCR")
+                else:
+                    return
+
+            # Step 3: semantic indexing (only if installed)
+            if semantic_is_available() and pending["semantic"] > 0:
+                with SearchHandler.semantic_lock:
+                    SearchHandler.semantic_job = {
+                        "state": "running", "message": "Loading the optional local meaning model…",
+                        "total": 0, "indexed_this_pass": 0, "errors": 0,
+                        "started_at": utc_now(),
+                    }
+                    SearchHandler.semantic_cancel.clear()
+                _run_semantic_index_job(SearchHandler, db, 16, SearchHandler.semantic_job["started_at"])
+                if SearchHandler.semantic_job.get("state") == "complete":
+                    ran.append("meaning search")
+                else:
+                    return
+
+            # Step 4: face detection (only if installed)
+            if face_is_available() and pending["face"] > 0:
+                with SearchHandler.face_scan_lock:
+                    SearchHandler.face_scan_job = {
+                        "state": "running", "message": "Preparing local face detection…",
+                        "total": 0, "processed": 0, "faces_found": 0, "errors": 0,
+                        "started_at": utc_now(),
+                    }
+                    SearchHandler.face_scan_cancel.clear()
+                _run_face_scan_job(SearchHandler, db, root, SearchHandler.face_scan_job["started_at"])
+                if SearchHandler.face_scan_job.get("state") == "complete":
+                    ran.append("face detection")
+
+            if ran:
+                console_log(f"Folder watcher: all scans complete — {', '.join(ran)}")
         except Exception as exc:
             console_log(f"Folder watcher scan failed: {exc}")
     settings = load_settings()

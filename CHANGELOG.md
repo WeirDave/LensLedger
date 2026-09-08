@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.0.0 — 2026-09-08
+
+- Folder watcher now chains all scan types automatically: library → OCR → meaning search → face detection. New photos are fully processed without manual intervention.
+- Added scan status logging after each scan completes, showing how many photos still need OCR, meaning search, or face detection.
+- Clarified the OCR date filter label from "Only since" to "Skip photos before" to avoid confusion with scan status dates.
+
 ## 0.99.2 — 2026-09-07
 
 - Fixed folder watcher triggering a library scan while another scan (meaning search, OCR, or face detection) was running, which caused "database is locked" errors.
