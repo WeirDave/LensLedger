@@ -20,7 +20,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from face_learning import encode_vector
 from face_locations import is_available, load_insightface_runtime
-from photo_index import connect, utc_now
+from photo_index import connect, unsupported_image_extensions, utc_now
 
 
 def status(db_path: Path) -> dict[str, object]:
@@ -71,13 +71,16 @@ def scan_for_faces(
     never retried forever just because it never got a face_embeddings row
     -- the same convention ocr_scanned already uses for OCR."""
     cv2, np, analyzer = load_insightface_runtime(model_name, model_root)
+    skip_exts = unsupported_image_extensions() | {".gif"}
+    ext_clause = " AND ".join(["a.extension != ?"] * len(skip_exts))
     con = connect(database)
     try:
         rows = con.execute(
-            """SELECT a.id,a.relative_path FROM assets a
+            f"""SELECT a.id,a.relative_path FROM assets a
                WHERE a.in_review_bin=0 AND a.media_type='image' AND a.metadata_scanned=1
-                 AND a.face_scanned=0 AND a.extension != '.gif'
-               ORDER BY a.capture_date,a.relative_path"""
+                 AND a.face_scanned=0 AND {ext_clause}
+               ORDER BY a.capture_date,a.relative_path""",
+            tuple(sorted(skip_exts)),
         ).fetchall()
         if limit is not None:
             rows = rows[: max(0, limit)]

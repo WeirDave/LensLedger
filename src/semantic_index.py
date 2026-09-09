@@ -19,7 +19,7 @@ except ImportError:
     pass
 
 from app_paths import libraries_root
-from photo_index import connect, utc_now
+from photo_index import connect, unsupported_image_extensions, utc_now
 
 
 DEFAULT_DB = libraries_root() / "default.sqlite3"
@@ -241,14 +241,16 @@ def build_index(
 ) -> dict[str, int | bool]:
     encoder = encoder or encoder_for(DEFAULT_MODEL)
     model = str(encoder.identity)
+    skip_exts = unsupported_image_extensions() | {".gif"}
+    ext_clause = " AND ".join(["a.extension != ?"] * len(skip_exts))
     with connect(db_path) as con:
         rows = con.execute(
-            """SELECT a.id,a.path FROM assets a
+            f"""SELECT a.id,a.path FROM assets a
                LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
                WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0
-                     AND a.extension != '.gif' AND a.semantic_error='' AND se.asset_id IS NULL
+                     AND {ext_clause} AND a.semantic_error='' AND se.asset_id IS NULL
                ORDER BY a.capture_date,a.relative_path""",
-            (model,),
+            (model, *sorted(skip_exts)),
         ).fetchall()
     if limit is not None:
         rows = rows[:max(0, limit)]

@@ -42,6 +42,7 @@ MEDIA_EXTENSIONS = {
 }
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
+IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
 SCHEMA_VERSION = 16
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
@@ -411,6 +412,19 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
             "UPDATE assets SET semantic_error='' "
             "WHERE semantic_error LIKE '%broken data stream%'"
         )
+        skip = unsupported_image_extensions()
+        if skip:
+            placeholders = ",".join("?" * len(skip))
+            con.execute(
+                f"UPDATE assets SET semantic_error='' "
+                f"WHERE extension IN ({placeholders}) AND semantic_error LIKE '%cannot identify image file%'",
+                tuple(sorted(skip)),
+            )
+            con.execute(
+                f"UPDATE assets SET face_scanned=0, face_scan_error='' "
+                f"WHERE extension IN ({placeholders}) AND face_scan_error LIKE '%cannot identify image file%'",
+                tuple(sorted(skip)),
+            )
         _broken_stream_cleared = True
     con.commit()
     if int(con.execute("PRAGMA user_version").fetchone()[0]) != SCHEMA_VERSION:
@@ -426,6 +440,13 @@ def media_type(path: Path) -> str:
     if extension in RAW_EXTENSIONS:
         return "raw"
     return "image"
+
+
+def unsupported_image_extensions() -> set[str]:
+    """Image extensions in MEDIA_EXTENSIONS that PIL cannot currently decode."""
+    from PIL import Image
+    supported = {ext.lower() for ext in Image.registered_extensions()}
+    return IMAGE_EXTENSIONS - supported
 
 
 def _actual_allocation_size(path: Path) -> int | None:

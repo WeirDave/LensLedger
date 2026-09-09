@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.1.1 — 2026-09-08
+
+- Fixed meaning search and face detection attempting to process image formats PIL cannot decode (e.g. HEIC when pillow-heif is not installed), which generated thousands of spurious errors.
+- Unsupported image extensions are now detected at query time and excluded from scan candidate lists.
+- Existing "cannot identify image file" errors for unsupported formats are automatically cleared on startup.
+
 ## 1.1.0 — 2026-09-08
 
 - Added EXIF/XMP metadata writeback so scan results (tags, people, OCR text) can be written back to photos for other apps to read.
