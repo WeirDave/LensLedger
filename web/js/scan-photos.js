@@ -309,8 +309,7 @@ async function refresh() {
     if (!faceScan.installed) {
       $('faceScanMessage').textContent = faceInstalling ? faceInstall.message
         : (faceInstall.state === 'error' ? faceInstall.message
-          : 'Not set up yet — click below to install the local face-detection model software (a one-time download).');
-      $('installFaceScan').disabled = faceInstalling || scanAllRunning;
+          : 'Not set up yet — use the link below to install face detection from Settings.');
       $('faceScanMetrics').replaceChildren();
       $('faceScanBarWrap').hidden = !faceInstalling;
       $('faceScanBarWrap').classList.toggle('indeterminate', faceInstalling);
@@ -384,12 +383,7 @@ $('pauseSemantic').onclick = async () => {
   catch (error) { $('semanticMessage').textContent = error.message; }
 };
 
-$('installFaceScan').onclick = async () => {
-  if (!confirm('This downloads and installs the local face-detection model software (roughly 500 MB) and may take several minutes. It runs entirely on this computer and nothing is uploaded. Continue?')) return;
-  $('installFaceScan').disabled = true;
-  try { await api('/api/faces/install', {}); refresh(); }
-  catch (error) { $('faceScanMessage').textContent = error.message; $('installFaceScan').disabled = false; }
-};
+// Face detection install moved to Settings page
 $('startFaceScan').onclick = async () => {
   $('startFaceScan').disabled = true;
   try { await api('/api/faces/start', {}); refresh(); }

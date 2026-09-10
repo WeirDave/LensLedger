@@ -323,6 +323,98 @@ $('#installSemantic').onclick=async(e)=>{
   }
 };
 
+let faceInstalled=false;
+let facePolling=false;
+
+function renderFaceModel(cache){
+  const el=$('#faceModelList');if(!el)return;
+  el.innerHTML='';
+  const item=document.createElement('div');
+  item.className='model-item active';
+  const downloaded=cache.downloaded||false;
+  const sizeMb=cache.size_mb?cache.size_mb.toFixed(0)+' MB':'';
+  const badge=downloaded
+    ?'<span class="model-status downloaded">Downloaded'+(sizeMb?' · '+sizeMb:'')+'</span>'
+    :'<span class="model-status not-downloaded">Not downloaded</span>';
+  let desc='InsightFace face detection and recognition model';
+  if(downloaded&&cache.path)desc+=' · '+esc(cache.path);
+  item.innerHTML='<div class="model-info"><div class="model-name">buffalo_l</div><div class="model-desc">'+desc+'</div></div>'
+    +'<div class="model-meta">'+badge+'</div>';
+  el.appendChild(item);
+}
+
+async function checkFaceStatus(){
+  try{
+    const res=await fetch('/api/faces/status');
+    const data=await res.json();
+    const setupArea=$('#faceSetupArea');
+    const modelInfo=$('#faceModelInfo');
+    const msg=$('#faceSetupMsg');
+    const barWrap=$('#faceInstallBarWrap');
+    const installBtn=$('#installFaceBtn');
+    const install=data.install||{};
+    if(data.installed){
+      faceInstalled=true;
+      setupArea.hidden=true;
+      modelInfo.hidden=false;
+      renderFaceModel(data.model_cache||{});
+      facePolling=false;
+    }else{
+      modelInfo.hidden=true;
+      setupArea.hidden=false;
+      if(install.state==='installing'){
+        msg.textContent=install.message||'Installing face detection software…';
+        barWrap.hidden=false;
+        barWrap.classList.add('indeterminate');
+        installBtn.hidden=true;
+        if(!facePolling){facePolling=true;setTimeout(checkFaceStatus,2000);}
+        else setTimeout(checkFaceStatus,2000);
+        return;
+      }else if(install.state==='complete'){
+        faceInstalled=true;
+        setupArea.hidden=true;
+        modelInfo.hidden=false;
+        renderFaceModel(data.model_cache||{});
+        facePolling=false;
+        toast('Face detection installed successfully.');
+        return;
+      }else if(install.state==='error'){
+        msg.textContent=install.message||'Install failed.';
+        barWrap.hidden=true;
+        installBtn.hidden=false;
+        installBtn.disabled=false;
+        facePolling=false;
+      }else{
+        msg.textContent='Face detection is not installed. Click the button below to download and install the model software (roughly 500 MB).';
+        barWrap.hidden=true;
+        installBtn.hidden=false;
+        installBtn.disabled=false;
+        facePolling=false;
+      }
+    }
+  }catch(e){
+    const msg=$('#faceSetupMsg');
+    if(msg)msg.textContent='Could not check face detection status.';
+    facePolling=false;
+  }
+}
+
+$('#installFaceBtn').onclick=async(e)=>{
+  e.preventDefault();
+  if(!confirm('This downloads and installs the local face-detection model software (roughly 500 MB) and may take several minutes. It runs entirely on this computer and nothing is uploaded. Continue?'))return;
+  const btn=$('#installFaceBtn');
+  btn.disabled=true;
+  try{
+    const res=await post('/api/faces/install',{});
+    if(res.error){toast(res.error,true);btn.disabled=false;checkFaceStatus();return}
+    facePolling=true;
+    checkFaceStatus();
+  }catch(err){
+    toast(err.message||'Install failed',true);
+    btn.disabled=false;
+  }
+};
+
 if(location.hash){
   const el=$(location.hash);
   if(el){const y=el.getBoundingClientRect().top+window.scrollY-80;try{window.scrollTo({top:y,behavior:'smooth'})}catch(_){window.scrollTo(0,y)}}
@@ -332,6 +424,7 @@ renderLibraries();
 renderModels();
 loadExportStatus();
 checkSemanticStatus();
+checkFaceStatus();
 
 const tocLinks=$$('.settings-toc a');
 if(tocLinks.length){

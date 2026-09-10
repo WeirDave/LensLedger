@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.2.0 — 2026-09-09
+
+- Moved face detection setup from the Scan Photos page to a dedicated section in Settings, matching the existing meaning search pattern.
+- Settings now shows face detection model status, including whether the buffalo_l model is downloaded, its size, and file path.
+- The Scan Photos page now links to Settings for face detection setup instead of showing an inline install button.
+
 ## 1.1.1 — 2026-09-08
 
 - Fixed meaning search and face detection attempting to process image formats PIL cannot decode (e.g. HEIC when pillow-heif is not installed), which generated thousands of spurious errors.

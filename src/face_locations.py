@@ -41,6 +41,29 @@ def is_available() -> bool:
     return True
 
 
+def _insightface_model_root() -> Path:
+    return Path(os.environ.get("INSIGHTFACE_HOME", Path.home() / ".insightface")) / "models"
+
+
+def model_cache_info(model_name: str = "buffalo_l") -> dict:
+    """Return download status and file size for the face detection model."""
+    model_dir = _insightface_model_root() / model_name
+    total_bytes = 0
+    found = False
+    if model_dir.is_dir():
+        for f in model_dir.iterdir():
+            if f.suffix == ".onnx":
+                found = True
+                total_bytes += f.stat().st_size
+    size_mb = round(total_bytes / (1024 * 1024), 1) if found else 0
+    return {
+        "model": model_name,
+        "downloaded": found,
+        "size_mb": size_mb,
+        "path": str(model_dir) if found else "",
+    }
+
+
 def _patch_face_align():
     """Replace deprecated SimilarityTransform.estimate() call in insightface
     with the newer from_estimate() class constructor so scikit-image >= 0.26
