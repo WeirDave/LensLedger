@@ -677,11 +677,11 @@ class ServerWorkflowTests(unittest.TestCase):
         from photo_index import utc_now
 
         con = sqlite3.connect(self.database)
-        target_id = int(con.execute("INSERT INTO people(name) VALUES ('R David Paine III')").lastrowid)
-        source_id = int(con.execute("INSERT INTO people(name) VALUES ('R. David Paine III')").lastrowid)
+        target_id = int(con.execute("INSERT INTO people(name) VALUES ('James Robert Thornton III')").lastrowid)
+        source_id = int(con.execute("INSERT INTO people(name) VALUES ('J. Robert Thornton III')").lastrowid)
         con.execute(
             "INSERT INTO person_aliases(person_id,alias) VALUES (?,?)",
-            (source_id, "Dave Paine"),
+            (source_id, "Jim Thornton"),
         )
         con.execute(
             """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
@@ -713,8 +713,8 @@ class ServerWorkflowTests(unittest.TestCase):
             ))
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["person"], "R David Paine III")
-        self.assertEqual(result["merged_names"], ["R. David Paine III"])
+        self.assertEqual(result["person"], "James Robert Thornton III")
+        self.assertEqual(result["merged_names"], ["J. Robert Thornton III"])
         self.assertEqual(result["published"], 1)
         self.assertTrue(Path(result["database_backup"]).is_file())
         con = sqlite3.connect(self.database)
@@ -723,7 +723,7 @@ class ServerWorkflowTests(unittest.TestCase):
             aliases = [row[0] for row in con.execute(
                 "SELECT alias FROM person_aliases WHERE person_id=? ORDER BY alias", (target_id,)
             )]
-            self.assertEqual(aliases, ["Dave Paine", "R. David Paine III"])
+            self.assertEqual(aliases, ["J. Robert Thornton III", "Jim Thornton"])
             association = con.execute(
                 "SELECT person_id,state,source FROM asset_people WHERE asset_id=?", (self.asset_id,)
             ).fetchone()

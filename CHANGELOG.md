@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.2.1 — 2026-09-14
+
+- Replaced real personal names in release notes and test fixtures with fictional equivalents to protect privacy.
+- Replaced real group/organization names in release notes with fictional equivalents.
+
 ## 1.2.0 — 2026-09-09
 
 - Moved face detection setup from the Scan Photos page to a dedicated section in Settings, matching the existing meaning search pattern.
