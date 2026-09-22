@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sqlite3
+import shutil
 import tempfile
 import threading
 import unittest
@@ -479,6 +480,119 @@ class TestWriteTagsEndpoint(unittest.TestCase):
                       "a PNG cannot carry embedded tags, so the run must say so by name")
         for item in job["fell_back"]:
             self.assertTrue(item.get("error"), "every reported file needs a reason")
+
+    def test_write_records_completion_so_an_interrupted_write_is_visible(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+
+        con = sqlite3.connect(self.database)
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT completed_at FROM metadata_publications WHERE asset_id=?",
+            (self.asset_id,),
+        ).fetchone()
+        con.close()
+        self.assertIsNotNone(row["completed_at"],
+                             "a finished write must record that it finished")
+
+        self.assertEqual(
+            self.photo_search.interrupted_publications(self.database), [],
+            "a write that completed must not be reported as interrupted",
+        )
+
+    def test_a_write_that_never_completed_is_reported(self):
+        con = sqlite3.connect(self.database)
+        con.execute(
+            """INSERT INTO metadata_publications
+               (asset_id, relative_path, backup_path, before_json, after_json,
+                operation, published_at, completed_at)
+               VALUES (?, ?, ?, '{}', '{}', 'write_tags', datetime('now'), NULL)""",
+            (self.asset_id, self.photo.name, str(self.photo)),
+        )
+        con.commit()
+        con.close()
+
+        interrupted = self.photo_search.interrupted_publications(self.database)
+        self.assertEqual(len(interrupted), 1)
+        self.assertEqual(interrupted[0]["path"], self.photo.name)
+        self.assertTrue(interrupted[0]["backup_exists"])
+
+    def test_a_failed_write_leaves_nothing_recorded(self):
+        """A rolled-back write must not linger as an interrupted one."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        original = self.photo.read_bytes()
+        with patch.object(self.photo_search, "_run_exiftool",
+                          side_effect=ValueError("exiftool exploded")):
+            with self.assertRaises(Exception):
+                self.json_response(self.post(
+                    "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+                ))
+
+        self.assertEqual(self.photo.read_bytes(), original,
+                         "the photo must be put back exactly as it was")
+        self.assertEqual(
+            self.photo_search.interrupted_publications(self.database), [],
+            "a write that was rolled back is not an interrupted write",
+        )
+
+    def test_backup_verification_uses_contents_not_size(self):
+        """A same-size but different copy must be rejected."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        real_copy = shutil.copy2
+
+        def corrupting_copy(source, destination, *args, **kwargs):
+            result = real_copy(source, destination, *args, **kwargs)
+            target = Path(destination)
+            if ".before-write-tags-" in target.name:
+                size = target.stat().st_size
+                target.write_bytes(b"\0" * size)
+            return result
+
+        with patch.object(self.photo_search.shutil, "copy2", side_effect=corrupting_copy):
+            with self.assertRaises(Exception):
+                self.json_response(self.post(
+                    "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+                ))
+
+    def test_bulk_write_refuses_when_there_is_no_room_for_copies(self):
+        self._seed_every_category()
+
+        impossible = {"ok": False, "free_bytes": 1000, "required_bytes": 1 << 50,
+                      "margin_bytes": 0, "shortfall_bytes": 1 << 50}
+        with patch.object(self.photo_search.metadata_backups, "space_check",
+                          return_value=impossible):
+            import urllib.error
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post("/api/write-tags/batch", {"scope": "all", "write_mode": "embedded"})
+            body = json.loads(caught.exception.read())
+
+        self.assertIn("Not enough disk space", body["error"])
+        self.assertIn("sidecar", body["error"],
+                      "the refusal should point at the option that needs no copies")
+        self.assertEqual(
+            self.photo_search.SearchHandler.write_tags_job.get("state"), "idle",
+            "nothing should have started",
+        )
+
+    def test_online_only_photos_are_refused_with_a_plain_reason(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        with patch.object(self.photo_search, "is_cloud_placeholder", return_value=True):
+            import urllib.error
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post("/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"})
+            body = json.loads(caught.exception.read())
+
+        self.assertIn("online only", body["error"])
 
     def test_asset_detail_includes_auto_tags_and_write_mode(self):
         import urllib.request

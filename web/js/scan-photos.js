@@ -211,6 +211,65 @@ function renderLiveFailures(metricsId, failures) {
   host.parentElement.insertBefore(box, host.nextSibling);
 }
 
+async function refreshPhotoBackups() {
+  if (!$('photoBackupMetrics')) return;
+  let info;
+  try { info = await fetch('/api/photo-backups/status').then(r => r.json()); }
+  catch { return; }
+
+  $('photoBackupMetrics').replaceChildren(
+    metric('Safety copies', info.count, null, 'One copy of each photo written, kept so the change can be undone'),
+    metric('Space used', 0, null, 'Total size of the safety copies on disk'),
+    metric('Free on disk', 0, null, 'Space still free where the safety copies are kept'),
+  );
+  // The size figures are text, not counts, so write them after the fact.
+  const boxes = $('photoBackupMetrics').children;
+  if (boxes[1]) boxes[1].querySelector('strong').textContent = info.human;
+  if (boxes[2]) boxes[2].querySelector('strong').textContent = info.free_human;
+
+  const warn = $('interruptedWrites');
+  const interrupted = info.interrupted || [];
+  if (!interrupted.length) {
+    warn.hidden = true;
+    warn.replaceChildren();
+  } else {
+    warn.hidden = false;
+    const heading = document.createElement('p');
+    heading.className = 'interrupted-heading';
+    heading.textContent = interrupted.length === 1
+      ? 'One photo was being written when LensLedger stopped:'
+      : `${interrupted.length.toLocaleString()} photos were being written when LensLedger stopped:`;
+    const list = document.createElement('ul');
+    interrupted.slice(0, 20).forEach(item => {
+      const row = document.createElement('li');
+      const name = document.createElement('strong');
+      name.textContent = item.path;
+      const state = document.createElement('span');
+      state.textContent = item.backup_exists
+        ? ' — the original was kept and can be put back from the photo\u2019s own page.'
+        : ' — no safety copy remains for this one.';
+      row.append(name, state);
+      list.append(row);
+    });
+    warn.replaceChildren(heading, list);
+  }
+}
+
+async function clearPhotoBackups(scope, button) {
+  const status = $('photoBackupStatus');
+  button.disabled = true;
+  status.textContent = 'Clearing…';
+  try {
+    const result = await api('/api/photo-backups/clear', { scope });
+    status.textContent = result.message;
+    await refreshPhotoBackups();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+  button.disabled = false;
+}
+
+
 async function refresh() {
   try {
     const [diagnostics, locationStatus, ocr, semantic, faceScan, scanAll] = await Promise.all([
@@ -333,6 +392,7 @@ async function refresh() {
         : '');
     if (!semanticInstalling) setBar('semanticBar', semantic.indexed_this_pass, semanticRunning ? semantic.total : 0);
     renderLiveFailures('semanticMetrics', semantic.failures);
+    refreshPhotoBackups();
 
     // Face detection
     const faceInstall = faceScan.install || {};
@@ -498,3 +558,13 @@ function checkServerVersion(){
   }).catch(()=>{});
 }
 checkServerVersion();setInterval(checkServerVersion,30000);
+
+if ($('prunePhotoBackups')) {
+  $('prunePhotoBackups').onclick = () => clearPhotoBackups('retention', $('prunePhotoBackups'));
+}
+if ($('clearPhotoBackups')) {
+  $('clearPhotoBackups').onclick = () => {
+    if (!confirm('Delete every safety copy? Writes already made to your photos can no longer be undone afterwards. Your photos themselves are not touched.')) return;
+    clearPhotoBackups('all', $('clearPhotoBackups'));
+  };
+}

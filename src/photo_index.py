@@ -43,7 +43,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS metadata_publications (
     operation TEXT NOT NULL DEFAULT 'full',
     review_action_id INTEGER,
     published_at TEXT NOT NULL,
+    completed_at TEXT,
     restored_at TEXT
 );
 
@@ -400,6 +401,13 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE text_data ADD COLUMN ocr_error TEXT NOT NULL DEFAULT ''")
     if "content_hash" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
+    publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
+    if "completed_at" not in publication_columns:
+        con.execute("ALTER TABLE metadata_publications ADD COLUMN completed_at TEXT")
+        # Rows written before this column existed all finished, or they would
+        # have been rolled back; marking them complete avoids reporting every
+        # historical write as interrupted.
+        con.execute("UPDATE metadata_publications SET completed_at=published_at")
     if not con.execute("SELECT 1 FROM library_metadata WHERE key='library_id'").fetchone():
         import uuid
         con.execute("INSERT OR IGNORE INTO library_metadata(key,value) VALUES ('library_id',?)", (str(uuid.uuid4()),))

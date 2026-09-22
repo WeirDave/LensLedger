@@ -134,6 +134,8 @@ function collectSettings(){
   s.publish=s.publish||{};
   s.publish.write_mode=v('writeMode')||'embedded';
   s.publish.auto_classify=c('autoClassify');
+  s.publish.backup_keep_days=Math.max(0,n('backupKeepDays'));
+  s.publish.backup_max_gb=Math.max(0,n('backupMaxGb'));
   return s;
 }
 

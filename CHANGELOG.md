@@ -6,6 +6,23 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.4.0 — 2026-09-22
+
+- Every action now appears in the log. Running "Fill in missing" — or any of the other scans and writes — previously produced nothing that named what had been started, so there was no way to tell whether it ran.
+- The log names which button started a run. The three meaning-search buttons, and a text-recognition re-read, are now told apart rather than all appearing as a generic scan.
+- Actions log their outcome, including when there was nothing to do. A run that finds no work now says so instead of ending in silence.
+- Long-running work logs progress and elapsed time, and names every file it could not process along with the reason. Failures are never rate-limited away.
+- Automatic background checks are labelled as such, so scheduled work is distinguishable from something started by hand.
+- The log no longer breaks on consoles that cannot handle the punctuation it uses, and a log line can never interrupt the work it is describing.
+- The log file carries a notice that it contains real folder names and photo paths and should be edited before being shared.
+- Added a disk-space check before writing tags across a library. Embedded writes keep a full copy of each photo, so the run now refuses up front if the copies will not fit, naming the shortfall and the alternatives.
+- Added retention limits for photo safety copies in Settings under "Metadata publishing": an age limit in days and a total size limit in GB, defaulting to 30 days and 20 GB. Copies past the limits are cleared automatically after each run.
+- Added a "Photo safety copies" panel to the Scan your photos page showing how many copies exist, how much space they use, and how much is free, with buttons to clear copies past the limit or clear all of them.
+- Writes interrupted by the program stopping are now detected and listed by name, saying whether the original can still be restored.
+- Safety copies are now verified by their contents rather than by file size alone.
+- Photos stored online only are now refused with an explanation instead of being attempted.
+- Fixed settings being read from and written to the wrong location when the data folder was set after startup.
+
 ## 1.3.0 — 2026-09-21
 
 - "Write all tags" on the Publish photos page now writes auto-classified tags, the subject, and text found in pictures into photo files, not only the names of people. Previously the embedded write mode, which is the default, wrote names alone and dropped the rest without saying so.

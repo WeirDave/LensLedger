@@ -8,7 +8,14 @@ from pathlib import Path
 from app_paths import data_root
 
 
-SETTINGS_PATH = data_root() / "settings.json"
+def settings_file() -> Path:
+    """Resolve the settings file every time it is needed.
+
+    Binding this once at import time meant that whatever LENSLEDGER_DATA_DIR
+    said when the module first loaded won for the life of the process -- so a
+    test that set it later still read and wrote the real one.
+    """
+    return data_root() / "settings.json"
 
 DEFAULTS: dict[str, object] = {
     "scan": {
@@ -40,6 +47,8 @@ DEFAULTS: dict[str, object] = {
         "auto_classify": False,
         "classify_threshold": 0.22,
         "classify_top_n": 5,
+        "backup_keep_days": 30,
+        "backup_max_gb": 20,
     },
 }
 
@@ -62,7 +71,7 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 def load_settings() -> dict:
     try:
-        raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(settings_file().read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             return _deep_merge(DEFAULTS, raw)
     except (OSError, ValueError, json.JSONDecodeError):
@@ -71,11 +80,12 @@ def load_settings() -> dict:
 
 
 def save_settings(values: dict) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    target = settings_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
     merged = _deep_merge(DEFAULTS, values)
-    temporary = SETTINGS_PATH.with_suffix(".tmp")
+    temporary = target.with_suffix(".tmp")
     temporary.write_text(json.dumps(merged, indent=2), encoding="utf-8")
-    temporary.replace(SETTINGS_PATH)
+    temporary.replace(target)
 
 
 def get_setting(*keys: str, default: object = None) -> object:

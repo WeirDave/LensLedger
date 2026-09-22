@@ -31,7 +31,7 @@ try:
 except ImportError:
     pass
 
-from console_log import log as console_log
+from console_log import Action, log as console_log
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
@@ -53,8 +53,10 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
                                 is_git_install,
                                 UpdateError)
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
+import metadata_backups
 from photo_index import (
-    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords, ocr_assets,
+    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords,
+    is_cloud_placeholder, ocr_assets,
     pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
@@ -490,30 +492,218 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             }
 
 
+# Every state-changing request is logged by the name the user sees on the
+# button, so nothing they press can happen invisibly. Routes absent from this
+# map are deliberately quiet: they read state or poll, and logging them would
+# bury the things that matter.
+ACTION_LABELS = {
+    "/api/scan-all/start": "Run all scans",
+    "/api/scan-all/cancel": "Run all scans — stop requested",
+    "/api/library/cancel": "Photo location scan — stop requested",
+    "/api/ocr/start": "Text recognition",
+    "/api/ocr/cancel": "Text recognition — stop requested",
+    "/api/semantic/start": "Meaning search",
+    "/api/semantic/cancel": "Meaning search — stop requested",
+    "/api/semantic/install": "Meaning search setup",
+    "/api/semantic/download-model": "Meaning search model download",
+    "/api/semantic/delete-model": "Meaning search model removal",
+    "/api/faces/start": "Face detection",
+    "/api/faces/cancel": "Face detection — stop requested",
+    "/api/faces/install": "Face detection setup",
+    "/api/faces/find-more": "Find more of this person",
+    "/api/faces/name": "Name a face",
+    "/api/faces/name-batch": "Name faces in bulk",
+    "/api/faces/confirm-remaining": "Confirm all remaining faces",
+    "/api/faces/ignore": "Mark as not a person",
+    "/api/faces/unknown": "Mark as unknown person",
+    "/api/faces/skip": "Skip faces",
+    "/api/faces/unskip": "Show skipped faces again",
+    "/api/faces/publish-person": "Publish one person's name to photos",
+    "/api/classify/start": "Classify photos",
+    "/api/classify/cancel": "Classify photos — stop requested",
+    "/api/write-tags": "Write tags to one photo",
+    "/api/write-tags/batch": "Write all tags",
+    "/api/write-tags/cancel": "Write all tags — stop requested",
+    "/api/publish": "Publish metadata to one photo",
+    "/api/publish/run": "Publish people metadata",
+    "/api/publish/restore": "Restore a photo from its safety copy",
+    "/api/publish/repair": "Repair a photo",
+    "/api/photo-backups/clear": "Clear photo safety copies",
+    "/api/database/backup": "Create database backup",
+    "/api/settings/save": "Save settings",
+    "/api/settings/export": "Export database",
+    "/api/settings/import": "Import database",
+    "/api/settings/remove-library": "Remove a library",
+    "/api/library/add": "Add a library",
+    "/api/library/open": "Open library",
+    "/api/library/relocate": "Move a library",
+    "/api/ingest/save": "Save auto-import settings",
+    "/api/ingest/run": "Run auto-import now",
+    "/api/review-bin": "Move a photo to the Review Bin",
+    "/api/review-bin/batch": "Move photos to the Review Bin",
+    "/api/review-bin/restore": "Restore from the Review Bin",
+    "/api/review-bin/delete": "Delete from the Review Bin",
+    "/api/review-bin/empty": "Empty the Review Bin",
+    "/api/subject": "Set a photo's subject",
+    "/api/tag/add": "Add a tag",
+    "/api/tag/add-batch": "Add tags in bulk",
+    "/api/tag/remove": "Remove a tag",
+    "/api/tag/restore": "Restore a tag",
+    "/api/folder-tag/add": "Add a folder tag",
+    "/api/person/add": "Add a person",
+    "/api/person/state": "Change a person's state",
+    "/api/person/aliases": "Edit a person's other names",
+    "/api/person/groups": "Change a person's groups",
+    "/api/person/names": "Rename a person",
+    "/api/person/merge": "Merge two people",
+    "/api/person/card-photo": "Change a person's photo",
+    "/api/people/learn": "Learn from confirmed people",
+    "/api/people/review/decision": "People review decision",
+    "/api/people/review/batch": "People review, bulk decision",
+    "/api/people/review/undo": "Undo a people review decision",
+    "/api/people/review/batch-undo": "Undo a bulk people review decision",
+    "/api/people/review/defer": "Set a person aside for now",
+    "/api/groups/bulk-assign": "Add people to a group",
+    "/api/groups/bulk-remove": "Remove people from a group",
+    "/api/group/delete": "Delete a group",
+    "/api/update/install": "Install update",
+    "/api/update/restart-source": "Restart LensLedger",
+}
+
+# Body fields safe to name in the log: they describe the scope of the action,
+# never the content of the library. Photo paths and people's names are logged
+# by the handlers that genuinely need them, not by every request line.
+ACTION_SCOPE_FIELDS = ("mode", "scope", "rescan", "write_mode", "since", "workers", "batch_size")
+
+SEMANTIC_ACTION_NAMES = {
+    "new": "Build meaning index",
+    "missing": "Fill in missing",
+    "all": "Re-scan everything",
+}
+
+SEMANTIC_MODE_LABELS = {
+    "new": "photos not yet indexed",
+    "missing": "every photo with no meaning data, including ones an earlier run could not read",
+    "all": "every photo again from scratch, including ones already indexed",
+}
+
+
+def refine_action_label(route: str, body: dict, label: str, current_root) -> str:
+    """Name the action the way the button the user pressed names it.
+
+    Re-scanning the current library and switching to a different one share a
+    route, but they are not the same thing to read about in a log.
+    """
+    if route == "/api/library/open":
+        try:
+            same = Path(str(body.get("path", ""))).resolve() == Path(str(current_root)).resolve()
+        except (OSError, ValueError):
+            same = False
+        return "Scan for photo locations" if same else "Switch library"
+    return label
+
+
+def describe_action_scope(route: str, body: dict) -> str:
+    """A short, readable description of what the user asked for."""
+    parts: list[str] = []
+    if route == "/api/semantic/start":
+        mode = str(body.get("mode", "new") or "new")
+        parts.append(SEMANTIC_ACTION_NAMES.get(mode, mode))
+        parts.append(SEMANTIC_MODE_LABELS.get(mode, mode))
+    elif route == "/api/ocr/start":
+        parts.append("re-reading photos already read" if body.get("rescan")
+                     else "photos not yet read")
+        if body.get("since"):
+            parts.append(f"from {body['since']} onwards")
+    elif route == "/api/write-tags/batch":
+        scope = str(body.get("scope", "all"))
+        parts.append({"all": "every photo with tags", "classified": "auto-classified photos only",
+                      "people": "photos with confirmed people only"}.get(scope, scope))
+        mode = body.get("write_mode") or get_setting("publish", "write_mode", default="embedded")
+        parts.append(f"write mode: {mode}")
+    elif route == "/api/photo-backups/clear":
+        parts.append("everything" if body.get("scope") == "all" else "past the retention limit")
+    else:
+        for field in ACTION_SCOPE_FIELDS:
+            if field in body and body[field] not in ("", None, False):
+                parts.append(f"{field}: {body[field]}")
+    return ", ".join(str(part) for part in parts)
+
+
+def backup_retention_settings() -> tuple[int | None, int | None]:
+    """How long and how much to keep, as configured. None means no limit."""
+    keep_days = get_setting("publish", "backup_keep_days", default=30)
+    max_gb = get_setting("publish", "backup_max_gb", default=20)
+    try:
+        keep_days = int(keep_days)
+    except (TypeError, ValueError):
+        keep_days = 30
+    try:
+        max_gb = float(max_gb)
+    except (TypeError, ValueError):
+        max_gb = 20
+    return (
+        None if keep_days <= 0 else keep_days,
+        None if max_gb <= 0 else int(max_gb * 1024 ** 3),
+    )
+
+
+def prune_metadata_backups() -> dict[str, object]:
+    keep_days, max_bytes = backup_retention_settings()
+    if keep_days is None and max_bytes is None:
+        return {"removed": 0, "freed_bytes": 0}
+    return metadata_backups.prune(BACKUP_ROOT, keep_days=keep_days, max_bytes=max_bytes)
+
+
+def interrupted_publications(db_path) -> list[dict]:
+    """Writes that began and never recorded finishing -- a crash mid-write."""
+    try:
+        with connect(db_path) as con:
+            columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
+            if "completed_at" not in columns:
+                return []
+            rows = con.execute(
+                """SELECT id, relative_path, backup_path, published_at
+                   FROM metadata_publications
+                   WHERE completed_at IS NULL AND restored_at IS NULL
+                   ORDER BY published_at DESC LIMIT 200"""
+            ).fetchall()
+    except Exception:
+        return []
+    return [{
+        "id": int(row["id"]),
+        "path": row["relative_path"],
+        "backup_path": row["backup_path"],
+        "backup_exists": Path(row["backup_path"]).is_file(),
+        "published_at": row["published_at"],
+    } for row in rows]
+
+
 def _run_ocr_job(handler_class, database, since, workers, started_at, rescan=False):
     """Run one OCR pass, updating handler_class.ocr_job as it goes."""
-    console_log("Text recognition (OCR): starting")
+    action = Action(
+        "Text recognition",
+        "re-reading photos already read" if rescan else "photos not yet read",
+    )
     try:
 
         _ocr_started_logged = False
-        _ocr_last_log_time = time.monotonic()
+        _reported_failures = 0
 
         def update_progress(counts):
-            nonlocal _ocr_started_logged, _ocr_last_log_time
+            nonlocal _ocr_started_logged, _reported_failures
             attempted = int(counts["attempted"])
             total = int(counts["total"])
             errors = int(counts["errors"])
-            if not _ocr_started_logged and total > 0:
-                scope = "images to re-read" if rescan else "images to process"
-                console_log(f"Text recognition (OCR): {total:,} {scope}")
+            if not _ocr_started_logged:
                 _ocr_started_logged = True
-            now = time.monotonic()
-            if attempted > 0 and now - _ocr_last_log_time >= 10:
-                _ocr_last_log_time = now
-                parts = [f"Text recognition (OCR): {attempted:,} / {total:,} images"]
-                if errors:
-                    parts.append(f"{errors:,} errors")
-                console_log(" — ".join(parts))
+                action.note(f"{total:,} photos to read" if total else "no photos need reading")
+            for failure in (counts.get("failures") or [])[_reported_failures:]:
+                action.failure(failure["path"], failure["error"])
+                _reported_failures += 1
+            if attempted > 0:
+                suffix = f", {errors:,} could not be read" if errors else ""
+                action.progress(f"{attempted:,} of {total:,} photos read{suffix}")
             with handler_class.ocr_lock:
                 handler_class.ocr_job = {
                     "state": "running",
@@ -540,14 +730,18 @@ def _run_ocr_job(handler_class, database, since, workers, started_at, rescan=Fal
             current.update({"state": state, "message": message})
             handler_class.ocr_job = current
         attempted = int(current.get("attempted", 0))
+        with_text = int(current.get("with_text", 0))
+        summary = f"{attempted:,} photos read, {with_text:,} had text"
+        if error_count:
+            summary += f", {error_count:,} could not be read"
+        if not attempted:
+            summary = "nothing needed reading"
         if state == "cancelled":
-            console_log(f"Text recognition (OCR): paused after {attempted:,} images")
-        elif error_count:
-            console_log(f"Text recognition (OCR): done — {attempted:,} images, {error_count:,} error(s)")
+            action.cancelled(summary)
         else:
-            console_log(f"Text recognition (OCR): done — {attempted:,} images processed")
+            action.finish(summary)
     except Exception as exc:
-        console_log(f"Text recognition (OCR): failed — {exc}")
+        action.failed(str(exc))
         with handler_class.ocr_lock:
             handler_class.ocr_job = {"state": "error", "message": str(exc)}
 
@@ -559,7 +753,8 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
     if model_id not in SEMANTIC_SUPPORTED_MODELS:
         model_id = "ViT-B-32/openai"
 
-    console_log("Meaning search: starting")
+    action_name = SEMANTIC_ACTION_NAMES.get(mode, "Meaning search")
+    action = Action(action_name, SEMANTIC_MODE_LABELS.get(mode, mode))
     try:
         cache = semantic_model_cache_info()
         model_info = cache.get(model_id, {})
@@ -567,34 +762,38 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
             model_name = model_id.split("/")[0]
             size_label = next((m["size"] for m in AVAILABLE_MODELS if m["id"] == model_id), "")
             dl_msg = f"Downloading model {model_name} ({size_label})… this may take several minutes"
-            console_log(f"Meaning search: {dl_msg}")
+            action.note(dl_msg)
             with handler_class.semantic_lock:
                 handler_class.semantic_job.update({"message": dl_msg})
         else:
-            console_log(f"Meaning search: loading model {model_id}")
+            # Loading the model can take a while on a cold start, and used to
+            # happen in silence -- which is what a run with nothing to do looked
+            # like from the outside.
+            action.note(f"loading the {model_id} model…")
 
         encoder = semantic_encoder_for(model_id)
+        action.note("model ready, looking for photos to index")
 
         _sem_started_logged = False
-        _sem_last_log_time = time.monotonic()
+        _reported_failures = 0
 
         def update_progress(counts):
-            nonlocal _sem_started_logged, _sem_last_log_time
+            nonlocal _sem_started_logged, _reported_failures
             indexed = int(counts["indexed"])
             total = int(counts["total"])
             errors = int(counts["errors"])
-            if not _sem_started_logged and total > 0:
-                scope = {"new": "not yet indexed", "missing": "missing meaning data",
-                         "all": "in the library (full re-scan)"}[mode]
-                console_log(f"Meaning search: {total:,} images {scope}")
+            if not _sem_started_logged:
                 _sem_started_logged = True
-            now = time.monotonic()
-            if indexed > 0 and now - _sem_last_log_time >= 10:
-                _sem_last_log_time = now
-                parts = [f"Meaning search: {indexed:,} / {total:,} images indexed"]
-                if errors:
-                    parts.append(f"{errors:,} errors")
-                console_log(" — ".join(parts))
+                if total:
+                    action.note(f"{total:,} photos to index")
+                else:
+                    action.note("no photos need indexing")
+            for failure in (counts.get("failures") or [])[_reported_failures:]:
+                action.failure(failure["path"], failure["error"])
+                _reported_failures += 1
+            if indexed > 0:
+                suffix = f", {errors:,} could not be read" if errors else ""
+                action.progress(f"{indexed:,} of {total:,} photos indexed{suffix}")
             with handler_class.semantic_lock:
                 handler_class.semantic_job = {
                     "state": "running",
@@ -611,6 +810,16 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
             database, encoder=encoder, batch_size=batch_size, progress=update_progress,
             should_cancel=handler_class.semantic_cancel.is_set, mode=mode,
         )
+        summary_parts = [f"{int(result['indexed']):,} photos indexed"]
+        if int(result["errors"]):
+            summary_parts.append(f"{int(result['errors']):,} could not be read")
+        if not int(result["total"]):
+            summary_parts = ["nothing needed indexing"]
+        if result["cancelled"]:
+            action.cancelled(", ".join(summary_parts))
+        else:
+            action.finish(", ".join(summary_parts))
+
         with handler_class.semantic_lock:
             error_count = int(result["errors"])
             if result["cancelled"]:
@@ -628,51 +837,41 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
                 "failures": list(result.get("failures") or []),
                 "mode": mode,
             }
-        indexed = int(result["indexed"])
-        if result["cancelled"]:
-            console_log(f"Meaning search: paused after {indexed:,} images")
-        elif error_count:
-            console_log(f"Meaning search: done — {indexed:,} indexed, {error_count:,} error(s)")
-        else:
-            console_log(f"Meaning search: done — {indexed:,} images indexed")
-
         if not result["cancelled"] and get_setting("publish", "auto_classify", default=False):
-            console_log("Auto-classify: starting after meaning search…")
+            classify_action = Action("Auto-classify", "runs automatically after meaning search")
             try:
                 cls_result = classify_library(database, encoder=encoder)
-                console_log(f"Auto-classify: {cls_result['classified']} photos, {cls_result['tags_added']} tags added")
+                classify_action.finish(
+                    f"{cls_result['classified']:,} photos looked at, "
+                    f"{cls_result['tags_added']:,} tags added"
+                )
             except Exception as cls_exc:
-                console_log(f"Auto-classify: failed — {cls_exc}")
+                classify_action.failed(str(cls_exc))
     except Exception as exc:
-        console_log(f"Meaning search: failed — {exc}")
+        action.failed(str(exc))
         with handler_class.semantic_lock:
             handler_class.semantic_job = {"state": "error", "message": str(exc)}
 
 
 def _run_face_scan_job(handler_class, database, library_root, started_at):
     """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
-    console_log("Face detection: starting")
+    action = Action("Face detection", "photos not yet looked at")
     try:
 
         _face_started_logged = False
-        _face_last_log_time = time.monotonic()
 
         def update_progress(counts):
-            nonlocal _face_started_logged, _face_last_log_time
+            nonlocal _face_started_logged
             processed = int(counts["processed"])
             total = int(counts["total"])
             faces = int(counts["faces_found"])
             errors = int(counts["errors"])
-            if not _face_started_logged and total > 0:
-                console_log(f"Face detection: {total:,} photos to scan")
+            if not _face_started_logged:
                 _face_started_logged = True
-            now = time.monotonic()
-            if processed > 0 and now - _face_last_log_time >= 10:
-                _face_last_log_time = now
-                parts = [f"Face detection: {processed:,} / {total:,} photos, {faces:,} faces found"]
-                if errors:
-                    parts.append(f"{errors:,} errors")
-                console_log(" — ".join(parts))
+                action.note(f"{total:,} photos to scan" if total else "no photos need scanning")
+            if processed > 0:
+                suffix = f", {errors:,} could not be scanned" if errors else ""
+                action.progress(f"{processed:,} of {total:,} photos, {faces:,} faces found{suffix}")
             with handler_class.face_scan_lock:
                 handler_class.face_scan_job = {
                     "state": "running",
@@ -706,14 +905,17 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             handler_class.face_scan_job = current
         faces = int(result.get("faces_found", 0))
         processed = int(result.get("processed", 0))
+        summary = f"{processed:,} photos scanned, {faces:,} faces found"
+        if face_error_count:
+            summary += f", {face_error_count:,} could not be scanned"
+        if not processed:
+            summary = "nothing needed scanning"
         if result["cancelled"]:
-            console_log(f"Face detection: paused after {processed:,} photos, {faces:,} faces found")
-        elif face_error_count:
-            console_log(f"Face detection: done — {faces:,} faces in {processed:,} photos, {face_error_count:,} error(s)")
+            action.cancelled(summary)
         else:
-            console_log(f"Face detection: done — {faces:,} faces found in {processed:,} photos")
+            action.finish(summary)
     except Exception as exc:
-        console_log(f"Face detection: failed — {exc}")
+        action.failed(str(exc))
         with handler_class.face_scan_lock:
             handler_class.face_scan_job = {"state": "error", "message": str(exc)}
 
@@ -740,6 +942,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
     """
 
     def set_step(step):
+        action.note(f"step: {_SCAN_ALL_LABELS[step].lower()}")
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {
                 "state": "running", "step": step,
@@ -753,7 +956,8 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         if handler_class.scan_all_cancel.is_set() or job_dict.get("state") == "cancelled":
             raise _ScanAllStopped()
 
-    console_log("Run all scans: started (manual)")
+    action = Action("Run all scans", "photo locations, then text recognition, "
+                                    "then meaning search and face detection if set up")
     ran: list[str] = []
     skipped: list[str] = []
     try:
@@ -820,7 +1024,12 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             message += f" {total_errors:,} error{'s' if total_errors != 1 else ''} — check each section below for details."
         if skipped:
             message += " Skipped (not set up yet): " + ", ".join(skipped) + " — set up below."
-        console_log(f"Run all scans: complete — {', '.join(ran)}, {total_errors} error(s)")
+        summary = "ran " + ", ".join(ran) if ran else "nothing ran"
+        if total_errors:
+            summary += f", {total_errors:,} problem{'s' if total_errors != 1 else ''}"
+        if skipped:
+            summary += "; skipped (not set up): " + ", ".join(skipped)
+        action.finish(summary)
         try:
             pending = pending_scan_counts(database)
             parts = []
@@ -841,12 +1050,14 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
                 "state": "complete", "step": None, "message": message,
             }
     except _ScanAllStopped:
+        action.cancelled("stopped after the current step" + (f"; ran {', '.join(ran)}" if ran else ""))
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {
                 "state": "cancelled", "step": None,
                 "message": "Stopped after the current step. Run it again to continue.",
             }
     except Exception as exc:
+        action.failed(str(exc))
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {"state": "error", "step": None, "message": str(exc)}
 
@@ -1028,6 +1239,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.publish_pending()
         if url.path == "/api/publish/progress":
             return self.send_json(SearchHandler.publish_progress)
+        if url.path == "/api/photo-backups/status":
+            return self.photo_backups_status()
         if url.path == "/api/write-tags/status":
             return self.write_tags_status()
         if url.path == "/api/classify/status":
@@ -1074,6 +1287,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             if not secrets.compare_digest(str(body.get("csrf", "")), self.csrf_token):
                 return self.send_json({"error": "invalid request token"}, 403)
             route = urllib.parse.urlparse(self.path).path
+            self.log_action_request(route, body)
             if route == "/api/subject":
                 return self.update_subject(body)
             if route == "/api/tag/add":
@@ -1210,6 +1424,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.cancel_classify(body)
             if route == "/api/write-tags":
                 return self.write_tags_to_photo(body)
+            if route == "/api/photo-backups/clear":
+                return self.clear_photo_backups(body)
             if route == "/api/write-tags/cancel":
                 return self.cancel_write_tags(body)
             if route == "/api/write-tags/batch":
@@ -1228,8 +1444,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.import_database(body)
             return self.send_json({"error": "not found"}, 404)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            self.log_action_failure(exc)
             return self.send_json({"error": str(exc)}, 400)
         except sqlite3.OperationalError as exc:
+            self.log_action_failure(exc)
             if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
                 return self.send_json({
                     "error": "This change did not go through -- a scan or another change is using the "
@@ -1239,6 +1457,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 }, 409)
             return self.send_json({"error": str(exc)}, 500)
         except Exception as exc:
+            self.log_action_failure(exc)
             return self.send_json({"error": str(exc)}, 500)
 
     def get_active_asset(self, con: sqlite3.Connection, asset_id: int):
@@ -1343,7 +1562,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
-<section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div></section>
+<section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div><h3 class="backup-subhead">Photo safety copies</h3><p class="backup-note">Before LensLedger writes tags into a photo it keeps a complete copy of the original, so any write can be undone. These build up as you publish. How long they are kept is set under "Metadata publishing" in <a href="/settings#metadata-publishing">Settings</a>.</p><div class="health-summary ocr-summary" id="photoBackupMetrics"></div><div class="interrupted-writes" id="interruptedWrites" hidden></div><div class="backup-row"><button type="button" class="secondary" id="prunePhotoBackups">Clear copies past the limit</button><button type="button" class="secondary" id="clearPhotoBackups">Clear all safety copies</button><span id="photoBackupStatus"></span></div></section>
 </main>
 <div class="modal-backdrop" id="scanModalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="scanModalTitle"><div class="modal-head"><h2 id="scanModalTitle"></h2><button type="button" class="modal-close" id="scanModalClose">Close</button></div><div id="scanModalBody"></div></section></div>
 <script src="{asset_url('js/scan-photos.js')}" defer></script>
@@ -1387,7 +1606,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos. Sidecar mode writes a separate .xmp file next to each photo instead of modifying the original.</p>
 <div class="field"><label for="writeMode">Write mode</label><select id="writeMode"><option value="embedded" {"selected" if publish.get("write_mode", "embedded") == "embedded" else ""}>Embedded (modify photo files)</option><option value="sidecar" {"selected" if publish.get("write_mode") == "sidecar" else ""}>Sidecar (.xmp files)</option><option value="both" {"selected" if publish.get("write_mode") == "both" else ""}>Both (embedded + sidecar)</option></select><span class="hint">Embedded writes metadata directly into JPEG/HEIC files with safety backups. Sidecar creates .xmp files that Lightroom, Capture One, and other apps can read without changing originals.</span></div>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoClassify" {"checked" if publish.get("auto_classify") else ""}><span class="slider"></span></label><label for="autoClassify">Auto-classify photos after meaning search</label></div>
-<span class="hint" style="margin-left:3.5rem">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span></section>
+<span class="hint" style="margin-left:3.5rem">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span><div class="field"><label for="backupKeepDays">Keep photo safety copies for (days)</label><input type="number" id="backupKeepDays" min="0" max="3650" value="{int(publish.get('backup_keep_days', 30))}"><span class="hint">Embedded writes keep a full copy of each photo so the change can be undone. Copies older than this are cleared automatically. 0 keeps them forever. Default: 30</span></div><div class="field"><label for="backupMaxGb">Total size limit for safety copies (GB)</label><input type="number" id="backupMaxGb" min="0" max="10000" step="1" value="{int(publish.get('backup_max_gb', 20))}"><span class="hint">When the copies exceed this, the oldest are cleared first. 0 means no limit. See current usage on the <a href="/scan-photos">Scan your photos</a> page. Default: 20</span></div></section>
 <section class="card" id="auto-import"><h2>Auto-import photos</h2><p>Automatically import new photos from a source folder and sort them into your library. <a href="/auto-import">Configure source, destination, and sorting rules →</a></p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable automatic photo import</label></div>
 <div class="field"><label for="ingestInterval">Check interval (minutes)</label><input type="number" id="ingestInterval" min="5" max="1440" value="{int(ingest.get('interval_minutes', 10))}"><span class="hint">How often to check for new photos when import is enabled. Default: 10</span></div></section>
@@ -2665,10 +2884,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 ).fetchall()]
         total = len(asset_ids)
         if not total:
-            console_log("[Publish] Nothing to publish.")
+            console_log("Publish people metadata: nothing to publish — every confirmed name is already in its photo")
             self.send_json({"ok": True, "published": 0, "total": 0})
             return
-        console_log(f"[Publish] Writing metadata to {total} photos…")
+        action = Action("Publish people metadata", f"{total:,} photos with names not yet written")
         SearchHandler.publish_progress = {"state": "running", "done": 0, "total": total, "current": ""}
         published = 0
         failed: list[dict] = []
@@ -2682,12 +2901,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                         published += 1
                         current_path = result['relative_path']
                         names = ", ".join(result["people"]) if result.get("people") else "(no names)"
-                        console_log(f"[Publish] Wrote: {current_path} — {names}")
+                        action.progress(f"wrote {current_path} — {names}")
                     else:
                         skipped += 1
                         asset = self.get_active_asset(con, asset_id)
                         current_path = asset["relative_path"]
-                        console_log(f"[Publish] Skipped (not publishable): {current_path}")
+                        action.failure(current_path, "not a file type that can carry embedded names")
                         failed.append({"path": current_path, "reason": "Not a publishable file type"})
             except Exception as exc:
                 reason = str(exc) or type(exc).__name__
@@ -2697,16 +2916,16 @@ class SearchHandler(BaseHTTPRequestHandler):
                         current_path = asset["relative_path"]
                 except Exception:
                     current_path = f"(asset id {asset_id})"
-                console_log(f"[Publish] Failed: {current_path} — {reason}")
+                action.failure(current_path, reason)
                 failed.append({"path": current_path, "reason": reason})
             done = i + 1
             SearchHandler.publish_progress = {"state": "running", "done": done, "total": total, "current": current_path}
-            if done % 25 == 0 or done == total:
-                console_log(f"[Publish] {done}/{total} photos")
+            action.progress(f"{done:,} of {total:,} photos")
         SearchHandler.publish_progress = {"state": "idle", "done": 0, "total": 0, "current": ""}
-        console_log(f"[Publish] Done — {published}/{total} photos updated.")
+        summary = f"{published:,} of {total:,} photos updated"
         if failed:
-            console_log(f"[Publish] {len(failed)} photo(s) failed or skipped.")
+            summary += f", {len(failed):,} failed or skipped"
+        action.finish(summary)
         self.send_json({"ok": True, "published": published, "total": total, "failed": failed})
 
     def asset_detail(self, params):
@@ -3002,6 +3221,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         path = data["path"]
         if not path.is_file():
             raise ValueError(f"{asset['filename']} is no longer on disk")
+        if is_cloud_placeholder(path.stat(), path):
+            raise ValueError(
+                f"{asset['filename']} is stored online only and is not on this computer. "
+                "Open it once, or make it available offline, and run this again."
+            )
 
         before = _exiftool_values(path)
         before.pop("SourceFile", None)
@@ -3029,11 +3253,28 @@ class SearchHandler(BaseHTTPRequestHandler):
                   f"{relative.stem}.before-write-tags-{timestamp}{relative.suffix}").resolve()
         backup.relative_to(BACKUP_ROOT.resolve())
         backup.parent.mkdir(parents=True, exist_ok=True)
+        space = metadata_backups.space_check(BACKUP_ROOT, path.stat().st_size)
+        if not space["ok"]:
+            raise ValueError(
+                f"Not enough free space for a safety copy of {asset['filename']} — "
+                f"{metadata_backups.human_bytes(space['shortfall_bytes'])} short. "
+                "Clear old safety copies on the Scan your photos page, or free up disk space."
+            )
         before_pixels = _pixel_hash(path)
         shutil.copy2(path, backup)
-        if backup.stat().st_size != path.stat().st_size:
+        if metadata_backups.file_digest(backup) != metadata_backups.file_digest(path):
             backup.unlink(missing_ok=True)
             raise ValueError(f"The safety backup could not be verified for {asset['filename']}")
+
+        publication_id = int(con.execute(
+            """INSERT INTO metadata_publications
+               (asset_id,relative_path,backup_path,before_json,after_json,
+                operation,review_action_id,published_at,completed_at)
+               VALUES (?,?,?,?,?,?,?,?,NULL)""",
+            (asset_id, asset["relative_path"], str(backup), json.dumps(before),
+             json.dumps(after), "write_tags", None, utc_now()),
+        ).lastrowid)
+        con.commit()
 
         # One invocation, not a clear pass followed by an add pass: exiftool
         # applies arguments in order onto a single temporary file, so an
@@ -3062,18 +3303,16 @@ class SearchHandler(BaseHTTPRequestHandler):
                 raise ValueError(f"Pixel verification failed for {asset['filename']}")
         except Exception:
             shutil.copy2(backup, path)
+            con.execute("DELETE FROM metadata_publications WHERE id=?", (publication_id,))
+            con.commit()
             raise
 
         written = self._verify_embedded_categories(path, keywords, people, description, subject)
 
         stat = path.stat()
         con.execute(
-            """INSERT INTO metadata_publications
-               (asset_id,relative_path,backup_path,before_json,after_json,
-                operation,review_action_id,published_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (asset_id, asset["relative_path"], str(backup), json.dumps(before),
-             json.dumps(after), "write_tags", None, utc_now()),
+            "UPDATE metadata_publications SET completed_at=? WHERE id=?",
+            (utc_now(), publication_id),
         )
         con.execute(
             "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
@@ -3275,7 +3514,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
                     (stat.st_size, stat.st_mtime_ns, utc_now(), int(row["id"])),
                 )
-        console_log(f"[Publish] Repaired: {rel} (backup at {backup})")
+        console_log(f"Repair a photo: repaired {rel} — safety copy kept")
         self.send_json({"ok": True, "message": f"Repaired — backup saved", "backup": str(backup)})
 
     def start_classify(self, body):
@@ -3287,26 +3526,47 @@ class SearchHandler(BaseHTTPRequestHandler):
         SearchHandler.classify_job = {"state": "running", "message": "Starting classification…"}
 
         def run():
+            action = Action("Classify photos", "photos with meaning data but no tags yet")
             try:
+                action.note("loading the meaning-search model…")
                 encoder = semantic_encoder_for()
+                started_reported = False
+
                 def on_progress(c):
+                    nonlocal started_reported
+                    if not started_reported:
+                        started_reported = True
+                        action.note(f"{int(c['total']):,} photos to look at" if c["total"]
+                                    else "no photos need classifying")
+                    action.progress(
+                        f"{int(c['classified']):,} of {int(c['total']):,} photos, "
+                        f"{int(c['tags_added']):,} tags added"
+                    )
                     SearchHandler.classify_job = {
                         "state": "running",
                         "message": f"Classified {c['classified']}/{c['total']} photos ({c['tags_added']} tags)",
                     }
+
                 result = classify_library(
                     self.db_path, encoder=encoder,
                     progress=on_progress,
                     should_cancel=SearchHandler.classify_cancel.is_set,
                 )
+                summary = (f"{result['classified']:,} photos looked at, "
+                           f"{result['tags_added']:,} tags added")
+                if not result["total"]:
+                    summary = "nothing needed classifying"
                 if result["cancelled"]:
+                    action.cancelled(summary)
                     SearchHandler.classify_job = {"state": "cancelled", "message": "Classification was cancelled"}
                 else:
+                    action.finish(summary)
                     SearchHandler.classify_job = {
                         "state": "complete",
                         "message": f"Classified {result['classified']} photos, added {result['tags_added']} tags",
                     }
             except Exception as exc:
+                action.failed(str(exc))
                 SearchHandler.classify_job = {"state": "error", "message": str(exc)}
             finally:
                 SearchHandler.classify_lock.release()
@@ -3392,7 +3652,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 )
                 result["wrote_sidecar"] = True
                 result["sidecar_path"] = str(sidecar_path)
-                console_log(f"[Write Tags] Sidecar: {data['asset']['relative_path']}")
+                console_log(f"Write tags to one photo: sidecar written for {data['asset']['relative_path']}")
 
             if write_mode in ("embedded", "both"):
                 if path.suffix.lower() in PUBLISHABLE_EXTENSIONS:
@@ -3402,12 +3662,72 @@ class SearchHandler(BaseHTTPRequestHandler):
                     result["not_written"] = outcome["not_written"]
                     missed = ", ".join(item["category"] for item in outcome["not_written"])
                     console_log(
-                        f"[Write Tags] Embedded: {data['asset']['relative_path']} — "
+                        f"Write tags to one photo: {data['asset']['relative_path']} — "
                         + (", ".join(outcome["written"]) or "nothing to write")
                         + (f"; not carried: {missed}" if missed else "")
                     )
 
         self.send_json(result)
+
+    def log_action_request(self, route: str, body: dict) -> None:
+        """Record that the user asked for something, before it runs."""
+        label = ACTION_LABELS.get(route)
+        if label:
+            try:
+                label = refine_action_label(route, body, label, type(self).library_root)
+            except Exception:
+                pass
+        self._current_action = label
+        if not label:
+            return
+        try:
+            detail = describe_action_scope(route, body)
+        except Exception:
+            detail = ""
+        console_log(f"{label}: requested" + (f" — {detail}" if detail else ""))
+
+    def log_action_failure(self, exc: Exception) -> None:
+        label = getattr(self, "_current_action", None)
+        reason = str(exc) or type(exc).__name__
+        if label:
+            console_log(f"{label}: did not go ahead — {reason}")
+        else:
+            route = urllib.parse.urlparse(self.path).path
+            console_log(f"Request to {route} failed — {reason}")
+
+    def photo_backups_status(self):
+        usage = metadata_backups.usage(BACKUP_ROOT)
+        keep_days, max_bytes = backup_retention_settings()
+        self.send_json({
+            **usage,
+            "human": metadata_backups.human_bytes(usage["bytes"]),
+            "free_bytes": metadata_backups.free_bytes(BACKUP_ROOT),
+            "free_human": metadata_backups.human_bytes(metadata_backups.free_bytes(BACKUP_ROOT)),
+            "keep_days": keep_days,
+            "max_bytes": max_bytes,
+            "max_human": metadata_backups.human_bytes(max_bytes) if max_bytes else "no limit",
+            "interrupted": interrupted_publications(type(self).db_path),
+        })
+
+    def clear_photo_backups(self, body):
+        scope = str(body.get("scope", "retention"))
+        if scope == "all":
+            result = metadata_backups.clear_all(BACKUP_ROOT)
+            note = "Cleared every safety copy."
+        else:
+            result = prune_metadata_backups()
+            note = "Cleared safety copies past the retention limit."
+        console_log(
+            f"Clear photo safety copies: {note.lower()} removed {result['removed']:,}, freed "
+            f"{metadata_backups.human_bytes(result['freed_bytes'])}."
+        )
+        self.send_json({
+            "ok": True,
+            "removed": result["removed"],
+            "freed_bytes": result["freed_bytes"],
+            "freed_human": metadata_backups.human_bytes(result["freed_bytes"]),
+            "message": f"{note} Freed {metadata_backups.human_bytes(result['freed_bytes'])}.",
+        })
 
     def write_tags_status(self):
         with SearchHandler.write_tags_lock:
@@ -3459,7 +3779,38 @@ class SearchHandler(BaseHTTPRequestHandler):
             }
             return self.send_json({"ok": True, "written": 0, "total": 0})
 
-        console_log(f"[Write Tags] Writing tags to {total} photos (mode={write_mode})…")
+        # Embedded writes copy each photo before touching it, so a library-wide
+        # run needs room for a second copy of everything it will write. Checking
+        # once here beats discovering it photo by photo with a full disk.
+        if write_mode in ("embedded", "both"):
+            with self.db() as con:
+                photo_paths = [
+                    row[0] for row in con.execute(
+                        f"SELECT path FROM assets WHERE id IN ({','.join('?' * len(asset_ids))})",
+                        asset_ids,
+                    )
+                ]
+            required = metadata_backups.estimate_required_bytes(photo_paths)
+            space = metadata_backups.space_check(BACKUP_ROOT, required)
+            if not space["ok"]:
+                raise ValueError(
+                    f"Not enough disk space. Writing tags to {total:,} photos needs about "
+                    f"{metadata_backups.human_bytes(required)} for safety copies, and there is "
+                    f"{metadata_backups.human_bytes(space['free_bytes'])} free — "
+                    f"{metadata_backups.human_bytes(space['shortfall_bytes'])} short. "
+                    "Clear old safety copies on the Scan your photos page, free up space, "
+                    "or switch to sidecar mode in Settings, which does not copy anything."
+                )
+            console_log(
+                f"Write all tags: safety copies will need about "
+                f"{metadata_backups.human_bytes(required)}; "
+                f"{metadata_backups.human_bytes(space['free_bytes'])} free."
+            )
+
+        action = Action(
+            "Write all tags",
+            f"{total:,} photos, write mode: {write_mode}",
+        )
         started_at = utc_now()
         SearchHandler.write_tags_cancel.clear()
         with SearchHandler.write_tags_lock:
@@ -3490,11 +3841,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                         mode = write_mode if can_embed else "sidecar"
                         if write_mode in ("embedded", "both") and not can_embed:
                             suffix = path.suffix or "this file type"
-                            fell_back.append({
-                                "path": relative,
-                                "error": f"{suffix} files cannot carry embedded tags — "
-                                         "a sidecar file was written next to it instead",
-                            })
+                            reason = (f"{suffix} files cannot carry embedded tags — "
+                                      "a sidecar file was written next to it instead")
+                            fell_back.append({"path": relative, "error": reason})
+                            action.note(f"{relative} — {reason}")
 
                         if mode in ("sidecar", "both"):
                             write_sidecar(
@@ -3515,7 +3865,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 except Exception as exc:
                     failed.append({"asset_id": asset_id, "path": relative,
                                    "reason": str(exc), "error": str(exc)})
-                    console_log(f"[Write Tags] Failed: {relative} — {exc}")
+                    action.failure(relative, str(exc))
+                action.progress(f"{written:,} of {total:,} photos written")
                 with SearchHandler.write_tags_lock:
                     SearchHandler.write_tags_job = {
                         "state": "running",
@@ -3525,12 +3876,26 @@ class SearchHandler(BaseHTTPRequestHandler):
                         "incomplete": list(incomplete), "started_at": started_at,
                     }
 
+            summary_parts = [f"{written:,} of {total:,} photos written"]
+            if fell_back:
+                summary_parts.append(f"{len(fell_back):,} got a sidecar file instead")
+            if incomplete:
+                summary_parts.append(f"{len(incomplete):,} could not carry everything")
+            if failed:
+                summary_parts.append(f"{len(failed):,} failed")
+            summary = ", ".join(summary_parts)
             if cancelled:
-                console_log(f"[Write Tags] Stopped — {written}/{total} photos updated.")
+                action.cancelled(summary + ". Nothing was left half-written.")
                 message = f"Stopped after {written:,} of {total:,} photos. Nothing was left half-written."
             else:
-                console_log(f"[Write Tags] Done — {written}/{total} photos updated, {len(failed)} failed.")
+                action.finish(summary)
                 message = f"Wrote tags to {written:,} of {total:,} photos."
+            pruned = prune_metadata_backups()
+            if pruned["removed"]:
+                console_log(
+                    f"Photo safety copies: cleared {pruned['removed']:,} past the retention limit, "
+                    f"freeing {metadata_backups.human_bytes(pruned['freed_bytes'])}"
+                )
             with SearchHandler.write_tags_lock:
                 SearchHandler.write_tags_job = {
                     "state": "cancelled" if cancelled else "complete",
@@ -6356,11 +6721,13 @@ def main():
             return False
 
         if _any_scan_running():
+            console_log("Automatic check: skipped this time — a scan is already running")
             return
 
         root = SearchHandler.library_root
         db = SearchHandler.db_path
         ran = []
+        watcher_action = Action("Automatic check", "scheduled folder watch")
         try:
             # Step 1: library/location scan
             with SearchHandler.library_lock:
@@ -6374,19 +6741,13 @@ def main():
             _run_library_scan_job(SearchHandler, root, db, SearchHandler.library_job["started_at"])
             lib_state = SearchHandler.library_job.get("state")
             if lib_state not in ("complete",):
+                watcher_action.cancelled(
+                    f"stopped at the photo location scan ({lib_state or 'no result'})"
+                )
                 return
             ran.append("photo locations")
 
             pending = pending_scan_counts(db)
-            parts = []
-            if pending["ocr"]:
-                parts.append(f"{pending['ocr']:,} need OCR")
-            if pending["semantic"]:
-                parts.append(f"{pending['semantic']:,} need meaning search")
-            if pending["face"]:
-                parts.append(f"{pending['face']:,} need face detection")
-            if parts:
-                console_log("Scan status: " + ", ".join(parts))
 
             # Step 2: OCR
             if pending["ocr"] > 0:
@@ -6401,6 +6762,10 @@ def main():
                 if SearchHandler.ocr_job.get("state") == "complete":
                     ran.append("OCR")
                 else:
+                    watcher_action.cancelled(
+                        "stopped at text recognition"
+                        + (f"; ran {', '.join(ran)}" if ran else "")
+                    )
                     return
 
             # Step 3: semantic indexing (only if installed)
@@ -6416,6 +6781,10 @@ def main():
                 if SearchHandler.semantic_job.get("state") == "complete":
                     ran.append("meaning search")
                 else:
+                    watcher_action.cancelled(
+                        "stopped at meaning search"
+                        + (f"; ran {', '.join(ran)}" if ran else "")
+                    )
                     return
 
             # Step 4: face detection (only if installed)
@@ -6431,10 +6800,9 @@ def main():
                 if SearchHandler.face_scan_job.get("state") == "complete":
                     ran.append("face detection")
 
-            if ran:
-                console_log(f"Folder watcher: all scans complete — {', '.join(ran)}")
+            watcher_action.finish("ran " + ", ".join(ran) if ran else "nothing needed doing")
         except Exception as exc:
-            console_log(f"Folder watcher scan failed: {exc}")
+            watcher_action.failed(str(exc))
     settings = load_settings()
     watch_cfg = settings.get("watch", {})
     watcher = FolderWatcher(
