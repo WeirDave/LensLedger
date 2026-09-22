@@ -7,6 +7,7 @@ import argparse
 import array
 import math
 import os
+import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -210,25 +211,31 @@ def status(db_path: Path) -> dict[str, object]:
             ).fetchone()[0])
         else:
             failed = 0
+        model = model_row["model"] if model_row else DEFAULT_MODEL
+        missing = int(con.execute(
+            """SELECT COUNT(*) FROM assets a
+               LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
+               WHERE a.media_type='image' AND a.metadata_scanned=1
+                     AND a.in_review_bin=0 AND a.extension != '.gif' AND se.asset_id IS NULL""",
+            (model,),
+        ).fetchone()[0])
         if not failed and indexed > 0:
-            model = model_row["model"] if model_row else DEFAULT_MODEL
-            unindexed = int(con.execute(
-                """SELECT COUNT(*) FROM assets a
-                   LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
-                   WHERE a.media_type='image' AND a.metadata_scanned=1
-                         AND a.in_review_bin=0 AND a.extension != '.gif' AND se.asset_id IS NULL""",
-                (model,),
-            ).fetchone()[0])
-            if unindexed > 0 and unindexed < eligible * 0.05:
-                failed = unindexed
+            if missing > 0 and missing < eligible * 0.05:
+                failed = missing
     return {
         "indexed": indexed,
         "eligible": eligible,
         "remaining": max(0, eligible - indexed - failed),
+        "missing": missing,
         "failed": failed,
         "model": model_row["model"] if model_row else DEFAULT_MODEL,
         "installed": is_available(),
     }
+
+
+BUILD_MODES = ("new", "missing", "all")
+
+MAX_REPORTED_FAILURES = 200
 
 
 def build_index(
@@ -238,27 +245,58 @@ def build_index(
     limit: int | None = None,
     progress: Callable[[dict[str, int]], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
-) -> dict[str, int | bool]:
+    mode: str = "new",
+) -> dict[str, object]:
+    """Index images for meaning search.
+
+    ``mode`` selects which photos are considered:
+
+    ``new``      only photos with no embedding that have never failed.
+    ``missing``  every photo with no embedding, including ones whose last
+                 attempt recorded an error -- the recorded error is cleared
+                 first so the attempt is a genuine retry rather than a skip.
+    ``all``      every eligible photo, re-encoding ones already indexed.
+    """
+    if mode not in BUILD_MODES:
+        raise ValueError(f"Unknown build mode: {mode}. Expected one of {', '.join(BUILD_MODES)}")
     encoder = encoder or encoder_for(DEFAULT_MODEL)
     model = str(encoder.identity)
     skip_exts = unsupported_image_extensions() | {".gif"}
     ext_clause = " AND ".join(["a.extension != ?"] * len(skip_exts))
+    if mode == "new":
+        scope_clause = "AND a.semantic_error='' AND se.asset_id IS NULL"
+    elif mode == "missing":
+        scope_clause = "AND se.asset_id IS NULL"
+    else:
+        scope_clause = ""
     with connect(db_path) as con:
         rows = con.execute(
-            f"""SELECT a.id,a.path FROM assets a
+            f"""SELECT a.id,a.path,a.relative_path FROM assets a
                LEFT JOIN semantic_embeddings se ON se.asset_id=a.id AND se.model=?
                WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0
-                     AND {ext_clause} AND a.semantic_error='' AND se.asset_id IS NULL
+                     AND {ext_clause} {scope_clause}
                ORDER BY a.capture_date,a.relative_path""",
             (model, *sorted(skip_exts)),
         ).fetchall()
-    if limit is not None:
-        rows = rows[:max(0, limit)]
-    counts: dict[str, int | bool] = {
+        if limit is not None:
+            rows = rows[:max(0, limit)]
+        if mode in ("missing", "all") and rows:
+            con.executemany(
+                "UPDATE assets SET semantic_error='' WHERE id=?",
+                [(int(row["id"]),) for row in rows],
+            )
+    counts: dict[str, object] = {
         "total": len(rows), "indexed": 0, "errors": 0, "cancelled": False,
+        "mode": mode, "failures": [],
     }
+
+    def snapshot() -> dict[str, object]:
+        copy = dict(counts)
+        copy["failures"] = list(counts["failures"])
+        return copy
+
     if progress:
-        progress(dict(counts))
+        progress(snapshot())
     for start in range(0, len(rows), max(1, batch_size)):
         if should_cancel and should_cancel():
             counts["cancelled"] = True
@@ -274,6 +312,12 @@ def build_index(
                         "UPDATE assets SET semantic_error=? WHERE id=?",
                         (error_msg, int(row["id"])),
                     )
+                    if len(counts["failures"]) < MAX_REPORTED_FAILURES:
+                        counts["failures"].append({
+                            "path": row["relative_path"],
+                            "full_path": row["path"],
+                            "error": error_msg,
+                        })
                     continue
                 con.execute(
                     """INSERT INTO semantic_embeddings(asset_id,model,dimensions,embedding_f32,updated_at)
@@ -285,7 +329,7 @@ def build_index(
                 con.execute("UPDATE assets SET semantic_error='' WHERE id=?", (int(row["id"]),))
                 counts["indexed"] += 1
         if progress:
-            progress(dict(counts))
+            progress(snapshot())
     return counts
 
 
@@ -324,6 +368,8 @@ def main() -> int:
     build = sub.add_parser("build", help="download/load the optional model and index local images")
     build.add_argument("--batch-size", type=int, default=16)
     build.add_argument("--limit", type=int)
+    build.add_argument("--mode", choices=BUILD_MODES, default="new",
+                       help="new: unseen photos only; missing: also retry previous failures; all: re-index everything")
     query = sub.add_parser("query", help="find images matching a natural-language description")
     query.add_argument("text")
     query.add_argument("--limit", type=int, default=20)
@@ -334,7 +380,9 @@ def main() -> int:
             print(f"{key}: {value}")
         return 0
     if args.command == "build":
-        result = build_index(args.db, batch_size=args.batch_size, limit=args.limit)
+        result = build_index(args.db, batch_size=args.batch_size, limit=args.limit, mode=args.mode)
+        for failure in result.pop("failures", []):
+            print(f"FAILED	{failure['path']}	{failure['error']}", file=sys.stderr)
         for key, value in result.items():
             print(f"{key}: {value}")
         return 3 if result["cancelled"] else (2 if result["errors"] else 0)

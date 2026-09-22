@@ -184,6 +184,33 @@ async function showScanErrors(endpoint, title) {
   }
 }
 
+function renderLiveFailures(metricsId, failures) {
+  const host = $(metricsId);
+  if (!host) return;
+  const existing = host.parentElement.querySelector('.live-failures');
+  if (existing) existing.remove();
+  if (!failures || !failures.length) return;
+  const box = document.createElement('div');
+  box.className = 'live-failures';
+  const heading = document.createElement('p');
+  heading.className = 'live-failures-heading';
+  heading.textContent = failures.length === 1
+    ? '1 photo could not be read:'
+    : `${failures.length.toLocaleString()} photos could not be read:`;
+  box.append(heading);
+  failures.slice(-5).forEach(({ path, error }) => {
+    const row = document.createElement('p');
+    row.className = 'live-failure-row';
+    const name = document.createElement('strong');
+    name.textContent = path;
+    const why = document.createElement('span');
+    why.textContent = ' — ' + (error || 'no reason recorded');
+    row.append(name, why);
+    box.append(row);
+  });
+  host.parentElement.insertBefore(box, host.nextSibling);
+}
+
 async function refresh() {
   try {
     const [diagnostics, locationStatus, ocr, semantic, faceScan, scanAll] = await Promise.all([
@@ -285,14 +312,19 @@ async function refresh() {
     } else {
       $('semanticMessage').textContent = semantic.message || 'Ready. Build the index below to make your photos searchable by meaning.';
       const semanticErrorCount = Math.max(semantic.failed || 0, semantic.errors || 0);
+      const semanticMissing = semantic.missing || 0;
       $('semanticMetrics').replaceChildren(
         metric('Indexed', semantic.indexed), metric('Remaining', semantic.remaining),
+        metric('Missing', semanticMissing, semanticMissing ? () => showScanErrors('/api/semantic/errors', 'Photos missing meaning data') : null,
+          'Photos with no meaning data at all — use "Fill in missing" to index them'),
         metric('This pass', semantic.indexed_this_pass),
         metric('Errors', semanticErrorCount, semanticErrorCount ? () => showScanErrors('/api/semantic/errors', 'Meaning search errors') : null),
       );
     }
     const semanticRunning = semantic.state === 'running';
     $('startSemantic').disabled = semanticRunning || scanAllRunning;
+    $('fillSemantic').disabled = semanticRunning || scanAllRunning;
+    $('rescanSemantic').disabled = semanticRunning || scanAllRunning;
     $('pauseSemantic').disabled = !semanticRunning || scanAllRunning;
     setSpinner('semanticSpinner', semanticRunning || semanticInstalling);
     $('semanticElapsed').textContent = semanticInstalling ? elapsedText(semanticInstall.started_at)
@@ -300,6 +332,7 @@ async function refresh() {
         ? elapsedText(semantic.started_at) + progressSuffix(semantic.indexed_this_pass, semantic.total, semantic.started_at)
         : '');
     if (!semanticInstalling) setBar('semanticBar', semantic.indexed_this_pass, semanticRunning ? semantic.total : 0);
+    renderLiveFailures('semanticMetrics', semantic.failures);
 
     // Face detection
     const faceInstall = faceScan.install || {};
@@ -364,8 +397,10 @@ $('pauseLocation').onclick = async () => {
 };
 
 $('startOcr').onclick = async () => {
+  const rescan = $('ocrRescan').checked;
+  if (rescan && !confirm('Read every photo again, including ones already done? This can take a long time on a large library.')) return;
   $('startOcr').disabled = true;
-  try { await api('/api/ocr/start', { since: $('ocrSince').value, workers: 4 }); refresh(); }
+  try { await api('/api/ocr/start', { since: $('ocrSince').value, workers: 4, rescan }); refresh(); }
   catch (error) { $('ocrMessage').textContent = error.message; $('startOcr').disabled = false; }
 };
 $('pauseOcr').onclick = async () => {
@@ -373,10 +408,16 @@ $('pauseOcr').onclick = async () => {
   catch (error) { $('ocrMessage').textContent = error.message; }
 };
 
-$('startSemantic').onclick = async () => {
-  $('startSemantic').disabled = true;
-  try { await api('/api/semantic/start', { batch_size: 16 }); refresh(); }
-  catch (error) { $('semanticMessage').textContent = error.message; $('startSemantic').disabled = false; }
+async function startSemantic(mode, button) {
+  button.disabled = true;
+  try { await api('/api/semantic/start', { batch_size: 16, mode }); refresh(); }
+  catch (error) { $('semanticMessage').textContent = error.message; button.disabled = false; }
+}
+$('startSemantic').onclick = () => startSemantic('new', $('startSemantic'));
+$('fillSemantic').onclick = () => startSemantic('missing', $('fillSemantic'));
+$('rescanSemantic').onclick = () => {
+  if (!confirm('Read every photo again from scratch, including ones already indexed? This can take a long time on a large library.')) return;
+  startSemantic('all', $('rescanSemantic'));
 };
 $('pauseSemantic').onclick = async () => {
   try { await api('/api/semantic/cancel', {}); $('semanticMessage').textContent = 'Pausing after the active image batch…'; }

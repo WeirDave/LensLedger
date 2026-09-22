@@ -996,14 +996,23 @@ def ocr_assets(
     progress: Callable[[dict[str, int | bool]], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
     quiet: bool = False,
+    rescan: bool = False,
 ) -> int:
+    """Read text out of photos.
+
+    By default only photos that have never been read are processed. With
+    ``rescan`` set, photos that were already read are read again -- the
+    deliberate re-run, rather than "new files only".
+    """
     con = connect(db_path)
     sql = """
-        SELECT a.id, a.path FROM assets a
+        SELECT a.id, a.path, a.relative_path FROM assets a
         JOIN text_data x ON x.asset_id = a.id
-        WHERE a.media_type='image' AND a.metadata_scanned=1 AND x.ocr_scanned=0
+        WHERE a.media_type='image' AND a.metadata_scanned=1
     """
     params: list[str] = []
+    if not rescan:
+        sql += " AND x.ocr_scanned=0"
     if since:
         # Validation also prevents surprising lexical date comparisons.
         dt.date.fromisoformat(since)
@@ -1012,14 +1021,17 @@ def ocr_assets(
     sql += " ORDER BY a.capture_date, a.relative_path"
     rows = con.execute(sql, params).fetchall()
     script = Path(__file__).with_name("windows_ocr.ps1")
-    counts: dict[str, int | bool] = {
+    counts: dict[str, object] = {
         "total": len(rows), "attempted": 0, "with_text": 0,
-        "errors": 0, "cancelled": False,
+        "errors": 0, "cancelled": False, "failures": [],
     }
+    paths_by_id = {int(row["id"]): row["relative_path"] for row in rows}
 
     def report() -> None:
         if progress:
-            progress(dict(counts))
+            copy = dict(counts)
+            copy["failures"] = list(counts["failures"])
+            progress(copy)
 
     worker_count = max(1, workers)
     pending_rows = iter(rows)
@@ -1057,6 +1069,12 @@ def ocr_assets(
                         "UPDATE text_data SET ocr_error=? WHERE asset_id=?",
                         (error[:1000], asset_id),
                     )
+                    if len(counts["failures"]) < 200:
+                        counts["failures"].append({
+                            "path": paths_by_id.get(asset_id, path or expected_path),
+                            "full_path": path or expected_path,
+                            "error": error[:1000],
+                        })
                     if not quiet:
                         print(f"OCR_ERROR\t{path or expected_path}\t{error}", file=sys.stderr)
                 else:

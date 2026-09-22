@@ -6,6 +6,19 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.3.0 — 2026-09-21
+
+- "Write all tags" on the Publish photos page now writes auto-classified tags, the subject, and text found in pictures into photo files, not only the names of people. Previously the embedded write mode, which is the default, wrote names alone and dropped the rest without saying so.
+- Anything a file cannot carry is now listed by name under the button, with the reason, instead of being dropped silently. Files that cannot take embedded tags at all are named as having received a sidecar file instead.
+- Writing tags across a library now runs in the background with a progress bar and a "Stop writing" button, instead of freezing the page until it finishes.
+- Meaning search gained "Fill in missing", which indexes every photo that has no meaning data, including photos an earlier run could not read. Photos that failed once were previously skipped by every later run.
+- Meaning search gained "Re-scan everything", which reads every photo again from scratch, including photos already indexed.
+- The Scan your photos page now shows a "Missing" count for meaning search — photos with no meaning data at all.
+- Text recognition gained "Read photos again that have already been read" on the Scan your photos page, for a deliberate re-run rather than new files only.
+- Scans that cannot read a photo now name the file and the reason on the page while the scan is still running, rather than reporting only a count.
+- Tags consisting only of punctuation are no longer written into photos.
+- Fixed the "Set up meaning search in Settings" and "Set up face detection in Settings" links staying visible on the Scan your photos page after those features were already set up.
+
 ## 1.2.1 — 2026-09-14
 
 - Replaced real personal names in release notes and test fixtures with fictional equivalents to protect privacy.

@@ -67,6 +67,7 @@ from semantic_classify import (
     get_asset_classifications,
 )
 from semantic_index import (
+    BUILD_MODES as SEMANTIC_BUILD_MODES,
     SUPPORTED_MODELS as SEMANTIC_SUPPORTED_MODELS,
     build_index as build_semantic_index,
     clear_available_cache as semantic_clear_cache,
@@ -489,7 +490,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             }
 
 
-def _run_ocr_job(handler_class, database, since, workers, started_at):
+def _run_ocr_job(handler_class, database, since, workers, started_at, rescan=False):
     """Run one OCR pass, updating handler_class.ocr_job as it goes."""
     console_log("Text recognition (OCR): starting")
     try:
@@ -503,7 +504,8 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
             total = int(counts["total"])
             errors = int(counts["errors"])
             if not _ocr_started_logged and total > 0:
-                console_log(f"Text recognition (OCR): {total:,} images to process")
+                scope = "images to re-read" if rescan else "images to process"
+                console_log(f"Text recognition (OCR): {total:,} {scope}")
                 _ocr_started_logged = True
             now = time.monotonic()
             if attempted > 0 and now - _ocr_last_log_time >= 10:
@@ -523,7 +525,7 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
         result = ocr_assets(
             database, since, workers, progress=update_progress,
             should_cancel=handler_class.ocr_cancel.is_set,
-            quiet=True,
+            quiet=True, rescan=rescan,
         )
         with handler_class.ocr_lock:
             current = dict(handler_class.ocr_job)
@@ -550,7 +552,7 @@ def _run_ocr_job(handler_class, database, since, workers, started_at):
             handler_class.ocr_job = {"state": "error", "message": str(exc)}
 
 
-def _run_semantic_index_job(handler_class, database, batch_size, started_at):
+def _run_semantic_index_job(handler_class, database, batch_size, started_at, mode="new"):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
     settings = load_settings()
     model_id = settings.get("scan", {}).get("semantic_model", "ViT-B-32/openai")
@@ -582,7 +584,9 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
             total = int(counts["total"])
             errors = int(counts["errors"])
             if not _sem_started_logged and total > 0:
-                console_log(f"Meaning search: {total:,} images to index")
+                scope = {"new": "not yet indexed", "missing": "missing meaning data",
+                         "all": "in the library (full re-scan)"}[mode]
+                console_log(f"Meaning search: {total:,} images {scope}")
                 _sem_started_logged = True
             now = time.monotonic()
             if indexed > 0 and now - _sem_last_log_time >= 10:
@@ -598,12 +602,14 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
                     "total": int(counts["total"]),
                     "indexed_this_pass": int(counts["indexed"]),
                     "errors": int(counts["errors"]),
+                    "failures": list(counts.get("failures") or []),
+                    "mode": mode,
                     "started_at": started_at,
                 }
 
         result = build_semantic_index(
             database, encoder=encoder, batch_size=batch_size, progress=update_progress,
-            should_cancel=handler_class.semantic_cancel.is_set,
+            should_cancel=handler_class.semantic_cancel.is_set, mode=mode,
         )
         with handler_class.semantic_lock:
             error_count = int(result["errors"])
@@ -619,6 +625,8 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at):
                 "total": int(result["total"]),
                 "indexed_this_pass": int(result["indexed"]),
                 "errors": int(result["errors"]),
+                "failures": list(result.get("failures") or []),
+                "mode": mode,
             }
         indexed = int(result["indexed"])
         if result["cancelled"]:
@@ -886,6 +894,9 @@ class SearchHandler(BaseHTTPRequestHandler):
     face_scan_cancel = threading.Event()
     face_install_lock = threading.Lock()
     face_install_job: dict[str, object] = {"state": "idle", "message": ""}
+    write_tags_lock = threading.Lock()
+    write_tags_job: dict[str, object] = {"state": "idle", "message": ""}
+    write_tags_cancel = threading.Event()
     scan_all_lock = threading.Lock()
     scan_all_job: dict[str, object] = {"state": "idle", "message": ""}
     scan_all_cancel = threading.Event()
@@ -1017,6 +1028,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.publish_pending()
         if url.path == "/api/publish/progress":
             return self.send_json(SearchHandler.publish_progress)
+        if url.path == "/api/write-tags/status":
+            return self.write_tags_status()
         if url.path == "/api/classify/status":
             return self.send_json(SearchHandler.classify_job)
         if url.path == "/map":
@@ -1197,6 +1210,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.cancel_classify(body)
             if route == "/api/write-tags":
                 return self.write_tags_to_photo(body)
+            if route == "/api/write-tags/cancel":
+                return self.cancel_write_tags(body)
             if route == "/api/write-tags/batch":
                 return self.write_tags_batch(body)
             if route == "/api/settings/save":
@@ -1325,8 +1340,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><details class="scan-details"><summary>Database &amp; folder details</summary><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></details></section>
 <section class="card job-card"><div class="section-title"><h2>Run all scans</h2><button type="button" class="info-button" data-help="scanAllHelp" aria-label="About Run all scans">i</button></div><div class="help-popover" id="scanAllHelp">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</div><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="progress-bar" id="locationBarWrap" hidden><span id="locationBar"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div></section>
 </main>
@@ -2578,13 +2593,16 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p class="intro">Names confirmed in People are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
 <section class="card" id="writeTagsSection">
 <h3>Write tags to photos</h3>
-<p>Write all accumulated metadata (auto-classified tags, people, OCR text) to your photos. Configure the write mode in <a href="/settings#metadata-publishing">Settings</a>.</p>
+<p>Write all accumulated metadata (auto-classified tags, people, subject, and any text found in the picture) to your photos. Choose whether that goes inside the photo files or into companion sidecar files in <a href="/settings#metadata-publishing">Settings</a>. Anything a particular file cannot carry is listed below the button rather than dropped.</p>
 <div class="publish-actions">
 <button type="button" class="secondary" id="classifyPhotos">Classify photos</button>
 <button type="button" class="secondary" id="writeAllTags">Write all tags</button>
+<button type="button" class="secondary" id="cancelWriteTags" hidden>Stop writing</button>
 </div>
 <div class="classify-status" id="classifyStatus" hidden></div>
 <div class="write-tags-status" id="writeTagsStatus" hidden></div>
+<div class="progress-bar-track" id="writeTagsBarWrap" hidden><div class="progress-bar-fill" id="writeTagsBar"></div></div>
+<div class="write-tags-report" id="writeTagsReport" hidden></div>
 </section>
 <h3>People metadata</h3>
 <div class="publish-summary" id="publishSummary"><div class="loading-spinner"></div> Loading&hellip;</div>
@@ -2963,6 +2981,152 @@ class SearchHandler(BaseHTTPRequestHandler):
         return {"path": path, "backup": backup, "filename": asset["filename"],
                 "relative_path": asset["relative_path"], "people": people}
 
+    # Which metadata categories the embedded route writes, and the fields each
+    # one lands in. Kept as data so a category cannot be dropped silently: the
+    # write reports every category it could not place.
+    EMBEDDED_CATEGORY_FIELDS = {
+        "keywords": ("XMP-dc:Subject", "IPTC:Keywords", "XMP-microsoft:LastKeywordXMP"),
+        "people": ("XMP-iptcExt:PersonInImage",),
+        "description": ("IFD0:ImageDescription", "XMP-dc:Description", "IPTC:Caption-Abstract"),
+        "subject": ("XMP-dc:Title", "IPTC:ObjectName", "XMP-photoshop:Headline"),
+    }
+
+    def _write_embedded_metadata(self, con: sqlite3.Connection, asset_id: int, data: dict) -> dict:
+        """Write every gathered category into the photo itself.
+
+        The people-publish route deliberately preserves whatever keywords the
+        file already carried; this route is the opposite -- it makes the file
+        match what LensLedger holds, which is what "Write all tags" offers.
+        """
+        asset = data["asset"]
+        path = data["path"]
+        if not path.is_file():
+            raise ValueError(f"{asset['filename']} is no longer on disk")
+
+        before = _exiftool_values(path)
+        before.pop("SourceFile", None)
+
+        keywords = list(data["keywords"])
+        people = list(data["people"])
+        description = data["description"]
+        subject = data["subject"]
+        after = {
+            "XMP-dc:Subject": keywords,
+            "IPTC:Keywords": keywords,
+            "XMP-microsoft:LastKeywordXMP": keywords,
+            "XMP-iptcExt:PersonInImage": people,
+            "IFD0:ImageDescription": description,
+            "XMP-dc:Description": description,
+            "IPTC:Caption-Abstract": description,
+            "XMP-dc:Title": subject,
+            "IPTC:ObjectName": subject,
+            "XMP-photoshop:Headline": subject,
+        }
+
+        timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        relative = Path(asset["relative_path"])
+        backup = (BACKUP_ROOT / relative.parent /
+                  f"{relative.stem}.before-write-tags-{timestamp}{relative.suffix}").resolve()
+        backup.relative_to(BACKUP_ROOT.resolve())
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        before_pixels = _pixel_hash(path)
+        shutil.copy2(path, backup)
+        if backup.stat().st_size != path.stat().st_size:
+            backup.unlink(missing_ok=True)
+            raise ValueError(f"The safety backup could not be verified for {asset['filename']}")
+
+        # One invocation, not a clear pass followed by an add pass: exiftool
+        # applies arguments in order onto a single temporary file, so an
+        # interrupted run can never leave the photo stripped of the old values
+        # and not yet carrying the new ones.
+        arguments = ["-overwrite_original", "-charset", "iptc=UTF8"]
+        for field in ("XMP-dc:Subject", "IPTC:Keywords", "XMP-microsoft:LastKeywordXMP",
+                      "XMP-iptcExt:PersonInImage"):
+            arguments.append(f"-{field}=")
+        for keyword in keywords:
+            arguments.extend([
+                f"-XMP-dc:Subject+={keyword}", f"-IPTC:Keywords+={keyword}",
+                f"-XMP-microsoft:LastKeywordXMP+={keyword}",
+            ])
+        for person in people:
+            arguments.append(f"-XMP-iptcExt:PersonInImage+={person}")
+        for field in self.EMBEDDED_CATEGORY_FIELDS["description"]:
+            arguments.append(f"-{field}={description}")
+        for field in self.EMBEDDED_CATEGORY_FIELDS["subject"]:
+            arguments.append(f"-{field}={subject}")
+        arguments.append(str(path))
+
+        try:
+            _run_exiftool(arguments)
+            if _pixel_hash(path) != before_pixels:
+                raise ValueError(f"Pixel verification failed for {asset['filename']}")
+        except Exception:
+            shutil.copy2(backup, path)
+            raise
+
+        written = self._verify_embedded_categories(path, keywords, people, description, subject)
+
+        stat = path.stat()
+        con.execute(
+            """INSERT INTO metadata_publications
+               (asset_id,relative_path,backup_path,before_json,after_json,
+                operation,review_action_id,published_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (asset_id, asset["relative_path"], str(backup), json.dumps(before),
+             json.dumps(after), "write_tags", None, utc_now()),
+        )
+        con.execute(
+            "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+            (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
+        )
+        set_source_tags(con, asset_id, "embedded_xmp", keywords)
+        rebuild_search_row(con, asset_id)
+        con.execute(
+            "UPDATE asset_people SET published_at=? WHERE asset_id=? AND state='confirmed'",
+            (utc_now(), asset_id),
+        )
+        return {
+            "backup": backup,
+            "written": written["written"],
+            "not_written": written["not_written"],
+        }
+
+    def _verify_embedded_categories(self, path: Path, keywords, people, description, subject) -> dict:
+        """Read the file back and report which categories actually landed.
+
+        A format that will not carry a field is a fact worth surfacing, not a
+        reason to quietly write less than the button promises.
+        """
+        offered = {
+            "keywords": list(keywords), "people": list(people),
+            "description": description, "subject": subject,
+        }
+        try:
+            actual = _exiftool_values(path)
+        except Exception as exc:
+            return {"written": [], "not_written": [
+                {"category": name, "reason": f"could not be read back — {exc}"}
+                for name, value in offered.items() if value
+            ]}
+        actual.pop("SourceFile", None)
+        written: list[str] = []
+        not_written: list[dict] = []
+        for name, value in offered.items():
+            if not value:
+                continue
+            landed = any(
+                self._metadata_values(actual.get(field))
+                for field in self.EMBEDDED_CATEGORY_FIELDS[name]
+            )
+            if landed:
+                written.append(name)
+            else:
+                not_written.append({
+                    "category": name,
+                    "reason": "this file format does not carry that field",
+                })
+        return {"written": written, "not_written": not_written}
+
     @staticmethod
     def _restore_people_batch(published):
         for item in reversed(published):
@@ -3171,6 +3335,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                WHERE at.asset_id=? AND at.source<>'subject' ORDER BY t.name""", (asset_id,)
         ):
             key = row["name"].casefold()
+            # A tag with no letters or digits -- "." from a library-root folder,
+            # say -- is punctuation, not a keyword worth writing into a photo.
+            if not any(character.isalnum() for character in row["name"]):
+                continue
             if key not in excluded and key not in seen:
                 keywords.append(row["name"]); seen.add(key)
 
@@ -3211,7 +3379,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     raise ValueError(f"Embedded writing is not supported for {data['asset']['filename']}")
                 write_mode = "sidecar"
 
-            result = {"ok": True, "wrote_embedded": False, "wrote_sidecar": False}
+            result = {"ok": True, "wrote_embedded": False, "wrote_sidecar": False,
+                      "written": [], "not_written": []}
 
             if write_mode in ("sidecar", "both"):
                 sidecar_path = write_sidecar(
@@ -3227,15 +3396,37 @@ class SearchHandler(BaseHTTPRequestHandler):
 
             if write_mode in ("embedded", "both"):
                 if path.suffix.lower() in PUBLISHABLE_EXTENSIONS:
-                    self._publish_people_metadata(con, asset_id, operation="write_tags")
+                    outcome = self._write_embedded_metadata(con, asset_id, data)
                     result["wrote_embedded"] = True
-                    console_log(f"[Write Tags] Embedded: {data['asset']['relative_path']}")
+                    result["written"] = outcome["written"]
+                    result["not_written"] = outcome["not_written"]
+                    missed = ", ".join(item["category"] for item in outcome["not_written"])
+                    console_log(
+                        f"[Write Tags] Embedded: {data['asset']['relative_path']} — "
+                        + (", ".join(outcome["written"]) or "nothing to write")
+                        + (f"; not carried: {missed}" if missed else "")
+                    )
 
         self.send_json(result)
+
+    def write_tags_status(self):
+        with SearchHandler.write_tags_lock:
+            self.send_json(dict(SearchHandler.write_tags_job))
+
+    def cancel_write_tags(self, _body):
+        with SearchHandler.write_tags_lock:
+            if SearchHandler.write_tags_job.get("state") != "running":
+                raise ValueError("Tag writing is not running")
+            SearchHandler.write_tags_cancel.set()
+            SearchHandler.write_tags_job["message"] = "Stopping after the current photo…"
+        self.send_json({"ok": True, "state": "cancelling"}, 202)
 
     def write_tags_batch(self, body):
         write_mode = str(body.get("write_mode", "") or get_setting("publish", "write_mode", default="embedded"))
         scope = str(body.get("scope", "all"))
+        with SearchHandler.write_tags_lock:
+            if SearchHandler.write_tags_job.get("state") == "running":
+                raise ValueError("Tag writing is already running")
         with self.db() as con:
             if scope == "classified":
                 asset_ids = [r[0] for r in con.execute(
@@ -3261,35 +3452,96 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         total = len(asset_ids)
         if not total:
+            SearchHandler.write_tags_job = {
+                "state": "complete", "message": "Nothing to write — no photos carry tags yet.",
+                "total": 0, "done": 0, "written": 0,
+                "failed": [], "fell_back": [], "incomplete": [],
+            }
             return self.send_json({"ok": True, "written": 0, "total": 0})
 
         console_log(f"[Write Tags] Writing tags to {total} photos (mode={write_mode})…")
-        written = 0
-        failed: list[dict] = []
-        for asset_id in asset_ids:
-            try:
-                with self.db() as con:
-                    data = self._gather_write_tags_data(con, int(asset_id))
-                    path = data["path"]
-                    can_embed = path.suffix.lower() in PUBLISHABLE_EXTENSIONS
-                    mode = write_mode if can_embed else "sidecar"
+        started_at = utc_now()
+        SearchHandler.write_tags_cancel.clear()
+        with SearchHandler.write_tags_lock:
+            SearchHandler.write_tags_job = {
+                "state": "running", "message": f"Writing tags to {total:,} photos…",
+                "total": total, "done": 0, "written": 0,
+                "failed": [], "fell_back": [], "incomplete": [], "started_at": started_at,
+            }
 
-                    if mode in ("sidecar", "both"):
-                        write_sidecar(
-                            path,
-                            title=data["subject"],
-                            description=data["description"],
-                            keywords=data["keywords"],
-                            people=data["people"],
-                        )
-                    if mode in ("embedded", "both") and can_embed:
-                        self._publish_people_metadata(con, int(asset_id), operation="write_tags")
-                written += 1
-            except Exception as exc:
-                failed.append({"asset_id": asset_id, "reason": str(exc)})
+        def run():
+            written = 0
+            failed: list[dict] = []
+            fell_back: list[dict] = []
+            incomplete: list[dict] = []
+            cancelled = False
+            index = 0
+            for index, asset_id in enumerate(asset_ids, 1):
+                if SearchHandler.write_tags_cancel.is_set():
+                    cancelled = True
+                    break
+                relative = f"photo {asset_id}"
+                try:
+                    with self.db() as con:
+                        data = self._gather_write_tags_data(con, int(asset_id))
+                        relative = data["asset"]["relative_path"]
+                        path = data["path"]
+                        can_embed = path.suffix.lower() in PUBLISHABLE_EXTENSIONS
+                        mode = write_mode if can_embed else "sidecar"
+                        if write_mode in ("embedded", "both") and not can_embed:
+                            suffix = path.suffix or "this file type"
+                            fell_back.append({
+                                "path": relative,
+                                "error": f"{suffix} files cannot carry embedded tags — "
+                                         "a sidecar file was written next to it instead",
+                            })
 
-        console_log(f"[Write Tags] Done — {written}/{total} photos updated, {len(failed)} failed.")
-        self.send_json({"ok": True, "written": written, "total": total, "failed": failed})
+                        if mode in ("sidecar", "both"):
+                            write_sidecar(
+                                path,
+                                title=data["subject"],
+                                description=data["description"],
+                                keywords=data["keywords"],
+                                people=data["people"],
+                            )
+                        if mode in ("embedded", "both") and can_embed:
+                            outcome = self._write_embedded_metadata(con, int(asset_id), data)
+                            for item in outcome["not_written"]:
+                                incomplete.append({
+                                    "path": relative,
+                                    "error": f"{item['category']} — {item['reason']}",
+                                })
+                    written += 1
+                except Exception as exc:
+                    failed.append({"asset_id": asset_id, "path": relative,
+                                   "reason": str(exc), "error": str(exc)})
+                    console_log(f"[Write Tags] Failed: {relative} — {exc}")
+                with SearchHandler.write_tags_lock:
+                    SearchHandler.write_tags_job = {
+                        "state": "running",
+                        "message": f"Wrote {written:,} of {total:,} photos…",
+                        "total": total, "done": index, "written": written,
+                        "failed": list(failed), "fell_back": list(fell_back),
+                        "incomplete": list(incomplete), "started_at": started_at,
+                    }
+
+            if cancelled:
+                console_log(f"[Write Tags] Stopped — {written}/{total} photos updated.")
+                message = f"Stopped after {written:,} of {total:,} photos. Nothing was left half-written."
+            else:
+                console_log(f"[Write Tags] Done — {written}/{total} photos updated, {len(failed)} failed.")
+                message = f"Wrote tags to {written:,} of {total:,} photos."
+            with SearchHandler.write_tags_lock:
+                SearchHandler.write_tags_job = {
+                    "state": "cancelled" if cancelled else "complete",
+                    "message": message,
+                    "total": total, "done": index if cancelled else total, "written": written,
+                    "failed": failed, "fell_back": fell_back, "incomplete": incomplete,
+                    "started_at": started_at,
+                }
+
+        threading.Thread(target=run, name="LensLedger-write-tags", daemon=True).start()
+        self.send_json({"ok": True, "state": "running", "total": total}, 202)
 
     def trash_history(self):
         with self.db() as con:
@@ -5299,6 +5551,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise ValueError("Text recognition (OCR) requires Windows — it uses the built-in Windows OCR engine")
         workers = max(1, min(8, int(body.get("workers", 4))))
         since = str(body.get("since", "")).strip() or None
+        rescan = bool(body.get("rescan", False))
         if since:
             dt.date.fromisoformat(since)
         with type(self).ocr_lock:
@@ -5318,7 +5571,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         database = handler_class.db_path
         started_at = handler_class.ocr_job["started_at"]
         threading.Thread(
-            target=_run_ocr_job, args=(handler_class, database, since, workers, started_at),
+            target=_run_ocr_job,
+            args=(handler_class, database, since, workers, started_at, rescan),
             name="LensLedger-ocr", daemon=True,
         ).start()
         self.send_json({"ok": True, "state": "running"}, 202)
@@ -5374,6 +5628,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         settings = load_settings()
         scan_cfg = settings.get("scan", {})
         batch_size = max(1, min(64, int(body.get("batch_size", scan_cfg.get("semantic_batch_size", 16)))))
+        mode = str(body.get("mode", "new") or "new")
+        if mode not in SEMANTIC_BUILD_MODES:
+            raise ValueError(f"Unknown meaning-search mode: {mode}")
         with type(self).semantic_lock:
             if type(self).semantic_job.get("state") == "running":
                 raise ValueError("meaning indexing is already running")
@@ -5394,7 +5651,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         database = handler_class.db_path
         started_at = handler_class.semantic_job["started_at"]
         threading.Thread(
-            target=_run_semantic_index_job, args=(handler_class, database, batch_size, started_at),
+            target=_run_semantic_index_job,
+            args=(handler_class, database, batch_size, started_at, mode),
             name="LensLedger-semantic", daemon=True,
         ).start()
         self.send_json({"ok": True, "state": "running"}, 202)

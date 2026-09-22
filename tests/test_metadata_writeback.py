@@ -262,6 +262,8 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         photo_search.SearchHandler.scan_all_cancel.clear()
         photo_search.SearchHandler.classify_job = {"state": "idle", "message": ""}
         photo_search.SearchHandler.classify_cancel.clear()
+        photo_search.SearchHandler.write_tags_job = {"state": "idle", "message": ""}
+        photo_search.SearchHandler.write_tags_cancel.clear()
         photo_search.SearchHandler.people_merge_lock = threading.Lock()
         photo_search.SearchHandler.update_job = {"state": "idle", "message": ""}
         from http.server import ThreadingHTTPServer
@@ -321,6 +323,162 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertTrue(xmp_path.exists())
         content = xmp_path.read_text(encoding="utf-8")
         self.assertIn("sunset", content)
+
+    def _seed_every_category(self):
+        """Give the photo one of each thing "Write all tags" promises to write."""
+        con = sqlite3.connect(self.database)
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('sunset')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) VALUES (?, ?, 'semantic_auto', 0.5)",
+            (self.asset_id, tag_id),
+        )
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Marta Quill')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_people(asset_id, person_id, state, source, updated_at) "
+            "VALUES (?, ?, 'confirmed', 'test', datetime('now'))",
+            (self.asset_id, person_id),
+        )
+        con.execute(
+            "INSERT INTO text_data(asset_id, ocr_text, ocr_scanned) VALUES (?, ?, 1) "
+            "ON CONFLICT(asset_id) DO UPDATE SET ocr_text=excluded.ocr_text, ocr_scanned=1",
+            (self.asset_id, "PLATFORM 4 DEPARTURES"),
+        )
+        con.execute(
+            "INSERT INTO asset_annotations(relative_path, subject, tags) VALUES (?, ?, '')",
+            (self.photo.name, "Station steps"),
+        )
+        con.commit()
+        con.close()
+        return {
+            "keywords": "sunset",
+            "people": "Marta Quill",
+            "description": "PLATFORM 4 DEPARTURES",
+            "subject": "Station steps",
+        }
+
+    def _exiftool_or_skip(self):
+        if not self.photo_search.EXIFTOOL_PATH.is_file():
+            self.skipTest("bundled ExifTool is not present")
+        try:
+            return self.photo_search._exiftool_values(self.photo)
+        except Exception as exc:
+            self.skipTest(f"bundled ExifTool could not run: {exc}")
+
+    def test_write_tags_embedded_writes_every_category(self):
+        """Every category the button promises must reach the file itself.
+
+        This is the regression guard: if any one of keywords, people,
+        description or subject stops being embedded, the matching subTest
+        fails and names the category that went missing.
+        """
+        self._exiftool_or_skip()
+        expected = self._seed_every_category()
+
+        result = self.json_response(self.post(
+            "/api/write-tags",
+            {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["wrote_embedded"])
+        self.assertFalse(result["wrote_sidecar"])
+
+        values = self.photo_search._exiftool_values(self.photo)
+        category_fields = self.photo_search.SearchHandler.EMBEDDED_CATEGORY_FIELDS
+        for category, needle in expected.items():
+            with self.subTest(category=category):
+                self.assertIn(
+                    category, result["written"],
+                    f"the write did not report {category} as written",
+                )
+                found = []
+                for field in category_fields[category]:
+                    found.extend(
+                        self.photo_search.SearchHandler._metadata_values(values.get(field))
+                    )
+                self.assertTrue(
+                    any(needle in value for value in found),
+                    f"{category} never reached the photo — looked for {needle!r} in "
+                    f"{', '.join(category_fields[category])}, found {found}",
+                )
+
+    def test_write_tags_embedded_keeps_a_restorable_backup(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        before = self.photo.read_bytes()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+
+        backups = list(self.photo_search.BACKUP_ROOT.rglob("*.before-write-tags-*.jpg"))
+        self.assertEqual(len(backups), 1, "exactly one safety copy should exist")
+        self.assertEqual(backups[0].read_bytes(), before,
+                         "the safety copy must match the file as it was before the write")
+
+        con = sqlite3.connect(self.database)
+        recorded = con.execute(
+            "SELECT backup_path, operation FROM metadata_publications WHERE asset_id=?",
+            (self.asset_id,),
+        ).fetchone()
+        con.close()
+        self.assertIsNotNone(recorded, "the write must be recorded so it can be undone")
+        self.assertEqual(recorded[1], "write_tags")
+        self.assertTrue(Path(recorded[0]).is_file())
+
+    def test_write_tags_embedded_leaves_the_picture_untouched(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        from metadata_reader import pixel_hash
+
+        before = pixel_hash(self.photo)
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.assertEqual(pixel_hash(self.photo), before)
+
+    def test_write_tags_batch_reports_files_it_could_not_embed(self):
+        """A file that cannot carry embedded tags is reported, not silently dropped."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        import time
+        from photo_index import scan_library
+        unsupported = self.library / "note.txt"
+        unsupported.write_text("not a photo", encoding="utf-8")
+        png = self.library / "2026-08-10 diagram.png"
+        Image.new("RGB", (16, 16), (200, 40, 40)).save(png)
+        scan_library(self.library, self.database)
+
+        con = sqlite3.connect(self.database)
+        png_id = int(con.execute(
+            "SELECT id FROM assets WHERE filename=?", (png.name,)
+        ).fetchone()[0])
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('diagram')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) VALUES (?, ?, 'semantic_auto', 0.6)",
+            (png_id, tag_id),
+        )
+        con.commit()
+        con.close()
+
+        self.json_response(self.post(
+            "/api/write-tags/batch", {"scope": "all", "write_mode": "embedded"},
+        ))
+
+        deadline = time.monotonic() + 60
+        job = {}
+        while time.monotonic() < deadline:
+            job = dict(self.photo_search.SearchHandler.write_tags_job)
+            if job.get("state") in ("complete", "cancelled", "error"):
+                break
+            time.sleep(0.2)
+        self.assertEqual(job.get("state"), "complete", f"batch did not finish: {job}")
+
+        fell_back_paths = [item["path"] for item in job["fell_back"]]
+        self.assertIn(png.name, fell_back_paths,
+                      "a PNG cannot carry embedded tags, so the run must say so by name")
+        for item in job["fell_back"]:
+            self.assertTrue(item.get("error"), "every reported file needs a reason")
 
     def test_asset_detail_includes_auto_tags_and_write_mode(self):
         import urllib.request

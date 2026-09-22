@@ -207,21 +207,116 @@ if ($('classifyPhotos')) {
   };
 }
 
+function fileReport(title, className, items) {
+  if (!items || !items.length) return null;
+  const box = document.createElement('div');
+  box.className = 'write-tags-group ' + className;
+  const heading = document.createElement('h4');
+  heading.textContent = items.length === 1 ? title.replace('photos', 'photo') : title;
+  heading.textContent = heading.textContent.replace('{n}', items.length.toLocaleString());
+  box.append(heading);
+  const list = document.createElement('ul');
+  items.slice(0, 50).forEach(item => {
+    const row = document.createElement('li');
+    const name = document.createElement('strong');
+    name.textContent = item.path || ('photo ' + item.asset_id);
+    const why = document.createElement('span');
+    why.textContent = ' — ' + (item.error || item.reason || 'no reason recorded');
+    row.append(name, why);
+    list.append(row);
+  });
+  box.append(list);
+  if (items.length > 50) {
+    const more = document.createElement('p');
+    more.className = 'write-tags-more';
+    more.textContent = (items.length - 50).toLocaleString() + ' more not listed.';
+    box.append(more);
+  }
+  return box;
+}
+
+function renderWriteTagsJob(job) {
+  const status = $('writeTagsStatus');
+  const report = $('writeTagsReport');
+  const barWrap = $('writeTagsBarWrap');
+  const running = job.state === 'running';
+
+  status.hidden = false;
+  status.textContent = job.message || job.state || '';
+  $('writeAllTags').disabled = running;
+  $('cancelWriteTags').hidden = !running;
+
+  if (running && job.total) {
+    barWrap.hidden = false;
+    $('writeTagsBar').style.width =
+      Math.min(100, Math.round(((job.done || 0) / job.total) * 100)) + '%';
+  } else {
+    barWrap.hidden = true;
+  }
+
+  const groups = [
+    fileReport('{n} photos could not be written', 'write-tags-failed', job.failed),
+    fileReport('{n} photos got a sidecar file instead', 'write-tags-fallback', job.fell_back),
+    fileReport('{n} photos could not carry everything', 'write-tags-partial', job.incomplete),
+  ].filter(Boolean);
+
+  if (!groups.length) {
+    report.hidden = true;
+    report.replaceChildren();
+    return;
+  }
+  report.hidden = false;
+  report.replaceChildren(...groups);
+}
+
+let writeTagsPoll = null;
+
+async function pollWriteTags() {
+  try {
+    const job = await fetch('/api/write-tags/status').then(r => r.json());
+    renderWriteTagsJob(job);
+    if (job.state !== 'running' && writeTagsPoll) {
+      clearInterval(writeTagsPoll);
+      writeTagsPoll = null;
+    }
+  } catch {}
+}
+
 if ($('writeAllTags')) {
   $('writeAllTags').onclick = async () => {
     $('writeAllTags').disabled = true;
     const status = $('writeTagsStatus');
     status.hidden = false;
-    status.textContent = 'Writing tags to photos…';
+    status.textContent = 'Starting…';
+    $('writeTagsReport').hidden = true;
     try {
-      const result = await api('/api/write-tags/batch', { scope: 'all' });
-      status.textContent = 'Wrote tags to ' + result.written + ' of ' + result.total + ' photos.'
-        + (result.failed && result.failed.length ? ' (' + result.failed.length + ' failed)' : '');
+      await api('/api/write-tags/batch', { scope: 'all' });
+      if (!writeTagsPoll) writeTagsPoll = setInterval(pollWriteTags, 1000);
+      pollWriteTags();
     } catch (e) {
       status.textContent = 'Error: ' + e.message;
+      $('writeAllTags').disabled = false;
     }
-    $('writeAllTags').disabled = false;
   };
+}
+
+if ($('cancelWriteTags')) {
+  $('cancelWriteTags').onclick = async () => {
+    $('cancelWriteTags').disabled = true;
+    try { await api('/api/write-tags/cancel', {}); }
+    catch (e) { $('writeTagsStatus').textContent = 'Error: ' + e.message; }
+    $('cancelWriteTags').disabled = false;
+  };
+}
+
+// Pick a run back up if the page was reloaded while it was working.
+if ($('writeAllTags')) {
+  fetch('/api/write-tags/status').then(r => r.json()).then(job => {
+    if (job.state === 'running') {
+      renderWriteTagsJob(job);
+      if (!writeTagsPoll) writeTagsPoll = setInterval(pollWriteTags, 1000);
+    }
+  }).catch(() => {});
 }
 
 loadPending();

@@ -34,7 +34,7 @@ main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .progress-bar[hidden]{display:none}
 .progress-bar.indeterminate span{width:35%;animation:indeterminate 1.25s infinite alternate}
 @keyframes indeterminate{from{margin-left:0}to{margin-left:65%}}
-.job-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:2px}.job-actions input{width:136px;border:1px solid var(--border);border-radius:6px;background:var(--scan-detail-bg);color:var(--text);padding:7px 9px;font-size:12.5px}.job-actions .spacer{flex:1}
+.job-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:2px}.job-actions input{width:136px;border:1px solid var(--border);border-radius:6px;background:var(--scan-detail-bg);color:var(--text);padding:7px 9px;font-size:12.5px}.job-actions .spacer{flex:1}.job-actions[hidden]{display:none}
 .backup-row{display:flex;align-items:center;gap:11px}.backup-row span{color:var(--text-secondary);font-size:12.5px}
 .modal-backdrop{display:none;position:fixed;z-index:30;inset:0;background:var(--modal-backdrop);place-items:center;padding:24px}
 .modal-backdrop.open{display:grid}
@@ -61,3 +61,11 @@ main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 
 .about-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:30;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}.about-overlay.open{opacity:1;pointer-events:all}.about-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:90%;max-width:520px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)}.about-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}.about-header h2{margin:0;font-size:16px;font-weight:700;color:var(--text)}.about-close{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text-secondary);font-size:18px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s}.about-close:hover{border-color:var(--danger);color:var(--danger)}.about-body{padding:18px;overflow-y:auto;font-size:13px;line-height:1.6;color:var(--text)}.about-body p{margin:0 0 10px}.about-body code{background:var(--metric-bg,var(--surface2));border:1px solid var(--border-subtle,var(--border));border-radius:4px;padding:1px 5px;font-size:12px;word-break:break-all}.about-body hr{border:none;border-top:1px solid var(--border);margin:14px 0}.about-body ul{padding-left:18px;line-height:1.7;margin:6px 0}.about-body a{color:var(--accent);text-decoration:none}.about-body a:hover{text-decoration:underline}
 .stale-banner{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#584010;border-bottom:2px solid #a07820;color:#f0d890;font-size:13px;z-index:40}.stale-icon{font-size:18px;flex:0 0 auto}.stale-msg{flex:1}.stale-msg b{color:#fce0a0}.stale-restart{padding:6px 14px;border-radius:7px;font-weight:700;background:#a07820;color:#fff;border:0;cursor:pointer}.stale-restart:hover{background:#c89030}.stale-close{padding:4px 8px;background:transparent;border:0;color:#f0d890;font-size:18px;cursor:pointer;opacity:.7}.stale-close:hover{opacity:1}
+
+.rescan-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary);cursor:pointer;white-space:nowrap}
+.job-actions .rescan-toggle input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;padding:0;cursor:pointer;accent-color:var(--accent)}
+.live-failures{margin-top:10px;padding:10px 12px;background:var(--scan-detail-bg,var(--surface2));border:1px solid var(--border-subtle,var(--border));border-radius:8px}
+.live-failures-heading{margin:0 0 6px;font-size:12px;font-weight:700;color:var(--danger)}
+.live-failure-row{margin:0 0 4px;font-size:12px;line-height:1.45;color:var(--text-secondary);word-break:break-word}
+.live-failure-row strong{color:var(--accent);font-weight:650}
+.live-failure-row:last-child{margin-bottom:0}
