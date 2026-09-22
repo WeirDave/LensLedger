@@ -220,7 +220,14 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
 
 
 EXIFTOOL_PATH = Path(__file__).parent.parent / "tools" / "ExifTool" / "ExifTool.exe"
-BACKUP_ROOT = backup_root()
+def metadata_backup_root() -> Path:
+    """Where safety copies of photos are kept.
+
+    Resolved on every call. Held as a module constant this pointed at whatever
+    the data folder was when the module first loaded, so anything that changed
+    it afterwards still wrote copies of photos into the original location.
+    """
+    return backup_root()
 
 
 def clean_tag(value: str) -> str:
@@ -652,7 +659,7 @@ def prune_metadata_backups() -> dict[str, object]:
     keep_days, max_bytes = backup_retention_settings()
     if keep_days is None and max_bytes is None:
         return {"removed": 0, "freed_bytes": 0}
-    return metadata_backups.prune(BACKUP_ROOT, keep_days=keep_days, max_bytes=max_bytes)
+    return metadata_backups.prune(metadata_backup_root(), keep_days=keep_days, max_bytes=max_bytes)
 
 
 def interrupted_publications(db_path) -> list[dict]:
@@ -2166,11 +2173,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json(pipeline.status() if pipeline else {"enabled": False, "stats": {}})
 
     def ingest_log(self):
-        from ingest_pipeline import INGEST_LOG_PATH
+        from ingest_pipeline import ingest_log_path
+        log_path = ingest_log_path()
         entries: list[dict] = []
-        if INGEST_LOG_PATH.is_file():
+        if log_path.is_file():
             try:
-                with open(INGEST_LOG_PATH, "r", encoding="utf-8") as f:
+                with open(log_path, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line:
@@ -2193,14 +2201,15 @@ class SearchHandler(BaseHTTPRequestHandler):
         if resolved == current:
             raise ValueError("cannot remove the active library")
         libraries = [p for p in libraries if str(Path(p).resolve()).casefold() != resolved]
-        from library_config import LIBRARY_STATE_PATH
-        LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = LIBRARY_STATE_PATH.with_suffix(".tmp")
+        from library_config import library_state_file
+        state_path = library_state_file()
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps({
             "current_root": str(self.library_root),
             "libraries": libraries,
         }, indent=2), encoding="utf-8")
-        tmp.replace(LIBRARY_STATE_PATH)
+        tmp.replace(state_path)
         self.send_json({"ok": True})
 
     def export_status(self):
@@ -3144,9 +3153,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         }
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(asset["relative_path"])
-        backup = (BACKUP_ROOT / relative.parent /
+        backup = (metadata_backup_root() / relative.parent /
                   f"{relative.stem}.before-people-{timestamp}{relative.suffix}").resolve()
-        backup.relative_to(BACKUP_ROOT.resolve())
+        backup.relative_to(metadata_backup_root().resolve())
         backup.parent.mkdir(parents=True, exist_ok=True)
         before_pixels = _pixel_hash(path)
         shutil.copy2(path, backup)
@@ -3249,11 +3258,11 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(asset["relative_path"])
-        backup = (BACKUP_ROOT / relative.parent /
+        backup = (metadata_backup_root() / relative.parent /
                   f"{relative.stem}.before-write-tags-{timestamp}{relative.suffix}").resolve()
-        backup.relative_to(BACKUP_ROOT.resolve())
+        backup.relative_to(metadata_backup_root().resolve())
         backup.parent.mkdir(parents=True, exist_ok=True)
-        space = metadata_backups.space_check(BACKUP_ROOT, path.stat().st_size)
+        space = metadata_backups.space_check(metadata_backup_root(), path.stat().st_size)
         if not space["ok"]:
             raise ValueError(
                 f"Not enough free space for a safety copy of {asset['filename']} — "
@@ -3391,8 +3400,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 raise ValueError("The metadata changed after the preview. Please preview it again.")
             timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             relative = Path(asset["relative_path"])
-            backup = (BACKUP_ROOT / relative.parent / f"{relative.stem}.before-{timestamp}{relative.suffix}").resolve()
-            backup.relative_to(BACKUP_ROOT.resolve())
+            backup = (metadata_backup_root() / relative.parent / f"{relative.stem}.before-{timestamp}{relative.suffix}").resolve()
+            backup.relative_to(metadata_backup_root().resolve())
             backup.parent.mkdir(parents=True, exist_ok=True)
             before_pixels = _pixel_hash(path)
             shutil.copy2(path, backup)
@@ -3456,7 +3465,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             source = (self.library_root / Path(asset["relative_path"])).resolve()
             source.relative_to(self.library_root)
             backup = Path(record["backup_path"]).resolve()
-            backup.relative_to(BACKUP_ROOT.resolve())
+            backup.relative_to(metadata_backup_root().resolve())
             if not backup.is_file():
                 raise ValueError("The safety backup is missing")
             shutil.copy2(backup, source)
@@ -3482,8 +3491,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise ValueError("Only publishable file types can be repaired")
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(rel)
-        backup = (BACKUP_ROOT / relative.parent / f"{relative.stem}.before-repair-{timestamp}{relative.suffix}").resolve()
-        backup.relative_to(BACKUP_ROOT.resolve())
+        backup = (metadata_backup_root() / relative.parent / f"{relative.stem}.before-repair-{timestamp}{relative.suffix}").resolve()
+        backup.relative_to(metadata_backup_root().resolve())
         backup.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, backup)
         if backup.stat().st_size != path.stat().st_size:
@@ -3696,13 +3705,13 @@ class SearchHandler(BaseHTTPRequestHandler):
             console_log(f"Request to {route} failed — {reason}")
 
     def photo_backups_status(self):
-        usage = metadata_backups.usage(BACKUP_ROOT)
+        usage = metadata_backups.usage(metadata_backup_root())
         keep_days, max_bytes = backup_retention_settings()
         self.send_json({
             **usage,
             "human": metadata_backups.human_bytes(usage["bytes"]),
-            "free_bytes": metadata_backups.free_bytes(BACKUP_ROOT),
-            "free_human": metadata_backups.human_bytes(metadata_backups.free_bytes(BACKUP_ROOT)),
+            "free_bytes": metadata_backups.free_bytes(metadata_backup_root()),
+            "free_human": metadata_backups.human_bytes(metadata_backups.free_bytes(metadata_backup_root())),
             "keep_days": keep_days,
             "max_bytes": max_bytes,
             "max_human": metadata_backups.human_bytes(max_bytes) if max_bytes else "no limit",
@@ -3712,7 +3721,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     def clear_photo_backups(self, body):
         scope = str(body.get("scope", "retention"))
         if scope == "all":
-            result = metadata_backups.clear_all(BACKUP_ROOT)
+            result = metadata_backups.clear_all(metadata_backup_root())
             note = "Cleared every safety copy."
         else:
             result = prune_metadata_backups()
@@ -3791,7 +3800,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     )
                 ]
             required = metadata_backups.estimate_required_bytes(photo_paths)
-            space = metadata_backups.space_check(BACKUP_ROOT, required)
+            space = metadata_backups.space_check(metadata_backup_root(), required)
             if not space["ok"]:
                 raise ValueError(
                     f"Not enough disk space. Writing tags to {total:,} photos needs about "
@@ -4288,7 +4297,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         ).fetchone()
         if publication:
             backup = Path(publication["backup_path"]).resolve()
-            backup.relative_to(BACKUP_ROOT.resolve())
+            backup.relative_to(metadata_backup_root().resolve())
             source = (self.library_root / Path(publication["relative_path"])).resolve()
             source.relative_to(self.library_root)
             if not backup.is_file():
@@ -6353,10 +6362,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         current = config.get("current_root", "")
         if current and str(Path(current).resolve()).casefold() == old_cf:
             current = new_prefix
-        from library_config import LIBRARY_STATE_PATH
-        tmp = LIBRARY_STATE_PATH.with_suffix(".tmp")
+        from library_config import library_state_file
+        state_path = library_state_file()
+        tmp = state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"current_root": current, "libraries": libraries}, indent=2), encoding="utf-8")
-        tmp.replace(LIBRARY_STATE_PATH)
+        tmp.replace(state_path)
         if str(self.library_root).casefold() == old_cf:
             type(self).current_library = (new_root, database)
         self.send_json({"ok": True, "path": str(new_root)})
@@ -6695,10 +6705,22 @@ def main():
     parser.add_argument("--version", action="version", version=f"%(prog)s {APP_NAME} {APP_VERSION}")
     parser.add_argument("--db", type=Path)
     parser.add_argument("--root", type=Path)
+    parser.add_argument(
+        "--data-dir", type=Path,
+        help="Keep settings, safety copies, logs and library state in this folder "
+             "instead of the usual one. Use it to try things out without touching "
+             "your real library or its settings.",
+    )
     parser.add_argument("--port", type=int, default=5309)
     parser.add_argument("--no-open", action="store_true")
     parser.add_argument("--restarted", action="store_true")
     args = parser.parse_args()
+    if args.data_dir:
+        # Set before anything reads it. Every data path resolves per call, so
+        # this redirects settings, safety copies, logs and library state
+        # together -- a test run cannot half-escape into the real folder.
+        os.environ["LENSLEDGER_DATA_DIR"] = str(args.data_dir.expanduser().resolve())
+        console_log(f"Data folder: {os.environ['LENSLEDGER_DATA_DIR']} (set by --data-dir)")
     root = (args.root or load_library_state()).resolve()
     database = (args.db or library_db_path(root)).resolve()
     associate_db_path(root, database)

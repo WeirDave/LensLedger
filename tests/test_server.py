@@ -36,13 +36,17 @@ class ServerWorkflowTests(unittest.TestCase):
         from photo_index import scan_library
 
         self.photo_search = photo_search
-        self._patched_state = patch.object(library_config, "LIBRARY_STATE_PATH", self.data / "library-state.json")
-        self._patched_db_root = patch.object(library_config, "LIBRARY_DATABASE_ROOT", self.data / "Libraries")
+        self._patched_state = patch.object(library_config, "library_state_file", return_value=self.data / "library-state.json")
+        self._patched_db_root = patch.object(library_config, "library_database_root", return_value=self.data / "Libraries")
         self._patched_state.start()
         self._patched_db_root.start()
         self.database = self.root / "library.sqlite3"
         self.assertEqual(scan_library(self.library, self.database), 0)
-        photo_search.BACKUP_ROOT = self.data / "Metadata Backups"
+        self._patched_backup_root = patch.object(
+            photo_search, "metadata_backup_root",
+            return_value=self.data / "Metadata Backups",
+        )
+        self._patched_backup_root.start()
         photo_search.SearchHandler.current_library = (self.library.resolve(), self.database)
         photo_search.SearchHandler.csrf_token = "test-csrf"
         photo_search.SearchHandler.library_job = {"state": "idle", "message": ""}
@@ -73,6 +77,7 @@ class ServerWorkflowTests(unittest.TestCase):
         self.thread.join(timeout=5)
         import console_log
         console_log.shutdown()
+        self._patched_backup_root.stop()
         self._patched_db_root.stop()
         self._patched_state.stop()
         self.environment.stop()

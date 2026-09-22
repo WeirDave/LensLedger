@@ -28,7 +28,9 @@ from photo_index import (
 )
 
 
-INGEST_LOG_PATH = data_root() / "ingest-log.json"
+def ingest_log_path() -> Path:
+    """Resolved per call so the log follows the configured data folder."""
+    return data_root() / "ingest-log.json"
 STABILITY_SECONDS = 5
 
 
@@ -86,8 +88,8 @@ def _expand_template(template: str, capture: dt.datetime) -> str:
 
 def _log_action(action: dict) -> None:
     """Append an action record to the ingest log."""
-    INGEST_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(INGEST_LOG_PATH, "a", encoding="utf-8") as f:
+    ingest_log_path().parent.mkdir(parents=True, exist_ok=True)
+    with open(ingest_log_path(), "a", encoding="utf-8") as f:
         f.write(json.dumps(action) + "\n")
 
 

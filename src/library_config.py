@@ -15,9 +15,23 @@ from pathlib import Path
 from app_paths import default_library_root, libraries_root, settings_path
 
 
-LIBRARY_STATE_PATH = settings_path()
-LIBRARY_DATABASE_ROOT = libraries_root()
-DEFAULT_LIBRARY_ROOT = default_library_root()
+def library_state_file() -> Path:
+    """Where the record of known libraries lives.
+
+    Resolved on every call rather than once at import. Binding it at import
+    meant whatever LENSLEDGER_DATA_DIR said at that moment won for the life of
+    the process, so anything pointing elsewhere afterwards -- a test, a second
+    library, a tool -- still read and wrote the real file.
+    """
+    return settings_path()
+
+
+def library_database_root() -> Path:
+    return libraries_root()
+
+
+def default_library() -> Path:
+    return default_library_root()
 
 
 def library_db_path(root: Path) -> Path:
@@ -29,7 +43,7 @@ def library_db_path(root: Path) -> Path:
         if os.path.isabs(mapped):
             candidate = Path(mapped)
         else:
-            candidate = LIBRARY_DATABASE_ROOT / mapped
+            candidate = library_database_root() / mapped
         if candidate.is_file():
             return candidate
     label = re.sub(r'[<>:"/\\|?*]+', " ", root.name).strip() or "photo-library"
@@ -39,11 +53,11 @@ def library_db_path(root: Path) -> Path:
 def library_db_path_appdata(root: Path) -> Path:
     """Legacy: return a database path inside the central AppData Libraries folder."""
     root = root.resolve()
-    if root == DEFAULT_LIBRARY_ROOT.resolve():
-        return LIBRARY_DATABASE_ROOT / "default.sqlite3"
+    if root == default_library().resolve():
+        return library_database_root() / "default.sqlite3"
     label = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name).strip("-") or "photo-library"
     digest = hashlib.sha256(str(root).casefold().encode("utf-8")).hexdigest()[:12]
-    return LIBRARY_DATABASE_ROOT / f"{label}-{digest}.sqlite3"
+    return library_database_root() / f"{label}-{digest}.sqlite3"
 
 
 def associate_db_path(root: Path, db_path: Path) -> None:
@@ -55,30 +69,31 @@ def associate_db_path(root: Path, db_path: Path) -> None:
 
 def _load_db_mappings() -> dict[str, str]:
     try:
-        raw = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(library_state_file().read_text(encoding="utf-8"))
         return dict(raw.get("db_mappings", {})) if isinstance(raw, dict) else {}
     except (OSError, ValueError, json.JSONDecodeError):
         return {}
 
 
 def _save_db_mappings(mappings: dict[str, str]) -> None:
-    LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    target = library_state_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        raw = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(target.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raw = {}
     except (OSError, ValueError, json.JSONDecodeError):
         raw = {}
     raw["db_mappings"] = mappings
-    tmp = LIBRARY_STATE_PATH.with_suffix(".tmp")
+    tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps(raw, indent=2), encoding="utf-8")
-    tmp.replace(LIBRARY_STATE_PATH)
+    tmp.replace(target)
 
 
 def load_all_known_libraries() -> list[dict[str, object]]:
     """Return every library ever recorded, including ones whose folders no longer exist."""
     try:
-        value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        value = json.loads(library_state_file().read_text(encoding="utf-8"))
         if isinstance(value, dict):
             current_raw = str(value.get("current_root") or value.get("root") or "")
             try:
@@ -116,7 +131,7 @@ def load_all_known_libraries() -> list[dict[str, object]]:
 
 def load_library_config() -> dict[str, object]:
     try:
-        value = json.loads(LIBRARY_STATE_PATH.read_text(encoding="utf-8"))
+        value = json.loads(library_state_file().read_text(encoding="utf-8"))
         if isinstance(value, dict):
             current = str(value.get("current_root") or value.get("root") or "")
             libraries = value.get("libraries", [])
@@ -156,19 +171,19 @@ def load_library_state() -> Path:
         root = Path(str(candidate)).resolve()
         if root.is_dir():
             return root
-    return DEFAULT_LIBRARY_ROOT.resolve()
+    return default_library().resolve()
 
 
 def save_library_state(root: Path) -> None:
-    LIBRARY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    library_state_file().parent.mkdir(parents=True, exist_ok=True)
     config = load_library_config()
     libraries = [str(Path(str(item)).resolve()) for item in config.get("libraries", [])]
     root_text = str(root.resolve())
     libraries = [item for item in libraries if item.casefold() != root_text.casefold()]
     libraries.insert(0, root_text)
-    temporary = LIBRARY_STATE_PATH.with_suffix(".tmp")
+    temporary = library_state_file().with_suffix(".tmp")
     temporary.write_text(json.dumps({"current_root": root_text, "libraries": libraries}, indent=2), encoding="utf-8")
-    temporary.replace(LIBRARY_STATE_PATH)
+    temporary.replace(library_state_file())
 
 
 def suggested_library_roots() -> list[dict[str, str]]:

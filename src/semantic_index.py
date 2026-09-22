@@ -23,7 +23,9 @@ from app_paths import libraries_root
 from photo_index import connect, unsupported_image_extensions, utc_now
 
 
-DEFAULT_DB = libraries_root() / "default.sqlite3"
+def default_db() -> Path:
+    """The database a command-line run uses when none is given."""
+    return libraries_root() / "default.sqlite3"
 DEFAULT_MODEL = "ViT-B-32/openai"
 
 
@@ -363,7 +365,7 @@ def search(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--db", type=Path, default=default_db())
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build", help="download/load the optional model and index local images")
     build.add_argument("--batch-size", type=int, default=16)

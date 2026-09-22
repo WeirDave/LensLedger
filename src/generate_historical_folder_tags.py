@@ -18,8 +18,10 @@ from app_paths import data_root, libraries_root
 
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_DB = libraries_root() / "default.sqlite3"
-DEFAULT_CSV = data_root() / "folder-tags.csv"
+def default_db() -> Path:
+    return libraries_root() / "default.sqlite3"
+def default_csv() -> Path:
+    return data_root() / "folder-tags.csv"
 
 # Specific, recurring names are useful search terms and are only emitted when the
 # text appears literally in the folder path.
@@ -237,8 +239,8 @@ def generate(db_path: Path, csv_path: Path, dry_run: bool) -> tuple[int, int, Co
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
+    parser.add_argument("--db", type=Path, default=default_db())
+    parser.add_argument("--csv", type=Path, default=default_csv())
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     generated, total, counts = generate(args.db, args.csv, args.dry_run)

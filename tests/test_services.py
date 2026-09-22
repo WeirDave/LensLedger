@@ -38,9 +38,9 @@ class ServiceModuleTests(unittest.TestCase):
             other.mkdir()
             databases.mkdir()
 
-            with patch.object(library_config, "LIBRARY_STATE_PATH", state), \
-                 patch.object(library_config, "LIBRARY_DATABASE_ROOT", databases), \
-                 patch.object(library_config, "DEFAULT_LIBRARY_ROOT", default):
+            with patch.object(library_config, "library_state_file", return_value=state), \
+                 patch.object(library_config, "library_database_root", return_value=databases), \
+                 patch.object(library_config, "default_library", return_value=default):
                 default_db = library_config.library_db_path(default)
                 self.assertEqual(default_db.parent, default.resolve() / ".LensLedger")
                 self.assertEqual(default_db.name, "LensLedger-default-library.sqlite3")

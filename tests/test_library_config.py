@@ -15,7 +15,7 @@ class LoadLibraryStateTests(unittest.TestCase):
 
         self.library_config = library_config
         self.state_path = self.root / "library-state.json"
-        self.patched_state_path = patch.object(library_config, "LIBRARY_STATE_PATH", self.state_path)
+        self.patched_state_path = patch.object(library_config, "library_state_file", return_value=self.state_path)
         self.patched_state_path.start()
 
     def tearDown(self):
@@ -41,7 +41,7 @@ class LoadLibraryStateTests(unittest.TestCase):
 
         resolved = self.library_config.load_library_state()
 
-        self.assertEqual(resolved, self.library_config.DEFAULT_LIBRARY_ROOT.resolve())
+        self.assertEqual(resolved, self.library_config.default_library().resolve())
 
     def test_uses_current_root_directly_when_it_still_exists(self):
         real_library = self.root / "real-photos"
@@ -61,7 +61,7 @@ class LoadAllKnownLibrariesTests(unittest.TestCase):
 
         self.library_config = library_config
         self.state_path = self.root / "library-state.json"
-        self.patched_state_path = patch.object(library_config, "LIBRARY_STATE_PATH", self.state_path)
+        self.patched_state_path = patch.object(library_config, "library_state_file", return_value=self.state_path)
         self.patched_state_path.start()
 
     def tearDown(self):

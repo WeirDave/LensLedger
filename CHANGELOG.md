@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.5.0 — 2026-09-22
+
+- Added a `--data-dir` option, which keeps settings, safety copies, logs and the record of known libraries in a folder you name. Use it to try something out without touching your real library or its settings.
+- Fixed settings, the record of known libraries, safety copies and the auto-import log all being fixed to one location the moment LensLedger started. Anything that pointed elsewhere afterwards still read and wrote the original, so a second instance could change the settings and library list of the first.
+- Command-line tools no longer decide which database to use before their options are read.
+
 ## 1.4.0 — 2026-09-22
 
 - Every action now appears in the log. Running "Fill in missing" — or any of the other scans and writes — previously produced nothing that named what had been started, so there was no way to tell whether it ran.

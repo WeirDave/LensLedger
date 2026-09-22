@@ -13,7 +13,9 @@ from generate_historical_folder_tags import infer_tags
 from photo_index import SCHEMA_VERSION, connect, rebuild_search_row, set_source_tags
 
 
-DEFAULT_DB = libraries_root() / "default.sqlite3"
+def default_db() -> Path:
+    """The database a command-line run uses when none is given."""
+    return libraries_root() / "default.sqlite3"
 
 
 def require_database(path: Path) -> Path:
@@ -154,7 +156,7 @@ def backfill_folder_tags(path: Path) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--db", type=Path, default=default_db())
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="create an empty database or open an existing one")
     commands.add_parser("status", help="show schema and library counts")
