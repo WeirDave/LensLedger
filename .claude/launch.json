@@ -10,7 +10,7 @@
     {
       "name": "lensledger-test",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["src/photo_search.py", "--no-open", "--port", "5349", "--root", ".test-library"],
+      "runtimeArgs": ["src/photo_search.py", "--no-open", "--port", "5349", "--root", ".test-library-synthetic", "--db", ".test-library-synthetic/.LensLedger/test.sqlite3"],
       "port": 5349
     }
   ]

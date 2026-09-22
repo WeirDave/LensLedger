@@ -16,6 +16,13 @@ desktop.ini
 *.tmp
 
 # LensLedger user data — never commit
+# Test libraries live inside the working tree, so ignore them wholesale rather
+# than relying on the patterns below to catch every file a scan can leave there
+# (photos, sidecars, exports, thumbnails).
+.test-library/
+.test-library-synthetic/
+.LensLedger/
+*.xmp
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
