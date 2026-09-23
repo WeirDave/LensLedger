@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.5.1 — 2026-09-22
+
+- Moving photos to the Review Bin, restoring them, and deleting them now record each photo by name. Emptying the Review Bin deletes the file and its database entry together, so until now nothing anywhere recorded what had gone.
+- Merging two people, adding or removing people from a group, adding tags in bulk, showing skipped faces again, undoing a batch of review decisions, and exporting or importing the database all now record what they did.
+- Setting up meaning search or face detection now records that the install started and whether it succeeded. These can run for up to half an hour and previously said nothing.
+- "Write all tags" with nothing to write now says so. It logged the request and then went quiet, which looked the same as a run that had died.
+- Fixed a completed photo scan being reported as failed when the note of which library is open could not be saved afterwards. The photos were indexed correctly; only the bookkeeping failed.
+- Files LensLedger writes to record settings, libraries and their databases now retry briefly if something else has the file open for a moment, instead of failing outright. Cloud sync and virus scanners cause this.
+
 ## 1.5.0 — 2026-09-22
 
 - Added a `--data-dir` option, which keeps settings, safety copies, logs and the record of known libraries in a folder you name. Use it to try something out without touching your real library or its settings.

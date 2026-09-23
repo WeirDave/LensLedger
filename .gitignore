@@ -21,6 +21,7 @@ desktop.ini
 # (photos, sidecars, exports, thumbnails).
 .test-library/
 .test-library-synthetic/
+.test-appdata/
 .LensLedger/
 *.xmp
 *.sqlite3

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from pathlib import Path
 
 
@@ -52,3 +54,27 @@ def database_backup_root() -> Path:
 
 def log_dir() -> Path:
     return data_root() / "Logs"
+
+
+def write_json_atomically(path: Path, data, *, attempts: int = 5) -> None:
+    """Write JSON by replacing the file, retrying a locked destination.
+
+    On Windows the replace fails outright if anything else holds the file open
+    even briefly -- cloud sync, a virus scanner, a second instance reading it.
+    A short retry turns a hard failure back into the momentary contention it
+    actually is.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    delay = 0.05
+    for attempt in range(attempts):
+        try:
+            temporary.replace(path)
+            return
+        except OSError:
+            if attempt == attempts - 1:
+                temporary.unlink(missing_ok=True)
+                raise
+            time.sleep(delay)
+            delay *= 2

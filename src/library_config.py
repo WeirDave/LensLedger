@@ -12,7 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app_paths import default_library_root, libraries_root, settings_path
+from app_paths import (
+    default_library_root, libraries_root, settings_path, write_json_atomically,
+)
 
 
 def library_state_file() -> Path:
@@ -85,9 +87,7 @@ def _save_db_mappings(mappings: dict[str, str]) -> None:
     except (OSError, ValueError, json.JSONDecodeError):
         raw = {}
     raw["db_mappings"] = mappings
-    tmp = target.with_suffix(".tmp")
-    tmp.write_text(json.dumps(raw, indent=2), encoding="utf-8")
-    tmp.replace(target)
+    write_json_atomically(target, raw)
 
 
 def load_all_known_libraries() -> list[dict[str, object]]:
@@ -181,9 +181,9 @@ def save_library_state(root: Path) -> None:
     root_text = str(root.resolve())
     libraries = [item for item in libraries if item.casefold() != root_text.casefold()]
     libraries.insert(0, root_text)
-    temporary = library_state_file().with_suffix(".tmp")
-    temporary.write_text(json.dumps({"current_root": root_text, "libraries": libraries}, indent=2), encoding="utf-8")
-    temporary.replace(library_state_file())
+    write_json_atomically(
+        library_state_file(), {"current_root": root_text, "libraries": libraries}
+    )
 
 
 def suggested_library_roots() -> list[dict[str, str]]:

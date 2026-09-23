@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app_paths import data_root
+from app_paths import data_root, write_json_atomically
 
 
 def settings_file() -> Path:
@@ -80,12 +80,8 @@ def load_settings() -> dict:
 
 
 def save_settings(values: dict) -> None:
-    target = settings_file()
-    target.parent.mkdir(parents=True, exist_ok=True)
     merged = _deep_merge(DEFAULTS, values)
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(json.dumps(merged, indent=2), encoding="utf-8")
-    temporary.replace(target)
+    write_json_atomically(settings_file(), merged)
 
 
 def get_setting(*keys: str, default: object = None) -> object:

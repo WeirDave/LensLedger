@@ -437,7 +437,15 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             raise ValueError("the library index did not complete")
         with handler_class.library_lock:
             handler_class.current_library = (root, database)
-        save_library_state(root)
+        try:
+            save_library_state(root)
+        except OSError as exc:
+            # The photos are indexed; only the note of which library is open
+            # failed to save. Losing that is not worth discarding the scan.
+            console_log(
+                "Photo locations: the scan finished, but the record of the current "
+                f"library could not be saved — {exc}"
+            )
         with connect(database) as con:
             summary = {
                 "assets": int(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=0").fetchone()[0]),
@@ -2258,6 +2266,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 for fp in face_dir.rglob("*"):
                     if fp.is_file():
                         zf.write(fp, f"FaceData/{fp.relative_to(face_dir)}")
+        console_log(f"Export database: written to {zip_path.name} "
+                    f"({manifest.get('photo_count', '?')} photos)")
         self.send_json({"ok": True, "path": str(zip_path)})
 
     def import_database(self, _body):
@@ -2306,6 +2316,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(name) as src, open(dest, "wb") as dst:
                         shutil.copyfileobj(src, dst)
+        console_log(f"Import database: replaced the index from {Path(zip_path).name} "
+                    f"({manifest.get('photo_count', '?')} photos)")
         self.send_json({"ok": True, "message": f"Imported from {Path(zip_path).name} ({manifest.get('photo_count', '?')} photos)"})
 
     def parse_photo_query(self, params):
@@ -3786,6 +3798,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "total": 0, "done": 0, "written": 0,
                 "failed": [], "fell_back": [], "incomplete": [],
             }
+            console_log("Write all tags: finished — nothing to write, no photos carry tags yet")
             return self.send_json({"ok": True, "written": 0, "total": 0})
 
         # Embedded writes copy each photo before touching it, so a library-wide
@@ -4332,6 +4345,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         with self.db() as con:
             for action_id in reversed(action_ids):
                 self._undo_people_review_action(con, action_id)
+        console_log(f"Undo a bulk people review decision: {len(action_ids):,} decisions undone")
         self.send_json({"ok": True})
 
     def add_person(self, body):
@@ -4951,6 +4965,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             updated = con.execute(
                 "UPDATE face_embeddings SET skipped_at=NULL WHERE skipped_at IS NOT NULL"
             ).rowcount
+        console_log(f"Show skipped faces again: {updated:,} faces brought back into review")
         self.send_json({"ok": True, "unskipped": updated})
 
     def set_person_aliases(self, body):
@@ -5151,6 +5166,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                         (group_id, pid),
                     )
                     added += 1
+        console_log(f"Add people to a group: {added:,} people added to \"{group_name}\"")
         self.send_json({"ok": True, "added": added})
 
     def bulk_remove_group(self, body):
@@ -5167,6 +5183,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "SELECT id FROM person_groups WHERE name=? COLLATE NOCASE", (group_name,)
             ).fetchone()
             if not group_row:
+                console_log(f"Remove people from a group: nobody was in \"{group_name}\"")
                 return self.send_json({"ok": True, "removed": 0})
             group_id = group_row["id"]
             for pid in person_ids:
@@ -5175,6 +5192,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     (group_id, pid),
                 )
                 removed += cur.rowcount
+        console_log(f"Remove people from a group: {removed:,} removed from \"{group_name}\"")
         self.send_json({"ok": True, "removed": removed})
 
     def person_photo_thumbnails(self, params):
@@ -5528,6 +5546,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             suggestions = int(learn_faces(self.db_path, apply=True)["suggestions"])
         except Exception as exc:  # A merge remains valid even if face rebuilding is unavailable.
             learning_error = str(exc)
+        # A merge folds one person's confirmed photos into another and cannot be
+        # undone from the screen, so it is recorded in full.
+        summary = (f"{len(source_names)} merged into \"{target_name}\", "
+                   f"{len(affected_asset_ids):,} photos updated, "
+                   f"{len(published):,} photos rewritten")
+        if learning_error:
+            summary += f"; face learning did not run — {learning_error}"
+        console_log(f"Merge two people: {summary}")
         self.send_json({
             "ok": True,
             "person": target_name,
@@ -6054,6 +6080,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         requirements = Path(__file__).parent.parent / "requirements-semantic.txt"
 
         def worker():
+            action = Action("Meaning search setup", "installing the optional software with pip")
             try:
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
@@ -6066,6 +6093,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             "state": "complete",
                             "message": "Meaning search is installed. You can build the index below.",
                         }
+                    action.finish("installed")
                 else:
                     tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-8:])
                     with handler_class.semantic_install_lock:
@@ -6073,7 +6101,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                             "state": "error",
                             "message": f"Install failed: {tail or 'unknown error'}",
                         }
+                    action.failed(tail or "unknown error")
             except Exception as exc:
+                action.failed(str(exc))
                 with handler_class.semantic_install_lock:
                     handler_class.semantic_install_job = {"state": "error", "message": str(exc)}
 
@@ -6188,6 +6218,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         requirements = Path(__file__).parent.parent / "requirements-face.txt"
 
         def worker():
+            action = Action("Face detection setup", "installing the optional software with pip")
             try:
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
@@ -6199,6 +6230,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             "state": "complete",
                             "message": "Face detection is installed. You can scan for faces below.",
                         }
+                    action.finish("installed")
                 else:
                     tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-8:])
                     with handler_class.face_install_lock:
@@ -6206,7 +6238,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                             "state": "error",
                             "message": f"Install failed: {tail or 'unknown error'}",
                         }
+                    action.failed(tail or "unknown error")
             except Exception as exc:
+                action.failed(str(exc))
                 with handler_class.face_install_lock:
                     handler_class.face_install_job = {"state": "error", "message": str(exc)}
 
@@ -6478,6 +6512,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                         con.execute("DELETE FROM asset_tag_exclusions WHERE relative_path=? AND tag=? COLLATE NOCASE", (asset["relative_path"], tag))
                     set_source_tags(con, asset_id, "asset_rule", names); rebuild_search_row(con, asset_id)
                     total += 1
+        console_log(f"Add tags in bulk: {len(incoming):,} tags applied to {total:,} photos")
         self.send_json({"ok": True, "photos_tagged": total, "tags_applied": len(incoming)})
 
     def add_folder_tag(self, body):
@@ -6549,6 +6584,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
                 VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
             con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
+            console_log("Move a photo to the Review Bin: moved out of the library — "
+                        f"{asset['relative_path']}")
         self.send_json({"ok": True, "review_id": review_id})
 
     def move_to_review_bin_batch(self, body):
@@ -6558,6 +6595,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         if len(ids) > 500:
             raise ValueError("too many photos selected (max 500)")
         review_ids = []
+        action = Action("Move photos to the Review Bin", f"{len(ids):,} selected")
         with self.db() as con:
             for asset_id in ids:
                 asset_id = int(asset_id)
@@ -6576,6 +6614,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                     VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
                 con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
                 review_ids.append(review_id)
+                action.note(f"moved out of the library: {asset['relative_path']}")
+        skipped = len(ids) - len(review_ids)
+        summary = f"{len(review_ids):,} photos moved to the Review Bin"
+        if skipped > 0:
+            summary += f", {skipped:,} skipped because the file was missing"
+        action.finish(summary)
         self.send_json({"ok": True, "moved": len(review_ids), "review_ids": review_ids})
 
     def restore_from_review_bin(self, body):
@@ -6589,6 +6633,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             destination.parent.mkdir(parents=True, exist_ok=True); shutil.move(str(source), str(destination))
             con.execute("UPDATE assets SET path=?,in_review_bin=0 WHERE id=?", (str(destination), row["asset_id"]))
             con.execute("UPDATE review_bin SET restored_at=? WHERE id=?", (utc_now(), review_id))
+            console_log("Restore from the Review Bin: put back — "
+                        f"{row['original_relative_path']}")
         self.send_json({"ok": True})
 
     def delete_from_review_bin(self, body):
@@ -6600,6 +6646,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             source = Path(row["review_path"]).resolve()
             if source.is_file():
                 source.unlink()
+                console_log("Delete from the Review Bin: deleted permanently — "
+                            f"{row['original_relative_path']}")
+            else:
+                console_log("Delete from the Review Bin: the file was already gone — "
+                            f"{row['original_relative_path']}")
             con.execute("DELETE FROM asset_tags WHERE asset_id=?", (row["asset_id"],))
             con.execute("DELETE FROM asset_people WHERE asset_id=?", (row["asset_id"],))
             con.execute("DELETE FROM face_embeddings WHERE asset_id=?", (row["asset_id"],))
@@ -6610,12 +6661,20 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def empty_review_bin(self):
         deleted = 0
+        missing = 0
         with self.db() as con:
             rows = con.execute("SELECT * FROM review_bin WHERE restored_at IS NULL").fetchall()
+            action = Action("Empty the Review Bin", f"{len(rows):,} photos to delete permanently")
             for row in rows:
                 source = Path(row["review_path"]).resolve()
+                # Deleting a photo cannot be undone, so each one is named as it
+                # goes. This log is the only remaining record afterwards.
                 if source.is_file():
                     source.unlink()
+                    action.note(f"deleted permanently: {row['original_relative_path']}")
+                else:
+                    missing += 1
+                    action.failure(row["original_relative_path"], "the file was already gone")
                 con.execute("DELETE FROM asset_tags WHERE asset_id=?", (row["asset_id"],))
                 con.execute("DELETE FROM asset_people WHERE asset_id=?", (row["asset_id"],))
                 con.execute("DELETE FROM face_embeddings WHERE asset_id=?", (row["asset_id"],))
@@ -6623,6 +6682,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                 con.execute("DELETE FROM assets WHERE id=?", (row["asset_id"],))
                 con.execute("DELETE FROM review_bin WHERE id=?", (row["id"],))
                 deleted += 1
+        summary = f"{deleted:,} photos deleted permanently"
+        if missing:
+            summary += f", {missing:,} were already gone"
+        if not deleted:
+            summary = "the Review Bin was already empty"
+        action.finish(summary)
         self.send_json({"ok": True, "deleted": deleted})
 
     def serve_web_asset(self, name: str):

@@ -133,5 +133,54 @@ class TestPathsFollowTheDataFolder(unittest.TestCase):
                 self.assertIn(str(root.resolve()).casefold(), stored["db_mappings"])
 
 
+class TestWritingStateSurvivesALockedFile(unittest.TestCase):
+    """A momentarily locked file must not become a hard failure."""
+
+    def test_the_write_retries_before_giving_up(self):
+        from app_paths import write_json_atomically
+
+        attempts = {"count": 0}
+        real_replace = Path.replace
+
+        def flaky_replace(self, target):
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise PermissionError("[WinError 5] Access is denied")
+            return real_replace(self, target)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "state.json"
+            with unittest.mock.patch.object(Path, "replace", flaky_replace):
+                write_json_atomically(target, {"current_root": "somewhere"})
+
+        self.assertEqual(attempts["count"], 3, "it should have retried, not failed at once")
+
+    def test_it_gives_up_cleanly_rather_than_leaving_a_temp_file(self):
+        from app_paths import write_json_atomically
+
+        def always_locked(self, target):
+            raise PermissionError("[WinError 5] Access is denied")
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "state.json"
+            with unittest.mock.patch.object(Path, "replace", always_locked):
+                with self.assertRaises(OSError):
+                    write_json_atomically(target, {"a": 1}, attempts=2)
+            leftovers = list(Path(directory).glob("*.tmp"))
+            self.assertEqual(leftovers, [], "a failed write must not leave a temp file behind")
+
+    def test_a_scan_is_not_discarded_when_the_state_write_fails(self):
+        """The photos are indexed either way; only the bookkeeping failed."""
+        import photo_search
+
+        source = Path(photo_search.__file__).with_suffix(".py").read_text(encoding="utf-8")
+        marker = "the scan finished, but the record of the current"
+        self.assertIn(marker, source)
+        index = source.index("save_library_state(root)")
+        window = source[index - 200:index + 400]
+        self.assertIn("except OSError", window,
+                      "save_library_state during a scan must not be able to fail the scan")
+
+
 if __name__ == "__main__":
     unittest.main()
