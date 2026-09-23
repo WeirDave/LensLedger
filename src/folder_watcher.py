@@ -32,6 +32,12 @@ class FolderWatcher:
         self._timer: threading.Timer | None = None
         self._running = False
         self._lock = threading.Lock()
+        # Each scheduled tick carries the generation it was scheduled under. A
+        # tick whose generation is stale has been superseded -- by trigger_soon,
+        # or by an interval change -- and must not schedule another, or the two
+        # would run on side by side and the scan rate would double every time.
+        self._generation = 0
+        self._live_timers: set[threading.Timer] = set()
 
     @property
     def running(self) -> bool:
@@ -53,15 +59,13 @@ class FolderWatcher:
     def stop(self) -> None:
         with self._lock:
             self._running = False
-            if self._timer:
-                self._timer.cancel()
-                self._timer = None
+            self._generation += 1
+            self._discard_timer()
 
     def update_interval(self, interval_minutes: int) -> None:
         with self._lock:
             self._interval = max(5, interval_minutes) * 60
-            if self._running and self._timer:
-                self._timer.cancel()
+            if self._running:
                 self._schedule_next()
 
     def trigger_soon(self, delay: int = 5) -> None:
@@ -69,18 +73,38 @@ class FolderWatcher:
         with self._lock:
             if not self._running:
                 return
-            if self._timer:
-                self._timer.cancel()
             self._schedule_next(delay=delay)
 
     def _schedule_next(self, delay: int | None = None) -> None:
-        self._timer = threading.Timer(delay if delay is not None else self._interval, self._on_tick)
-        self._timer.daemon = True
-        self._timer.start()
+        """Caller must hold the lock."""
+        self._discard_timer()
+        self._generation += 1
+        generation = self._generation
+        timer = threading.Timer(
+            delay if delay is not None else self._interval,
+            self._on_tick, args=(generation,),
+        )
+        timer.daemon = True
+        self._timer = timer
+        self._live_timers.add(timer)
+        timer.start()
 
-    def _on_tick(self) -> None:
+    def _discard_timer(self) -> None:
+        """Caller must hold the lock."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._live_timers.discard(self._timer)
+            self._timer = None
+
+    def pending_timer_count(self) -> int:
+        """How many timers are still waiting to fire. Should never exceed one."""
         with self._lock:
-            if not self._running:
+            return sum(1 for timer in self._live_timers if timer.is_alive())
+
+    def _on_tick(self, generation: int) -> None:
+        with self._lock:
+            self._live_timers.discard(self._timer)
+            if not self._running or generation != self._generation:
                 return
         try:
             if self._scan_fn:
@@ -89,7 +113,7 @@ class FolderWatcher:
         except Exception as exc:
             console_log(f"Folder watcher: scan error — {exc}")
         with self._lock:
-            if self._running:
+            if self._running and generation == self._generation:
                 self._schedule_next()
 
     def status(self) -> dict[str, object]:

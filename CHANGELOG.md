@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.7.3 — 2026-09-23
+
+- Fixed automatic folder checking speeding up over time. Each time a check was requested while one was already running, an extra timer was left behind, so checks gradually became more frequent than the interval in Settings. Importing photos requests a check, so this built up in normal use.
+- Fixed a requested check being cancelled by the one already running as it finished, which left newly imported photos waiting for the next full interval.
+
 ## 1.7.2 — 2026-09-23
 
 - Updating LensLedger now clears old copies of itself, keeping the two most recent so an update can still be rolled back. Every update kept a complete copy of the previous installation and nothing ever removed them, so they built up on disk indefinitely.
