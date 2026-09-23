@@ -12,6 +12,7 @@ import mimetypes
 import os
 import re
 import secrets
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -6765,6 +6766,98 @@ class LensLedgerHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+# Ctrl+C during a long job used to kill LensLedger outright, which is not what
+# anyone means by it: they want the batch to stop, not the program to go away.
+# The first press cancels whatever is running and leaves the server up; a press
+# with nothing running quits; and a second press within a few seconds always
+# quits, so it can never become something you cannot get out of.
+INTERRUPT_QUIT_WINDOW_SECONDS = 5.0
+
+# job name shown to the user -> (lock attribute, job attribute, cancel attribute,
+# the states that count as "still working")
+CANCELLABLE_JOBS = (
+    ("the photo location scan", "library_lock", "library_job", "library_cancel", ("scanning",)),
+    ("text recognition", "ocr_lock", "ocr_job", "ocr_cancel", ("running",)),
+    ("meaning search", "semantic_lock", "semantic_job", "semantic_cancel", ("running",)),
+    ("face detection", "face_scan_lock", "face_scan_job", "face_scan_cancel", ("running",)),
+    ("writing tags", "write_tags_lock", "write_tags_job", "write_tags_cancel", ("running",)),
+    ("classifying photos", "classify_lock", "classify_job", "classify_cancel", ("running",)),
+    ("run all scans", "scan_all_lock", "scan_all_job", "scan_all_cancel", ("running",)),
+)
+
+
+def running_cancellable_jobs(handler_class) -> list[str]:
+    """Names of the jobs currently doing work, in the words the user knows."""
+    names = []
+    for label, _lock_attr, job_attr, _cancel_attr, active_states in CANCELLABLE_JOBS:
+        job = getattr(handler_class, job_attr, None)
+        if job is None:
+            continue
+        # Read the state without taking the job's lock: classify holds its lock
+        # for the whole run, so waiting for it here would hang the very key
+        # press that is meant to interrupt it.
+        try:
+            state = dict(job).get("state")
+        except Exception:
+            continue
+        if state in active_states:
+            names.append(label)
+    return names
+
+
+def cancel_running_jobs(handler_class) -> list[str]:
+    """Ask every running job to stop at its next safe point."""
+    stopped = []
+    for label, _lock_attr, job_attr, cancel_attr, active_states in CANCELLABLE_JOBS:
+        job = getattr(handler_class, job_attr, None)
+        cancel = getattr(handler_class, cancel_attr, None)
+        if job is None or cancel is None:
+            continue
+        try:
+            state = dict(job).get("state")
+        except Exception:
+            continue
+        if state in active_states:
+            cancel.set()
+            stopped.append(label)
+    return stopped
+
+
+def install_interrupt_handler(server, handler_class) -> None:
+    last_press = {"at": 0.0}
+
+    def quit_now(reason: str) -> None:
+        console_log(f"{APP_NAME} is stopping — {reason}")
+        # shutdown() blocks until serve_forever() returns, so it cannot be
+        # called from the thread that is inside serve_forever().
+        threading.Thread(target=server.shutdown, name="LensLedger-shutdown",
+                         daemon=True).start()
+
+    def on_interrupt(_signum, _frame):
+        now = time.monotonic()
+        pressed_again = (now - last_press["at"]) < INTERRUPT_QUIT_WINDOW_SECONDS
+        last_press["at"] = now
+
+        running = running_cancellable_jobs(handler_class)
+        if not running:
+            return quit_now("nothing was running")
+        if pressed_again:
+            return quit_now(f"Ctrl+C pressed again while {', '.join(running)} was running")
+
+        stopped = cancel_running_jobs(handler_class)
+        console_log(
+            f"Ctrl+C: stopping {', '.join(stopped)} at the next safe point. "
+            f"{APP_NAME} is still running — press Ctrl+C again within "
+            f"{int(INTERRUPT_QUIT_WINDOW_SECONDS)} seconds to quit instead."
+        )
+
+    try:
+        signal.signal(signal.SIGINT, on_interrupt)
+    except (ValueError, OSError):
+        # Not the main thread, or a platform without SIGINT: leave the default.
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", action="version", version=f"%(prog)s {APP_NAME} {APP_VERSION}")
@@ -6931,8 +7024,9 @@ def main():
         browser_timer = threading.Timer(1.0, webbrowser.open, args=(url,))
         browser_timer.daemon = True
         browser_timer.start()
+    install_interrupt_handler(server, SearchHandler)
     try: server.serve_forever()
-    except KeyboardInterrupt: print(f"\n{APP_NAME} is stopping...", flush=True)
+    except KeyboardInterrupt: console_log(f"{APP_NAME} is stopping...")
     finally:
         watcher.stop()
         pipeline.stop()

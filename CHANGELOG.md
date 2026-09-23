@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.6.0 — 2026-09-23
+
+- Ctrl+C now stops the job that is running and leaves LensLedger open, instead of closing the whole program. Pressing it again within five seconds quits, and pressing it when nothing is running quits straight away.
+- The log says which job Ctrl+C stopped and that LensLedger is still running.
+
 ## 1.5.1 — 2026-09-22
 
 - Moving photos to the Review Bin, restoring them, and deleting them now record each photo by name. Emptying the Review Bin deletes the file and its database entry together, so until now nothing anywhere recorded what had gone.

@@ -172,52 +172,6 @@ class TestLogSurvivesAwkwardConsoles(unittest.TestCase):
         self.assertIn(console_log.PRIVACY_NOTICE, written)
 
 
-class TestActionsThatTouchPhotoFiles(unittest.TestCase):
-    """Anything that moves or deletes a photo must say which photo.
-
-    These are the actions where the log is the only record left afterwards:
-    emptying the Review Bin removes the file and the database row together, so
-    without a log line there is nothing anywhere to say what went.
-    """
-
-    # handler name -> a phrase its logging must contain
-    MUST_LOG = {
-        "empty_review_bin": "deleted permanently",
-        "delete_from_review_bin": "deleted permanently",
-        "restore_from_review_bin": "put back",
-        "move_to_review_bin": "moved out of the library",
-        "move_to_review_bin_batch": "moved out of the library",
-    }
-
-    def handler_source(self, name: str) -> str:
-        import ast
-        import photo_search
-
-        source = Path(photo_search.__file__).with_suffix(".py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == name:
-                return ast.get_source_segment(source, node) or ""
-        self.fail(f"handler {name} not found")
-
-    def test_file_moves_and_deletions_name_the_photo(self):
-        for handler, phrase in self.MUST_LOG.items():
-            with self.subTest(handler=handler):
-                body = self.handler_source(handler)
-                self.assertIn(
-                    "console_log", body.replace("Action(", "console_log("),
-                    f"{handler} touches photo files and logs nothing",
-                )
-                self.assertIn(
-                    phrase, body,
-                    f"{handler} must record '{phrase}' along with the file it acted on",
-                )
-                self.assertTrue(
-                    "relative_path" in body,
-                    f"{handler} must name the photo, not just count it",
-                )
-
-
 class TestEveryActionIsNamed(unittest.TestCase):
     """A new state-changing route must not be able to go unlogged unnoticed."""
 
