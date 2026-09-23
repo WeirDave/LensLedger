@@ -2079,10 +2079,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td><code>Exports\\</code></td><td>Database export ZIPs</td></tr>
 <tr><td><code>library-state.json</code></td><td>Library list and current library</td></tr>
 <tr><td><code>settings.json</code></td><td>Application settings</td></tr>
-<tr><td><code>Logs\</code></td><td>What LensLedger has done, including real photo paths</td></tr>
+<tr><td><code>Logs\\</code></td><td>What LensLedger has done, including real photo paths</td></tr>
 </table>
 <p>Override the data directory by setting the <code>LENSLEDGER_DATA_DIR</code> environment variable, or by passing <code>--data-dir</code> when starting LensLedger.</p>
-<p><code>Logs\</code> holds <code>LensLedger.log</code>, a record of everything LensLedger has done &mdash; what was started, how far it got, and which files it could not handle. It contains real folder names and photo paths from your computer, so edit it before sending it anywhere.</p>
+<p><code>Logs\\</code> holds <code>LensLedger.log</code>, a record of everything LensLedger has done &mdash; what was started, how far it got, and which files it could not handle. It contains real folder names and photo paths from your computer, so edit it before sending it anywhere.</p>
 <h3>Command-line options</h3>
 <table>
 <tr><th>Option</th><th>Description</th></tr>
@@ -6347,7 +6347,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def backup_database(self, _body):
         destination = create_verified_database_backup(type(self).db_path)
-        self.send_json({"ok": True, "path": str(destination), "bytes": destination.stat().st_size})
+        size = destination.stat().st_size
+        console_log(f"Create database backup: written to {destination.name} "
+                    f"({metadata_backups.human_bytes(size)})")
+        self.send_json({"ok": True, "path": str(destination), "bytes": size})
 
     def library_status(self):
         with type(self).library_lock:

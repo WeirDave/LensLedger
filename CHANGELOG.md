@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.7.1 — 2026-09-23
+
+- Fixed a stray backslash introduced in 1.7.0 in the manual's description of the log folder. It produced a warning that would become a hard error on a future version of Python, stopping LensLedger from starting.
+- Creating a database backup now records in the log where it went and how large it is.
+
 ## 1.7.0 — 2026-09-23
 
 - The user manual now covers everything added recently: "Fill in missing" and "Re-scan everything" for meaning search, re-reading photos for text, "Write all tags", sidecar files, photo safety copies and their limits, stopping a scan with Ctrl+C, and the `--data-dir` option.
