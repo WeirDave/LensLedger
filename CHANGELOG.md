@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.7.2 — 2026-09-23
+
+- Updating LensLedger now clears old copies of itself, keeping the two most recent so an update can still be rolled back. Every update kept a complete copy of the previous installation and nothing ever removed them, so they built up on disk indefinitely.
+
 ## 1.7.1 — 2026-09-23
 
 - Fixed a stray backslash introduced in 1.7.0 in the manual's description of the log folder. It produced a warning that would become a hard error on a future version of Python, stopping LensLedger from starting.

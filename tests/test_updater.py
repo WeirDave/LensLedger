@@ -126,6 +126,96 @@ class UpdaterTests(unittest.TestCase):
             self.assertTrue(rollback.is_dir())
             self.assertEqual(updater.read_tree_version(rollback), "0.19.0")
 
+    def make_rollback(self, target, version, age_seconds=0):
+        """A previous installation sitting beside the current one."""
+        import os
+        import time
+
+        path = target.parent / f"{target.name}.previous-{version}-20260101-000000"
+        make_release_tree(path, version)
+        (path / updater.MARKER_NAME).write_text(json.dumps({
+            "managed_by": "LensLedger updater", "version": version,
+        }), encoding="utf-8")
+        if age_seconds:
+            when = time.time() - age_seconds
+            os.utime(path, (when, when))
+        return path
+
+    def test_old_installations_are_cleared_after_an_update(self):
+        """Each one is a whole installation; nothing was ever removing them."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = make_release_tree(root / "Programs" / "LensLedger", "0.19.0")
+            (target / updater.MARKER_NAME).write_text(json.dumps({
+                "managed_by": "LensLedger updater", "version": "0.19.0",
+            }), encoding="utf-8")
+            oldest = self.make_rollback(target, "0.16.0", age_seconds=9000)
+            middle = self.make_rollback(target, "0.17.0", age_seconds=6000)
+            newest = self.make_rollback(target, "0.18.0", age_seconds=3000)
+
+            source = make_release_tree(root / "release", "0.20.0")
+            result = updater.install_tree(source, target)
+
+            # The copy this update just made counts toward the limit, so two
+            # survive in total: the one from 0.19.0 and the next newest.
+            self.assertTrue(Path(result["rollback_root"]).is_dir(),
+                            "the copy this update just made must survive")
+            self.assertTrue(newest.exists(), "the next newest must survive")
+            self.assertFalse(middle.exists())
+            self.assertFalse(oldest.exists(), "the oldest copies should go first")
+            self.assertEqual(sorted(result["pruned_rollbacks"]),
+                             sorted([middle.name, oldest.name]))
+            self.assertEqual(len(updater.rollback_copies(target)),
+                             updater.ROLLBACK_COPIES_KEPT)
+
+    def test_pruning_leaves_anything_that_is_not_a_lensledger_installation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = make_release_tree(root / "Programs" / "LensLedger", "0.19.0")
+            (target / updater.MARKER_NAME).write_text(json.dumps({
+                "managed_by": "LensLedger updater", "version": "0.19.0",
+            }), encoding="utf-8")
+
+            # Same name shape, but no marker: not ours, so not ours to delete.
+            impostor = target.parent / f"{target.name}.previous-notes-20260101-000000"
+            impostor.mkdir()
+            (impostor / "important.txt").write_text("keep me", encoding="utf-8")
+
+            updater.prune_rollback_copies(target, keep=0)
+
+            self.assertTrue(impostor.is_dir())
+            self.assertEqual((impostor / "important.txt").read_text(encoding="utf-8"), "keep me")
+
+    def test_pruning_never_touches_the_installation_in_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = make_release_tree(root / "Programs" / "LensLedger", "0.19.0")
+            (target / updater.MARKER_NAME).write_text(json.dumps({
+                "managed_by": "LensLedger updater", "version": "0.19.0",
+            }), encoding="utf-8")
+            self.make_rollback(target, "0.18.0")
+
+            updater.prune_rollback_copies(target, keep=0)
+
+            self.assertTrue(target.is_dir())
+            self.assertEqual(updater.read_tree_version(target), "0.19.0")
+
+    def test_rollback_copies_are_listed_newest_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = make_release_tree(root / "Programs" / "LensLedger", "0.19.0")
+            (target / updater.MARKER_NAME).write_text(json.dumps({
+                "managed_by": "LensLedger updater", "version": "0.19.0",
+            }), encoding="utf-8")
+            self.make_rollback(target, "0.16.0", age_seconds=9000)
+            self.make_rollback(target, "0.18.0", age_seconds=3000)
+
+            listed = [path.name for path in updater.rollback_copies(target)]
+
+            self.assertEqual(len(listed), 2)
+            self.assertIn("0.18.0", listed[0])
+            self.assertIn("0.16.0", listed[1])
+
     def test_unmanaged_existing_target_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

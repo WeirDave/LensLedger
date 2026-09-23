@@ -596,6 +596,54 @@ def refresh_legacy_launcher_handoffs(install_root: Path) -> list[dict[str, str]]
     return results
 
 
+# How many previous installations to keep after an update. Two is enough to
+# step back from a bad release and then back again, without the copies growing
+# without limit -- each one is a complete installation, tens of megabytes,
+# and nothing was ever removing them.
+ROLLBACK_COPIES_KEPT = 2
+
+
+def rollback_copies(target: Path) -> list[Path]:
+    """Previous installations left beside `target`, newest first.
+
+    Only directories named exactly like this installation's rollbacks, and only
+    ones carrying the managed-install marker, so nothing a user happens to have
+    put alongside can be mistaken for one.
+    """
+    target = Path(target)
+    parent = target.parent
+    if not parent.is_dir():
+        return []
+    found = []
+    for candidate in parent.glob(f"{target.name}.previous-*"):
+        if not candidate.is_dir() or candidate == target:
+            continue
+        if not is_managed_install(candidate):
+            continue
+        try:
+            found.append((candidate.stat().st_mtime, candidate))
+        except OSError:
+            continue
+    return [path for _mtime, path in sorted(found, reverse=True)]
+
+
+def prune_rollback_copies(target: Path, keep: int = ROLLBACK_COPIES_KEPT,
+                          log: Callable[[str], None] | None = None) -> list[str]:
+    """Delete all but the newest `keep` previous installations."""
+    removed = []
+    for path in rollback_copies(target)[max(0, keep):]:
+        try:
+            shutil.rmtree(path)
+        except OSError as exc:
+            if log:
+                log(f"Could not remove the old installation {path.name}: {exc}")
+            continue
+        removed.append(path.name)
+        if log:
+            log(f"Removed the old installation {path.name}")
+    return removed
+
+
 def install_tree(source: Path, target: Path) -> dict[str, str]:
     source = source.resolve()
     version = validate_release_tree(source)
@@ -631,10 +679,12 @@ def install_tree(source: Path, target: Path) -> dict[str, str]:
         if stage.exists():
             _remove_staging(stage, target.parent)
         raise
+    pruned = prune_rollback_copies(target)
     return {
         "version": version,
         "install_root": str(target),
         "rollback_root": str(rollback) if rollback else "",
+        "pruned_rollbacks": pruned,
     }
 
 
