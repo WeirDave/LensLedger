@@ -223,3 +223,32 @@ class TestEveryActionIsNamed(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoInlineStylesOrScripts(unittest.TestCase):
+    """The Content-Security-Policy forbids them, so any that exist are blocked.
+
+    A blocked style is not a warning the user ever sees -- the rule simply does
+    not apply, and the page quietly renders wrong.
+    """
+
+    def served_html(self) -> str:
+        import photo_search
+
+        return Path(photo_search.__file__).with_suffix(".py").read_text(encoding="utf-8")
+
+    def test_no_style_attributes_in_any_served_page(self):
+        offenders = re.findall(r'style="[^"]*"', self.served_html())
+        self.assertEqual(
+            offenders, [],
+            "the policy omits 'unsafe-inline', so these are blocked and never "
+            f"take effect -- move them to a stylesheet: {offenders}",
+        )
+
+    def test_the_policy_still_forbids_inline_styles(self):
+        """If this ever gains 'unsafe-inline', the test above stops meaning anything."""
+        source = self.served_html()
+        index = source.index("Content-Security-Policy")
+        policy = source[index:index + 500]
+        self.assertIn("style-src 'self'", policy)
+        self.assertNotIn("unsafe-inline", policy)

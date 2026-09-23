@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.6.1 — 2026-09-23
+
+- Fixed the explanatory line under "Auto-classify photos after meaning search" in Settings sitting flush against the left edge instead of lining up under the switch it describes. The page's own security rules were blocking the styling.
+
 ## 1.6.0 — 2026-09-23
 
 - Ctrl+C now stops the job that is running and leaves LensLedger open, instead of closing the whole program. Pressing it again within five seconds quits, and pressing it when nothing is running quits straight away.

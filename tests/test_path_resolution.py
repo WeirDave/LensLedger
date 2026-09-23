@@ -4,6 +4,7 @@ import ast
 import json
 import os
 import tempfile
+import threading
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -170,16 +171,39 @@ class TestWritingStateSurvivesALockedFile(unittest.TestCase):
             self.assertEqual(leftovers, [], "a failed write must not leave a temp file behind")
 
     def test_a_scan_is_not_discarded_when_the_state_write_fails(self):
-        """The photos are indexed either way; only the bookkeeping failed."""
+        """Run a real scan with the state write jammed; the scan must still stand."""
         import photo_search
+        from PIL import Image
 
-        source = Path(photo_search.__file__).with_suffix(".py").read_text(encoding="utf-8")
-        marker = "the scan finished, but the record of the current"
-        self.assertIn(marker, source)
-        index = source.index("save_library_state(root)")
-        window = source[index - 200:index + 400]
-        self.assertIn("except OSError", window,
-                      "save_library_state during a scan must not be able to fail the scan")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            library = root / "photos"
+            library.mkdir()
+            for index in range(2):
+                Image.new("RGB", (16, 16), (40 * index, 80, 120)).save(
+                    library / f"2026-0{index + 1}-0{index + 1} scene.jpg")
+
+            class Handler:
+                library_lock = threading.Lock()
+                library_job = {"state": "idle", "message": ""}
+                library_cancel = threading.Event()
+                current_library = (library, root / "library.sqlite3")
+
+            logged: list[str] = []
+            with unittest.mock.patch.dict(os.environ, {"LENSLEDGER_DATA_DIR": str(root / "data")}),                  unittest.mock.patch.object(photo_search, "console_log", side_effect=logged.append),                  unittest.mock.patch.object(
+                     photo_search, "save_library_state",
+                     side_effect=PermissionError("[WinError 5] Access is denied")):
+                photo_search._run_library_scan_job(
+                    Handler, library, root / "library.sqlite3", "2026-01-01T00:00:00Z")
+
+        self.assertEqual(
+            Handler.library_job.get("state"), "complete",
+            "the photos were indexed; a failed bookkeeping write must not fail the scan",
+        )
+        self.assertTrue(
+            any("could not be saved" in line for line in logged),
+            "the failure to save the library note should still be reported",
+        )
 
 
 if __name__ == "__main__":
