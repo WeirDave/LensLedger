@@ -599,6 +599,92 @@ class TestWriteTagsEndpoint(unittest.TestCase):
 
         self.assertIn("online only", body["error"])
 
+    def test_a_written_photo_can_be_restored_byte_for_byte(self):
+        """The safety copy is only worth having if restoring really works."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        original = self.photo.read_bytes()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.assertNotEqual(self.photo.read_bytes(), original,
+                            "the write should have changed the file")
+
+        self.json_response(self.post("/api/publish/restore", {"id": self.asset_id}))
+
+        self.assertEqual(
+            self.photo.read_bytes(), original,
+            "restoring must put the photo back exactly as it was, byte for byte",
+        )
+
+    def test_restoring_twice_is_refused_rather_than_silently_doing_nothing(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.json_response(self.post("/api/publish/restore", {"id": self.asset_id}))
+
+        import urllib.error
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/publish/restore", {"id": self.asset_id})
+        self.assertIn("no published version", json.loads(caught.exception.read())["error"])
+
+    def test_restore_says_so_when_the_safety_copy_has_been_cleared(self):
+        """Clearing old copies is allowed; restoring afterwards must explain itself."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.json_response(self.post("/api/photo-backups/clear", {"scope": "all"}))
+
+        import urllib.error
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/publish/restore", {"id": self.asset_id})
+        self.assertIn("missing", json.loads(caught.exception.read())["error"])
+
+    def asset_detail(self):
+        import urllib.request
+
+        with urllib.request.urlopen(
+            f"{self.base_url}/api/asset?id={self.asset_id}", timeout=10
+        ) as response:
+            return json.loads(response.read())
+
+    def test_restore_is_not_offered_before_anything_has_been_written(self):
+        self.assertFalse(self.asset_detail()["can_restore_publish"])
+
+    def test_restore_is_offered_once_a_write_has_a_safety_copy(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+
+        self.assertTrue(self.asset_detail()["can_restore_publish"])
+
+    def test_restore_stops_being_offered_once_the_copy_is_cleared(self):
+        """Retention clears old copies; the button must not outlive them."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+
+        self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.assertTrue(self.asset_detail()["can_restore_publish"])
+
+        self.json_response(self.post("/api/photo-backups/clear", {"scope": "all"}))
+
+        self.assertFalse(
+            self.asset_detail()["can_restore_publish"],
+            "offering to restore from a copy that has gone is a button that can only fail",
+        )
+
     def test_asset_detail_includes_auto_tags_and_write_mode(self):
         import urllib.request
         con = sqlite3.connect(self.database)

@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.6.2 — 2026-09-23
+
+- "Restore last publish" on a photo is now offered only when the safety copy it would restore from still exists. Once a copy had been cleared, the button stayed available and failed when pressed.
+- The two safety-copy limits in Settings now say plainly that clearing a copy means that write can no longer be undone.
+
 ## 1.6.1 — 2026-09-23
 
 - Fixed the explanatory line under "Auto-classify photos after meaning search" in Settings sitting flush against the left edge instead of lining up under the switch it describes. The page's own security rules were blocking the styling.

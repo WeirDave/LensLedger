@@ -1622,7 +1622,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos. Sidecar mode writes a separate .xmp file next to each photo instead of modifying the original.</p>
 <div class="field"><label for="writeMode">Write mode</label><select id="writeMode"><option value="embedded" {"selected" if publish.get("write_mode", "embedded") == "embedded" else ""}>Embedded (modify photo files)</option><option value="sidecar" {"selected" if publish.get("write_mode") == "sidecar" else ""}>Sidecar (.xmp files)</option><option value="both" {"selected" if publish.get("write_mode") == "both" else ""}>Both (embedded + sidecar)</option></select><span class="hint">Embedded writes metadata directly into JPEG/HEIC files with safety backups. Sidecar creates .xmp files that Lightroom, Capture One, and other apps can read without changing originals.</span></div>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoClassify" {"checked" if publish.get("auto_classify") else ""}><span class="slider"></span></label><label for="autoClassify">Auto-classify photos after meaning search</label></div>
-<span class="hint hint-under-toggle">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span><div class="field"><label for="backupKeepDays">Keep photo safety copies for (days)</label><input type="number" id="backupKeepDays" min="0" max="3650" value="{int(publish.get('backup_keep_days', 30))}"><span class="hint">Embedded writes keep a full copy of each photo so the change can be undone. Copies older than this are cleared automatically. 0 keeps them forever. Default: 30</span></div><div class="field"><label for="backupMaxGb">Total size limit for safety copies (GB)</label><input type="number" id="backupMaxGb" min="0" max="10000" step="1" value="{int(publish.get('backup_max_gb', 20))}"><span class="hint">When the copies exceed this, the oldest are cleared first. 0 means no limit. See current usage on the <a href="/scan-photos">Scan your photos</a> page. Default: 20</span></div></section>
+<span class="hint hint-under-toggle">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span><div class="field"><label for="backupKeepDays">Keep photo safety copies for (days)</label><input type="number" id="backupKeepDays" min="0" max="3650" value="{int(publish.get('backup_keep_days', 30))}"><span class="hint">Embedded writes keep a full copy of each photo so the change can be undone. Once a copy is cleared that write can no longer be undone. 0 keeps them forever. Default: 30</span></div><div class="field"><label for="backupMaxGb">Total size limit for safety copies (GB)</label><input type="number" id="backupMaxGb" min="0" max="10000" step="1" value="{int(publish.get('backup_max_gb', 20))}"><span class="hint">When the copies exceed this, the oldest are cleared first, and those writes can no longer be undone. 0 means no limit. See current usage on the <a href="/scan-photos">Scan your photos</a> page. Default: 20</span></div></section>
 <section class="card" id="auto-import"><h2>Auto-import photos</h2><p>Automatically import new photos from a source folder and sort them into your library. <a href="/auto-import">Configure source, destination, and sorting rules →</a></p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable automatic photo import</label></div>
 <div class="field"><label for="ingestInterval">Check interval (minutes)</label><input type="number" id="ingestInterval" min="5" max="1440" value="{int(ingest.get('interval_minutes', 10))}"><span class="hint">How often to check for new photos when import is enabled. Default: 10</span></div></section>
@@ -3050,10 +3050,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                     )},
                     "embedded_metadata": read_embedded_metadata(source_path),
                     "publishable": asset["media_type"] == "image" and source_path.suffix.lower() in PUBLISHABLE_EXTENSIONS,
-                    "can_restore_publish": bool(con.execute(
-                        """SELECT 1 FROM metadata_publications WHERE relative_path=? AND restored_at IS NULL
-                           ORDER BY id DESC LIMIT 1""", (asset["relative_path"],)
-                    ).fetchone()),
+                    # A database row is not enough: retention clears old safety
+                    # copies, and offering to restore from one that has gone is
+                    # a button that can only fail.
+                    "can_restore_publish": self._safety_copy_available(
+                        con, asset["relative_path"]),
                     "hidden_tags": [row[0] for row in con.execute(
                         "SELECT tag FROM asset_tag_exclusions WHERE relative_path=? ORDER BY tag", (asset["relative_path"],)
                     )],
@@ -3464,6 +3465,21 @@ class SearchHandler(BaseHTTPRequestHandler):
             set_source_tags(con, asset_id, "embedded_xmp", after["keywords"])
             rebuild_search_row(con, asset_id)
         self.send_json({"ok": True, "backup": str(backup), "message": "Metadata published and picture pixels verified"})
+
+    @staticmethod
+    def _safety_copy_available(con, relative_path: str) -> bool:
+        """Whether the last write to this photo can still be undone."""
+        record = con.execute(
+            """SELECT backup_path FROM metadata_publications
+               WHERE relative_path=? AND restored_at IS NULL
+               ORDER BY id DESC LIMIT 1""", (relative_path,)
+        ).fetchone()
+        if not record:
+            return False
+        try:
+            return Path(record["backup_path"]).is_file()
+        except OSError:
+            return False
 
     def restore_published_metadata(self, body):
         asset_id = int(body["id"])
