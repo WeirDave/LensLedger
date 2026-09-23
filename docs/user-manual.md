@@ -19,9 +19,10 @@ LensLedger is a local-first photo and video indexing tool for Windows. It builds
 11. [Batch Editing](#batch-editing)
 12. [Database and Backups](#database-and-backups)
 13. [Settings](#settings)
-14. [Keyboard and Mouse Shortcuts](#keyboard-and-mouse-shortcuts)
-15. [Supported File Formats](#supported-file-formats)
-16. [Advanced Configuration](#advanced-configuration)
+14. [Stopping a Scan](#stopping-a-scan)
+15. [Keyboard and Mouse Shortcuts](#keyboard-and-mouse-shortcuts)
+16. [Supported File Formats](#supported-file-formats)
+17. [Advanced Configuration](#advanced-configuration)
 
 ---
 
@@ -104,6 +105,7 @@ Reads visible text in your photos — signs, screenshots, receipts, documents �
 - **OCR worker threads** (1–16, default 4) — more workers scan faster but use more CPU
 - **OCR batch size** (10–500, default 50) — photos processed per commit
 - **Only since** date filter — skip photos taken before a specific date, useful for scanning only recent additions
+- **Read photos again that have already been read** — normally a run only picks up photos never read before. Tick this to read everything again, which is what you want after changing something about how text is read. It asks for confirmation first, because on a large library it takes a while.
 
 ### Meaning search (optional)
 
@@ -119,6 +121,14 @@ To set up meaning search, go to **Settings > Meaning search model** and click **
 
 Changing the model re-indexes your photos on the next meaning search run.
 
+Three buttons start a meaning-search run, and they do different things:
+
+- **Build / resume meaning index** — the everyday one. Indexes photos that have never been indexed.
+- **Fill in missing** — indexes every photo that has no meaning data at all, *including photos an earlier run could not read*. An ordinary run skips those permanently, so this is the one to use if the **Missing** count is not zero.
+- **Re-scan everything** — reads every photo again from scratch, including ones already indexed. Asks for confirmation first.
+
+The counts above the buttons show **Indexed**, **Remaining**, **Missing** (photos with no meaning data at all — click it to list them), **This pass**, and **Errors**.
+
 ### Face detection (optional)
 
 Finds faces in your photos so they can be identified in **People review**. This is optional and a separate download (~500 MB) because the face-detection model's license does not allow LensLedger to bundle it.
@@ -128,6 +138,17 @@ To set up face detection, go to **Scan your photos** and click **Set up face det
 ### Backups
 
 Click **Create verified database backup** to make a verified copy of your database with an integrity check.
+
+#### Photo safety copies
+
+Before LensLedger writes tags into a photo it keeps a complete copy of the original, so the write can be undone. These build up as you publish, and they are the same size as the photos themselves — writing tags across a whole library means a second copy of that library on the same disk.
+
+This section shows how many copies exist, how much space they use, and how much room is left. Two buttons manage them:
+
+- **Clear copies past the limit** — applies the age and size limits from Settings now, rather than waiting for the next write.
+- **Clear all safety copies** — removes every copy. Your photos are not touched, but writes already made can no longer be undone.
+
+If LensLedger was stopped in the middle of writing to a photo, the photos affected are listed here by name, saying whether the original can still be put back.
 
 ---
 
@@ -295,11 +316,32 @@ Publishing writes your subjects, people, tags, and descriptions back into the ph
 3. Review the before/after comparison showing exactly what will change
 4. Click **Publish** to write the metadata
 
+### Write all tags
+
+The **Publish photos** page has a **Write all tags** button that writes everything LensLedger holds — auto-classified tags, confirmed people, the subject, and any text found in the picture — into every photo that has something to write.
+
+Before it starts, LensLedger works out how much room the safety copies will need and refuses if there is not enough, telling you how short it is. The run shows progress and can be stopped with **Stop writing**; it stops between photos, so nothing is ever left half-written.
+
+Anything a particular file cannot carry is listed underneath with the reason. A file that cannot hold embedded tags at all — a PNG, for instance — gets a companion sidecar file next to it instead and is named as having done so.
+
+### Sidecar files
+
+**Settings > Metadata publishing > Write mode** chooses where metadata goes:
+
+| Mode | What it does |
+|------|--------------|
+| Embedded | Writes inside the photo files themselves |
+| Sidecar | Writes a small `.xmp` companion file next to each photo, leaving originals untouched |
+| Both | Does both |
+
+Sidecar mode carries exactly the same information and never modifies an original, which makes it the safer choice if you would rather not have your photos rewritten.
+
 ### Safety features
 
-- A **safety backup** is created before every write
-- After writing, LensLedger verifies the image pixels haven't changed (hash comparison)
-- Click **Restore last publish** to revert from the safety backup
+- A **safety copy** of the whole photo is made before every write, and verified against the original before anything is changed
+- After writing, LensLedger checks the picture itself is unchanged, and puts the original back automatically if it is not
+- Photos stored online only are refused rather than half-written
+- Click **Restore last publish** to put a photo back. This is offered only while the safety copy still exists — once copies are cleared, either by you or by the limits in Settings, that write can no longer be undone
 
 ### Auto-publishing
 
@@ -395,6 +437,17 @@ Choose the CLIP model for meaning search. See [Meaning search](#meaning-search-o
 | Default sort order | Newest / Oldest / Name | Newest first | Initial sort when opening the library |
 | Filmstrip thumbnail size | Small / Medium / Large | Medium | Size of thumbnails in the filmstrip |
 
+### Metadata publishing
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Write mode | Embedded | Whether metadata goes inside the photos, into sidecar files beside them, or both |
+| Auto-classify photos after meaning search | Off | Tag photos with categories automatically once meaning search finishes |
+| Keep photo safety copies for (days) | 30 | Copies older than this are cleared automatically. 0 keeps them forever |
+| Total size limit for safety copies (GB) | 20 | When the copies exceed this, the oldest go first. 0 means no limit |
+
+Once a safety copy is cleared, the write it protected can no longer be undone. Current usage is shown on the **Scan your photos** page.
+
 ### Folder watching
 
 Automatically detect new and changed photos without manually running a scan.
@@ -403,6 +456,16 @@ Automatically detect new and changed photos without manually running a scan.
 |---------|-------|---------|-------------|
 | Enable watching | On/Off | Off | Toggle automatic folder watching |
 | Check interval | 5–1440 minutes | 30 | How often to check for new files |
+
+---
+
+## Stopping a Scan
+
+Every scan and the tag writer have a **Pause** or **Stop** button that stops the work at its next safe point, leaving what has already been done in place.
+
+Pressing **Ctrl+C** in the LensLedger window does the same thing: it stops whatever is running and leaves LensLedger open. Press it again within five seconds to close LensLedger instead. With nothing running, Ctrl+C closes LensLedger straight away.
+
+Ctrl+Break always closes LensLedger immediately, whatever is running.
 
 ---
 
@@ -458,7 +521,9 @@ All application data is stored at `%LOCALAPPDATA%\LensLedger` by default. This i
 | `library-state.json` | Library list and current library |
 | `settings.json` | Application settings |
 
-Override the data directory by setting the `LENSLEDGER_DATA_DIR` environment variable.
+Override the data directory by setting the `LENSLEDGER_DATA_DIR` environment variable, or by passing `--data-dir` when starting LensLedger.
+
+`Logs\` holds `LensLedger.log`, a record of everything LensLedger has done — what was started, how far it got, and which files it could not handle. It contains real folder names and photo paths from your computer, so edit it before sending it anywhere.
 
 ### Command-line options
 
@@ -469,6 +534,7 @@ Override the data directory by setting the `LENSLEDGER_DATA_DIR` environment var
 | `--root PATH` | Override the library root path |
 | `--db PATH` | Override the database path |
 | `--no-open` | Don't auto-open the browser on startup |
+| `--data-dir PATH` | Keep settings, safety copies, logs and the library list in this folder instead of the usual one. Use it to try something out without touching your real library or its settings. |
 
 ### Updates
 

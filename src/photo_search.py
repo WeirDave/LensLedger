@@ -1685,7 +1685,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><a href="#library-management">Library Management</a></li>
 <li><a href="#scanning">Scanning Your Photos</a></li>
 <li><a href="#searching">Searching and Browsing</a></li>
-<li><a href="#viewing">Viewing and Editing Metadata</a></li>
+<li><a href="#viewing">Viewing and Editing Photo Metadata</a></li>
 <li><a href="#people">People and Faces</a></li>
 <li><a href="#map">Photo Map</a></li>
 <li><a href="#auto-import">Auto-import Photos</a></li>
@@ -1694,6 +1694,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><a href="#batch">Batch Editing</a></li>
 <li><a href="#database">Database and Backups</a></li>
 <li><a href="#settings">Settings</a></li>
+<li><a href="#stopping">Stopping a Scan</a></li>
 <li><a href="#shortcuts">Keyboard and Mouse Shortcuts</a></li>
 <li><a href="#formats">Supported File Formats</a></li>
 <li><a href="#advanced">Advanced Configuration</a></li>
@@ -1753,6 +1754,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td>Batch size</td><td>10&ndash;500</td><td>50</td><td>Photos processed per commit</td></tr>
 <tr><td>Skip photos before</td><td>Date</td><td>&mdash;</td><td>Only process photos taken on or after this date (leave empty to scan everything)</td></tr>
 </table>
+<p>Tick <strong>Read photos again that have already been read</strong> to re-read photos already done, rather than only new ones. It asks first, because on a large library it takes a while.</p>
 <h3>Meaning search (optional)</h3>
 <p>Uses a local AI vision model (CLIP) to search photos by natural language descriptions like &ldquo;a birthday cake&rdquo; or &ldquo;sunset over water.&rdquo; Requires a one-time model download.</p>
 <table>
@@ -1762,10 +1764,20 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td>ViT-L-14</td><td>~1.8 GB</td><td>High quality, significantly slower</td></tr>
 </table>
 <p>Set up meaning search from <a href="/settings#meaning-search">Settings</a>. Changing the model re-indexes on the next run.</p>
+<p>Three buttons start a run and they do different things:</p>
+<ul>
+<li><strong>Build / resume meaning index</strong> &mdash; the everyday one. Indexes photos never indexed before.</li>
+<li><strong>Fill in missing</strong> &mdash; indexes every photo with no meaning data at all, <em>including ones an earlier run could not read</em>. An ordinary run skips those permanently, so use this when the <strong>Missing</strong> count is not zero.</li>
+<li><strong>Re-scan everything</strong> &mdash; reads every photo again from scratch. Asks first.</li>
+</ul>
 <h3>Face detection (optional)</h3>
 <p>Finds faces in your photos so they can be identified in <a href="/people">People</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
 <h3>Backups</h3>
 <p>Click <strong>Create verified database backup</strong> to make a verified copy of your database with an integrity check.</p>
+<h3>Photo safety copies</h3>
+<p>Before LensLedger writes tags into a photo it keeps a complete copy of the original, so the write can be undone. These are the same size as your photos, so writing tags across a whole library means a second copy of that library on the same disk.</p>
+<p>This section shows how many copies exist, the space they use, and the room left. <strong>Clear copies past the limit</strong> applies the age and size limits from Settings now; <strong>Clear all safety copies</strong> removes every one. Your photos are never touched, but writes already made can no longer be undone afterwards.</p>
+<p>If LensLedger stopped in the middle of writing to a photo, the photos affected are listed here by name, saying whether the original can still be put back.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -1794,7 +1806,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </section>
 
 <section class="manual-section" id="viewing">
-<h2>5. Viewing and Editing Metadata</h2>
+<h2>5. Viewing and Editing Photo Metadata</h2>
 <p>Click a photo in the filmstrip to view it. The sidebar shows editable metadata.</p>
 <h3>Primary subject</h3>
 <p>A short phrase describing the main thing in the photo (e.g. &ldquo;Golden Gate Bridge at sunset&rdquo;). Stored as IPTC/XMP Title and Headline when published.</p>
@@ -1911,11 +1923,17 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li>Review the before/after comparison</li>
 <li>Click <strong>Publish</strong> to write the metadata</li>
 </ol>
+<h3>Write all tags</h3>
+<p>The <a href="/publish">Publish photos</a> page has a <strong>Write all tags</strong> button that writes everything LensLedger holds &mdash; auto-classified tags, confirmed people, the subject, and any text found in the picture &mdash; into every photo with something to write.</p>
+<p>Before starting it works out how much room the safety copies need and refuses if there is not enough, saying how short it is. The run shows progress and <strong>Stop writing</strong> stops it between photos, so nothing is left half-written. Anything a file cannot carry is listed underneath with the reason; a file that cannot hold embedded tags at all gets a sidecar file beside it instead and is named as having done so.</p>
+<h3>Sidecar files</h3>
+<p><a href="/settings#metadata-publishing">Settings &gt; Metadata publishing &gt; Write mode</a> chooses where metadata goes: inside the photos, into <code>.xmp</code> companion files beside them, or both. Sidecar mode carries the same information and never modifies an original, which makes it the safer choice if you would rather your photos were not rewritten.</p>
 <h3>Safety features</h3>
 <ul>
-<li>A <strong>safety backup</strong> is created before every write</li>
-<li>After writing, LensLedger verifies the image pixels haven&rsquo;t changed (hash comparison)</li>
-<li>Click <strong>Restore last publish</strong> to revert from the safety backup</li>
+<li>A <strong>safety copy</strong> of the whole photo is made before every write, and checked against the original before anything changes</li>
+<li>After writing, LensLedger checks the picture itself is unchanged and puts the original back automatically if it is not</li>
+<li>Photos stored online only are refused rather than half-written</li>
+<li><strong>Restore last publish</strong> puts a photo back. It is offered only while the safety copy still exists &mdash; once copies are cleared, that write can no longer be undone</li>
 </ul>
 <h3>Auto-publishing</h3>
 <p>When you confirm people in <a href="/people">People</a>, their names are saved to the database. Use <a href="/publish">Publish photos</a> to write the metadata to your JPEG files.</p>
@@ -2005,8 +2023,15 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
+<section class="manual-section" id="stopping">
+<h2>14. Stopping a Scan</h2>
+<p>Every scan and the tag writer have a <strong>Pause</strong> or <strong>Stop</strong> button that stops the work at its next safe point, leaving what is already done in place.</p>
+<p>Pressing <strong>Ctrl+C</strong> in the LensLedger window does the same: it stops whatever is running and leaves LensLedger open. Press it again within five seconds to close LensLedger instead. With nothing running, Ctrl+C closes LensLedger straight away. Ctrl+Break always closes it immediately.</p>
+<div class="back-to-top"><a href="#top">Back to top</a></div>
+</section>
+
 <section class="manual-section" id="shortcuts">
-<h2>14. Keyboard and Mouse Shortcuts</h2>
+<h2>15. Keyboard and Mouse Shortcuts</h2>
 <table>
 <tr><th>Action</th><th>Shortcut</th></tr>
 <tr><td>Next / previous photo</td><td>Left / Right arrow keys</td></tr>
@@ -2022,7 +2047,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </section>
 
 <section class="manual-section" id="formats">
-<h2>15. Supported File Formats</h2>
+<h2>16. Supported File Formats</h2>
 <table>
 <tr><th>Format</th><th>Metadata</th><th>Faces</th><th>Viewable</th><th>Publishable</th></tr>
 <tr><td>JPEG (.jpg, .jpeg)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
@@ -2041,7 +2066,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </section>
 
 <section class="manual-section" id="advanced">
-<h2>16. Advanced Configuration</h2>
+<h2>17. Advanced Configuration</h2>
 <h3>Data directory</h3>
 <p>All application data is stored at <code>{html.escape(str(data_root()))}</code> by default.</p>
 <table>
@@ -2054,8 +2079,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td><code>Exports\\</code></td><td>Database export ZIPs</td></tr>
 <tr><td><code>library-state.json</code></td><td>Library list and current library</td></tr>
 <tr><td><code>settings.json</code></td><td>Application settings</td></tr>
+<tr><td><code>Logs\</code></td><td>What LensLedger has done, including real photo paths</td></tr>
 </table>
-<p>Override the data directory by setting the <code>LENSLEDGER_DATA_DIR</code> environment variable.</p>
+<p>Override the data directory by setting the <code>LENSLEDGER_DATA_DIR</code> environment variable, or by passing <code>--data-dir</code> when starting LensLedger.</p>
+<p><code>Logs\</code> holds <code>LensLedger.log</code>, a record of everything LensLedger has done &mdash; what was started, how far it got, and which files it could not handle. It contains real folder names and photo paths from your computer, so edit it before sending it anywhere.</p>
 <h3>Command-line options</h3>
 <table>
 <tr><th>Option</th><th>Description</th></tr>
@@ -2064,6 +2091,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td><code>--root PATH</code></td><td>Override the library root path</td></tr>
 <tr><td><code>--db PATH</code></td><td>Override the database path</td></tr>
 <tr><td><code>--no-open</code></td><td>Don&rsquo;t auto-open the browser on startup</td></tr>
+<tr><td><code>--data-dir PATH</code></td><td>Keep settings, safety copies, logs and the library list in this folder instead of the usual one. Use it to try something out without touching your real library or its settings.</td></tr>
 </table>
 <h3>Updates</h3>
 <p>LensLedger checks for updates from GitHub automatically. When a new version is available, an update badge appears in the navigation menu. A banner appears on all pages when the on-disk code is newer than the running server, with a <strong>Restart</strong> button to load the new version.</p>

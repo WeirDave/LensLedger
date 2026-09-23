@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.7.0 — 2026-09-23
+
+- The user manual now covers everything added recently: "Fill in missing" and "Re-scan everything" for meaning search, re-reading photos for text, "Write all tags", sidecar files, photo safety copies and their limits, stopping a scan with Ctrl+C, and the `--data-dir` option.
+- Added a "Stopping a Scan" section explaining the Pause and Stop buttons and what Ctrl+C does.
+- The manual now says where the log file lives and warns that it contains real folder names and photo paths.
+- Fixed one manual section being called "Viewing and Editing Metadata" in the app and "Viewing and Editing Photo Metadata" in the written manual.
+
 ## 1.6.2 — 2026-09-23
 
 - "Restore last publish" on a photo is now offered only when the safety copy it would restore from still exists. Once a copy had been cleared, the button stayed available and failed when pressed.
