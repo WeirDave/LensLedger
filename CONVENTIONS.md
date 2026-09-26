@@ -4,6 +4,44 @@ This file is read by Aider and other tools that look for `CONVENTIONS.md`.
 The canonical source is `CLAUDE.md` in this same repo — both files describe
 the same rules. If they ever conflict, `CLAUDE.md` wins.
 
+## Rule zero — never commit real personal photos or identifiable data
+
+**Never put real photos, real people, or real location data into this
+project, in any form, without asking him first.** Not as a screenshot, not
+as a test fixture, not in a doc, not in a commit message, not "just to
+reproduce the bug." Ask, and wait for an answer.
+
+**What counts.** Real photos or video frames from David's library. Real GPS
+coordinates or place names tied to a real photo — home, family addresses,
+travel itineraries. Real names of family members, friends, or anyone
+identifiable from face-review data. Real file or folder paths that reveal a
+library location, an event name, or a person's name. Screenshots of the
+running app taken against his actual library.
+
+**Where it applies: everything that persists.** Source, comments, test
+fixtures, sample data, `docs/`, release notes, screenshots, this file,
+commit messages, and issue/PR comments.
+
+**When he shares a real scan result or photo to settle a bug** — read it for
+structure and metadata shape only: field names, counts, error strings. Do
+not copy the content, do not turn it into a fixture, and do not let a name,
+a GPS coordinate, or a face crop reach a commit. Build test fixtures
+synthetically — invented names, invented or omitted coordinates, synthetic
+or licensed-stock images.
+
+**Assume this repository is public, because it is.** A public repo cannot be
+quietly un-published — release notes can be edited, but ZIP assets, forks,
+clones and commit history cannot be taken back the same way.
+
+**If you're unsure whether something is traceable to a real person or
+place, leave it out and ask.** Unsure is a hit.
+
+This mirrors the confidentiality rule already standing in WaxFrame
+Professional (`CLAUDE.md` §0) and WD-Wireless-Tools (`CLAUDE.md` "Rule
+zero"), extended here to the kind of data this app actually handles: real
+photos, faces, and locations rather than work data.
+
+
 ## Product identity
 
 - Product name: **LensLedger**
@@ -101,3 +139,18 @@ Migrations are idempotent ALTER TABLE ADD COLUMN with column-existence guards.
 - Don't add comments explaining what code does (only why, if non-obvious)
 - Don't skip the release ceremony or any step within it
 - Don't ask for permission to push
+
+## Session hygiene
+
+Prune stale worktrees at the start of every session: `git worktree prune -v`,
+then check whether the `.claude/worktrees/<name>` directory it names is still
+sitting on disk — prune clears git's own registration, but the folder itself
+sometimes survives that and needs removing by hand. Delete the matching
+`claude/<name>` local branch too if it has no commits `main` doesn't already
+have.
+
+A session that dies mid-task — crash, timeout, closed window — leaves both
+behind. This has happened across David's repos before, and a dead worktree
+is exactly the kind of forgotten corner that ends up holding content nobody
+meant to leave sitting around (real photos or personal data, per Rule zero
+above). Report what you found and removed rather than cleaning quietly.
