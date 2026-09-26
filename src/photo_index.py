@@ -163,6 +163,10 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
     skipped_at TEXT,
     UNIQUE (source, source_face_id)
 );
+-- Deleting an asset cascades into these tables; without an index on
+-- asset_id every deleted photo scans the whole table.
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_asset ON face_embeddings(asset_id);
+CREATE INDEX IF NOT EXISTS idx_metadata_publications_asset ON metadata_publications(asset_id);
 
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY,
@@ -833,11 +837,15 @@ def scan_library(
                     remapped += 1
             if remapped:
                 counts["changed"] += remapped
+        counts["removing_total"] = len(missing)
+        report()
         for rel_text in missing:
             asset_id = int(known[rel_text]["id"])
             con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
             con.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
             counts["removed"] += 1
+            if int(counts["removed"]) % 100 == 0:
+                report()
 
     con.execute(
         """UPDATE runs SET finished_at=?, scanned=?, changed=?, unchanged=?, removed=?, errors=?, cancelled=? WHERE id=?""",

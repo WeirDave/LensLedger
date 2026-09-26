@@ -413,8 +413,17 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             if not _lib_started_logged and total_estimate > 0:
                 console_log(f"Photo locations: ~{total_estimate:,} files to check")
                 _lib_started_logged = True
+            removed = int(counts.get("removed", 0))
+            removing_total = int(counts.get("removing_total", 0))
             now = time.monotonic()
-            if scanned > 0 and now - _lib_last_log_time >= 10:
+            if removing_total:
+                message = f"Removing deleted files from the index — {removed:,} / {removing_total:,}…"
+                if now - _lib_last_log_time >= 10 or removed == 0:
+                    _lib_last_log_time = now
+                    console_log(f"Photo locations: removing deleted files — {removed:,} / {removing_total:,}")
+            else:
+                message = f"Discovered {scanned:,} media files…"
+            if not removing_total and scanned > 0 and now - _lib_last_log_time >= 10:
                 _lib_last_log_time = now
                 parts = [f"Photo locations: {scanned:,} / ~{total_estimate:,} files checked, {changed:,} changed"]
                 if errors:
@@ -423,7 +432,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             job_counts = {k: v for k, v in counts.items() if k != "error_details"}
             with handler_class.library_lock:
                 handler_class.library_job = {
-                    "state": "scanning", "message": f"Discovered {int(counts['scanned']):,} media files…",
+                    "state": "scanning", "message": message,
                     "target_root": str(root), "started_at": started_at,
                     "error_details": counts.get("error_details", []),
                     **job_counts,

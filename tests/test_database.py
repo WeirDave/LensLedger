@@ -218,6 +218,33 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 1)
         con.close()
 
+    def test_removing_deleted_files_reports_progress_and_uses_asset_indexes(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "kept.jpg").write_bytes(b"kept")
+        deleted = [library / f"gone-{number}.jpg" for number in range(3)]
+        for number, path in enumerate(deleted):
+            path.write_bytes(f"gone {number}".encode())
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+        for path in deleted:
+            path.unlink()
+
+        progress = []
+        self.assertEqual(scan_library(library, database, progress=progress.append), 0)
+        removal_reports = [item for item in progress if item.get("removing_total")]
+        self.assertTrue(removal_reports)
+        self.assertEqual(removal_reports[0]["removing_total"], 3)
+        self.assertEqual(progress[-1]["removed"], 3)
+
+        con = sqlite3.connect(database)
+        indexes = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        con.close()
+        self.assertIn("idx_face_embeddings_asset", indexes)
+        self.assertIn("idx_metadata_publications_asset", indexes)
+
     def test_raw_files_are_inventoried_and_wav_files_are_ignored(self):
         from photo_index import scan_library
 
