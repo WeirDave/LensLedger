@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.8.2 — 2026-09-26
+
+- "Restart now" in the "Server is running … on disk" banner, and installing an update, now close the old LensLedger window instead of leaving it open. When the window was hosted by Windows Terminal, the old tab previously stayed behind with a "process exited" message.
+
 ## 1.8.1 — 2026-09-26
 
 - Trash on the main photo screen now takes the photo out of the film strip and moves to the next one immediately, for both the "Move to Trash" button in the sidebar and the batch "Trash" button. The file is moved into the Review Bin in the background and the "Undo" notice appears once the move has finished.

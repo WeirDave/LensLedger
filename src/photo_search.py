@@ -1107,6 +1107,8 @@ class _LibraryAttr:
         return owner.current_library[self.index]
 
 
+RESTART_EXIT_CODE = 75
+
 class SearchHandler(BaseHTTPRequestHandler):
     current_library: tuple[Path, Path]
     library_root = _LibraryAttr(0)
@@ -5842,6 +5844,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             log_stream.close()
 
     def _schedule_shutdown(self):
+        type(self).restart_requested = True
+
         def stop_server():
             threading.Event().wait(1.0)
             self.server.shutdown()
@@ -7109,6 +7113,10 @@ def main():
         watcher.stop()
         pipeline.stop()
         server.server_close(); print(f"{APP_NAME} stopped.", flush=True)
+    # Start LensLedger.cmd closes its own window on this code; a window killed
+    # from outside exits non-zero, and Windows Terminal keeps such tabs open.
+    if getattr(SearchHandler, "restart_requested", False):
+        sys.exit(RESTART_EXIT_CODE)
 
 
 if __name__ == "__main__":

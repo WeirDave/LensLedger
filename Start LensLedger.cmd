@@ -52,6 +52,10 @@ powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5309 -State List
 
 python src\photo_search.py %*
 
+REM Exit code 75: the server stopped to restart and a new window already
+REM has it, so close this one cleanly instead of waiting at the pause.
+if "%errorlevel%"=="75" exit 0
+
 if errorlevel 1 (
     echo.
     echo LensLedger could not start. Review the error above.
