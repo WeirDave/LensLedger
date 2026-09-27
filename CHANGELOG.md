@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.6 — 2026-09-26
+
+- Long lines in the LensLedger console window now wrap with their continuation lines indented under the message, so the timestamps stay in a column of their own. The log file is unchanged.
+
 ## 1.10.5 — 2026-09-26
 
 - Fixed the "photos were being written when LensLedger stopped" warning on the Scan photos page listing photos that had been written successfully. Every photo written by "Publish people metadata" or by publishing a single photo was reported this way. Those records are corrected when the catalog is next opened, so the false list clears on its own.

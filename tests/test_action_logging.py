@@ -252,3 +252,35 @@ class TestNoInlineStylesOrScripts(unittest.TestCase):
         policy = source[index:index + 500]
         self.assertIn("style-src 'self'", policy)
         self.assertNotIn("unsafe-inline", policy)
+
+
+class TestConsoleWrapping(unittest.TestCase):
+    """Long lines wrap under the message, leaving the timestamp column clear."""
+
+    PREFIX = "  [2026-01-01 09:00:00 AM] "
+
+    def test_short_lines_are_unchanged(self):
+        from console_log import wrap_for_console
+
+        self.assertEqual(wrap_for_console(self.PREFIX, "done", 120), self.PREFIX + "done")
+
+    def test_continuation_lines_line_up_under_the_message(self):
+        from console_log import wrap_for_console
+
+        message = "Run all scans: started — " + "photo locations, then text recognition, " * 4
+        lines = wrap_for_console(self.PREFIX, message.strip(), 80).split("\n")
+
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(lines[0].startswith(self.PREFIX))
+        for line in lines:
+            self.assertLess(len(line), 80)
+        for line in lines[1:]:
+            self.assertTrue(line.startswith(" " * len(self.PREFIX)))
+            self.assertNotEqual(line[len(self.PREFIX)], " ")
+
+    def test_no_wrapping_when_not_a_terminal_or_too_narrow(self):
+        from console_log import wrap_for_console
+
+        message = "word " * 40
+        self.assertEqual(wrap_for_console(self.PREFIX, message, 0), self.PREFIX + message)
+        self.assertEqual(wrap_for_console(self.PREFIX, message, 40), self.PREFIX + message)

@@ -13,7 +13,9 @@ is the whole point. That makes the file itself private: see PRIVACY_NOTICE.
 from __future__ import annotations
 
 import datetime as dt
+import shutil
 import sys
+import textwrap
 import threading
 import time
 from logging import getLogger, Formatter
@@ -95,9 +97,36 @@ def _write_session_header(logger, ts: str) -> None:
         pass
 
 
+def _console_width() -> int:
+    try:
+        if not sys.stdout.isatty():
+            return 0
+        return shutil.get_terminal_size((0, 0)).columns
+    except Exception:
+        return 0
+
+
+def wrap_for_console(prefix: str, message: str, width: int) -> str:
+    """Wrap so continuation lines start under the message, not the timestamp.
+
+    The terminal's own wrapping would carry long lines back to column zero,
+    under the timestamps, where they are hard to tell apart from new entries.
+    One column is left spare because writing into the last column makes some
+    consoles wrap on their own as well.
+    """
+    usable = width - 1
+    if usable - len(prefix) < 20 or len(prefix) + len(message) <= usable:
+        return prefix + message
+    return textwrap.fill(
+        message, width=usable,
+        initial_indent=prefix, subsequent_indent=" " * len(prefix),
+        break_on_hyphens=False,
+    )
+
+
 def log(message: str) -> None:
     ts = dt.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
-    line = f"  [{ts}] {message}"
+    line = wrap_for_console(f"  [{ts}] ", message, _console_width())
     try:
         print(line, flush=True)
     except (UnicodeEncodeError, OSError):
