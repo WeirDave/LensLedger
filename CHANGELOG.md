@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.7 — 2026-09-27
+
+- Publishing, "Write all tags" and "Repair" no longer fail on photos whose filenames are close to the 255-character limit. The safety copy's name is shortened to fit instead of being rejected by the operating system.
+
 ## 1.10.6 — 2026-09-26
 
 - Long lines in the LensLedger console window now wrap with their continuation lines indented under the message, so the timestamps stay in a column of their own. The log file is unchanged.

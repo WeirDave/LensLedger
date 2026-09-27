@@ -22,6 +22,27 @@ FREE_SPACE_MARGIN_BYTES = 2 * 1024 ** 3
 BACKUP_SUFFIXES = (".before-", ".before-people-", ".before-write-tags-", ".before-repair-")
 
 
+# NTFS and most other filesystems cap one path component at 255 characters.
+MAX_NAME_LENGTH = 255
+
+
+def backup_name(stem: str, label: str, timestamp: str, suffix: str) -> str:
+    """Safety-copy filename for a photo, shortened to fit the filesystem limit.
+
+    A photo whose own name is already near the limit would otherwise get a
+    backup name the OS rejects, and the write would fail before it started.
+    A shortened stem keeps a hash of the full one so two long names that share
+    a prefix still get distinct copies.
+    """
+    tail = f".{label}{timestamp}{suffix}"
+    name = f"{stem}{tail}"
+    if len(name) <= MAX_NAME_LENGTH:
+        return name
+    marker = "~" + hashlib.sha256(stem.encode("utf-8")).hexdigest()[:10]
+    keep = max(0, MAX_NAME_LENGTH - len(tail) - len(marker))
+    return f"{stem[:keep].rstrip(' .')}{marker}{tail}"
+
+
 def _is_backup(path: Path) -> bool:
     return ".before-" in path.name
 

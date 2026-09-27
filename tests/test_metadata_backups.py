@@ -120,5 +120,36 @@ class TestBackupHousekeeping(unittest.TestCase):
         self.assertIn("GB", human_bytes(5 * 1024 ** 3))
 
 
+class TestBackupName(unittest.TestCase):
+    TIMESTAMP = "20260101T000000000000Z"
+
+    def test_short_name_is_unchanged(self):
+        from metadata_backups import backup_name
+
+        self.assertEqual(
+            backup_name("IMG_0001", "before-people-", self.TIMESTAMP, ".jpg"),
+            f"IMG_0001.before-people-{self.TIMESTAMP}.jpg",
+        )
+
+    def test_long_name_fits_and_can_be_written(self):
+        from metadata_backups import MAX_NAME_LENGTH, backup_name, _is_backup
+
+        stem = "Sample photo (" + "long description " * 13 + ")"
+        name = backup_name(stem, "before-people-", self.TIMESTAMP, ".jpg")
+        self.assertLessEqual(len(name), MAX_NAME_LENGTH)
+        self.assertTrue(name.endswith(f".before-people-{self.TIMESTAMP}.jpg"))
+        self.assertTrue(_is_backup(Path(name)))
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / name).write_bytes(b"x")
+
+    def test_long_names_sharing_a_prefix_stay_distinct(self):
+        from metadata_backups import backup_name
+
+        prefix = "x" * 240
+        first = backup_name(prefix + "A", "before-", self.TIMESTAMP, ".jpg")
+        second = backup_name(prefix + "B", "before-", self.TIMESTAMP, ".jpg")
+        self.assertNotEqual(first, second)
+
+
 if __name__ == "__main__":
     unittest.main()
