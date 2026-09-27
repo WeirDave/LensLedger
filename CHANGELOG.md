@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.8.3 — 2026-09-26
+
+- On the People page, a face in an "Also looks like …" group that is named, marked "Unknown person" or "Not a person", or moved to Trash from its "⛶ Enlarge" view now leaves the group. Previously it stayed ticked, and "Confirm all" then assigned it to the suggested person, overwriting the name just chosen.
+
 ## 1.8.2 — 2026-09-26
 
 - "Restart now" in the "Server is running … on disk" banner, and installing an update, now close the old LensLedger window instead of leaving it open. When the window was hosted by Windows Terminal, the old tab previously stayed behind with a "process exited" message.

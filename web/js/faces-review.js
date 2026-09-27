@@ -131,6 +131,17 @@ function releasePending(ids) {
   checkEmpty();
 }
 
+// A suggestion settled from the enlarged view must leave its group, or a later
+// "Confirm all" would reassign it to the suggested person.
+function removeMatchItem(faceId) {
+  const item = $('matchGroups').querySelector(`.match-item[data-face-id="${faceId}"]`);
+  if (!item) return;
+  const group = item.closest('.match-group');
+  item.remove();
+  if (group && !group.querySelector('.match-item')) group.remove();
+  releasePending([faceId]);
+}
+
 function showDoneStatus(name, moreData) {
   const banner = document.createElement('div');
   banner.className = 'match-group';
@@ -423,6 +434,7 @@ async function actOnOpenFace(endpoint) {
   try {
     await apiRetry(endpoint, { face_id: face.face_id });
     if (card) removeCard(card);
+    else removeMatchItem(face.face_id);
   } catch (error) {
     if (card) {
       card.querySelector('.face-status').textContent = error.message;
@@ -590,7 +602,7 @@ const lbPicker = createPersonPicker({
       registerKnownPerson(name);
       const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name });
       if (card) removeCard(card);
-      else { remaining = Math.max(0, remaining - 1); updateProgress(); }
+      else { removeMatchItem(face.face_id); remaining = Math.max(0, remaining - 1); updateProgress(); }
       if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches, result);
     } catch (error) {
       if (card) {
@@ -613,6 +625,7 @@ $('lightboxTrash').onclick = async () => {
   try {
     const result = await api('/api/review-bin', { id: face.asset_id });
     if (card) card.remove();
+    else removeMatchItem(face.face_id);
     showTrashUndo(result.review_id, face.filename);
     checkEmpty();
   } catch (error) { alert(error.message); }
