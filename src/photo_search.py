@@ -222,6 +222,25 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
     )
 
 
+def optional_requirements(section: str) -> list[str]:
+    """The packages listed, commented out, under `# [section]` in
+    requirements.txt -- kept as comments so the first-launch
+    `pip install -r requirements.txt` leaves the optional features out."""
+    lines = (Path(__file__).parent.parent / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    packages: list[str] = []
+    inside = False
+    for line in lines:
+        if line.startswith("# ["):
+            inside = line.startswith(f"# [{section}]")
+        elif not line.strip():
+            inside = False
+        elif inside and line.startswith("#   "):
+            packages.append(line[4:].strip())
+    if not packages:
+        raise ValueError(f"requirements.txt lists no packages for {section}")
+    return packages
+
+
 EXIFTOOL_PATH = Path(__file__).parent.parent / "tools" / "ExifTool" / "ExifTool.exe"
 def metadata_backup_root() -> Path:
     """Where safety copies of photos are kept.
@@ -6263,13 +6282,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "started_at": utc_now(),
             }
         handler_class = type(self)
-        requirements = Path(__file__).parent.parent / "requirements-semantic.txt"
+        packages = optional_requirements("meaning-search")
 
         def worker():
             action = Action("Meaning search setup", "installing the optional software with pip")
             try:
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
+                    [sys.executable, "-m", "pip", "install", *packages],
                     capture_output=True, text=True, timeout=1800,
                 )
                 if result.returncode == 0:
@@ -6401,13 +6420,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "started_at": utc_now(),
             }
         handler_class = type(self)
-        requirements = Path(__file__).parent.parent / "requirements-face.txt"
+        packages = optional_requirements("face-locations")
 
         def worker():
             action = Action("Face detection setup", "installing the optional software with pip")
             try:
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
+                    [sys.executable, "-m", "pip", "install", *packages],
                     capture_output=True, text=True, timeout=1800,
                 )
                 if result.returncode == 0:

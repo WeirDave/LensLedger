@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.4 — 2026-09-26
+
+- Merged requirements-semantic.txt and requirements-face.txt into requirements.txt. The optional meaning-search and face-location packages are listed there in commented, labelled sections, so the first-launch install still installs only the small base set, and the install buttons in Settings install their own section.
+
 ## 1.10.3 — 2026-09-26
 
 - When a restart is refused because a job is still running, the "Restart now" button in the "Server is running … on disk" banner becomes "Stop and restart", and the notice from "Restart server" in the menu shows a "Stop and restart" button. It stops the running job at its next safe point, waits for it, and then restarts. "Update now" and "Restart" in the update panel ask whether to stop the job and continue. Previously the message said to stop the job first, with no control to do so for jobs such as the photo location scan that runs at startup.

@@ -61,8 +61,6 @@ jobs:
             "Install LensLedger.cmd" \
             "Start LensLedger.cmd" \
             requirements.txt \
-            requirements-semantic.txt \
-            requirements-face.txt \
             README.md \
             LICENSE \
             THIRD_PARTY_NOTICES.md \
@@ -71,6 +69,16 @@ jobs:
             web/ \
             tools/ \
             -x "**/__pycache__/*" "**/*.pyc" "**/*.pyo"
+
+          # Copies of LensLedger up to v1.10.3 check a downloaded release for
+          # the two optional requirements files that were merged into
+          # requirements.txt, and refuse to update without them. Ship
+          # placeholders in the ZIP only, so those copies can still update.
+          mkdir -p compat
+          for name in requirements-semantic.txt requirements-face.txt; do
+            echo "# Merged into requirements.txt. Kept only so older LensLedger copies can update." > "compat/$name"
+          done
+          (cd compat && zip "../$ZIPNAME" requirements-semantic.txt requirements-face.txt)
 
           echo "ZIPNAME=$ZIPNAME" >> "$GITHUB_ENV"
           echo "TAG=$TAG" >> "$GITHUB_ENV"

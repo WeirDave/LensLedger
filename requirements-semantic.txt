@@ -1,3 +1,0 @@
-# Optional, large local-only meaning-search stack. Base LensLedger does not install it.
-open_clip_torch>=3.3,<4
-torch>=2.13,<3

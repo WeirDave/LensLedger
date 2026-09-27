@@ -102,7 +102,7 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
         from insightface.app import FaceAnalysis
     except ImportError as exc:
         raise RuntimeError(
-            "Face location recovery is optional. Install requirements-face.txt "
+            "Face location recovery is optional. Install the [face-locations] packages from requirements.txt "
             "with this Python interpreter first."
         ) from exc
     _patch_face_align()

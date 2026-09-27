@@ -63,7 +63,7 @@ class OpenClipEncoder:
             import torch
         except ImportError as exc:
             raise RuntimeError(
-                "Local meaning search is optional. Install requirements-semantic.txt first."
+                "Local meaning search is optional. Turn it on in Settings, or install the [meaning-search] packages from requirements.txt."
             ) from exc
         import logging
         import warnings

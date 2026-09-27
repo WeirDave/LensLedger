@@ -1,2 +1,21 @@
+# LensLedger's Python packages.
+#
+# The lines below are installed on first launch by Start LensLedger.cmd
+# (python -m pip install -r requirements.txt).
 Pillow>=12.3,<13
 pillow-heif>=1.5,<2
+
+# Optional features. Their packages are commented out so the first-launch
+# install skips them; Settings installs a section when that feature is turned
+# on. To install one by hand, pip install the packages listed under it.
+
+# [meaning-search] Natural-language "meaning" search. Large: torch alone is
+# a download of several gigabytes.
+#   open_clip_torch>=3.3,<4
+#   torch>=2.13,<3
+
+# [face-locations] Recovers exact face boxes for older face imports.
+# InsightFace's published pretrained model packs have separate, non-commercial
+# research terms; LensLedger does not bundle or redistribute a model.
+#   insightface>=1.0.1,<2
+#   onnxruntime>=1.28,<2

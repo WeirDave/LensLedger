@@ -180,7 +180,7 @@ recovered catalogs retained their embeddings but not those rectangles. To
 rebuild them locally with a compatible InsightFace model:
 
 ```powershell
-python -m pip install -r requirements-face.txt
+python -m pip install "insightface>=1.0.1,<2" "onnxruntime>=1.28,<2"
 python src\face_locations.py --db "C:\path\to\library.sqlite3" --library "C:\path\to\photos"
 ```
 
@@ -253,7 +253,7 @@ background job.
 To do the same from the command line instead:
 
 ```powershell
-python -m pip install -r requirements-semantic.txt
+python -m pip install "open_clip_torch>=3.3,<4" "torch>=2.13,<3"
 python src\semantic_index.py --db C:\path\to\library.sqlite3 build
 ```
 
@@ -281,9 +281,10 @@ Install LensLedger.cmd   Double-click this ONLY to create a separate, self-updat
                           managed copy (see "Windows release" above). Most people
                           running from source never need this one.
 README.md, CHANGELOG.md, LICENSE, THIRD_PARTY_NOTICES.md   Documentation.
-requirements.txt          Base dependencies (small, always installed).
-requirements-semantic.txt Optional: natural-language "meaning" search.
-requirements-face.txt     Optional: legacy face-box recovery.
+requirements.txt          Python packages. The base set installs on first launch;
+                          the optional meaning-search and face-location packages
+                          are listed in commented sections that Settings installs
+                          when the feature is turned on.
 
 src/       All Python code -- the server, the indexer, and every supporting module.
 web/       CSS and JavaScript the browser loads (web/css/, web/js/).
