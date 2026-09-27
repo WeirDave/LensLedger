@@ -145,6 +145,16 @@ function showDoneStatus(name, moreData) {
   setTimeout(() => banner.remove(), 8000);
 }
 
+const SHUTTER_SVG = '<svg class="shutter-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+  + '<circle cx="12" cy="12" r="10"/><path d="M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94"/></svg>';
+
+function showBusy(status, text) {
+  status.innerHTML = SHUTTER_SVG;
+  const span = document.createElement('span');
+  span.textContent = text;
+  status.append(span);
+}
+
 function addMatchGroup(name, personId, matches, moreData) {
   const autoCount = moreData ? moreData.auto_confirmed : 0;
   const confirmedCount = moreData ? moreData.confirmed_count : 0;
@@ -293,7 +303,7 @@ function addMatchGroup(name, personId, matches, moreData) {
     }
     const checkedIds = checked.map(t => Number(t.dataset.faceId));
     group.querySelectorAll('button').forEach(b => b.disabled = true);
-    status.textContent = `Confirming ${checkedIds.length} faces…`;
+    showBusy(status, `Confirming ${checkedIds.length} faces…`);
     try {
       const result = await apiRetry('/api/faces/name-batch',
         { person_id: personId, face_ids: checkedIds },
@@ -301,7 +311,7 @@ function addMatchGroup(name, personId, matches, moreData) {
       remaining = Math.max(0, remaining - (result.confirmed || 0));
       checkedIds.forEach(id => pending.delete(id));
       updateProgress();
-      status.textContent = `${result.confirmed || checkedIds.length} confirmed. Looking for more…`;
+      showBusy(status, `${result.confirmed || checkedIds.length} confirmed. Looking for more…`);
       try {
         const more = await api('/api/faces/find-more', { person_id: personId, exclude_face_ids: skipped });
         const auto = more.auto_confirmed || 0;

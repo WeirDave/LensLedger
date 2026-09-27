@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.7.5 — 2026-09-26
+
+- On the People page, the "Also looks like …" panel now shows a spinning shutter icon next to "Confirming N faces…" and "N confirmed. Looking for more…" after "Confirm all" is clicked, so the wait for the next set of matches is visibly in progress.
+
 ## 1.7.4 — 2026-09-26
 
 - Removing deleted files from the index during a photo location scan is much faster. Each deleted file previously took a full pass over the stored face data, so a scan after a large clean-up could sit for a long time near the end.
