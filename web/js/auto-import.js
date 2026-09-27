@@ -169,19 +169,25 @@ function checkServerVersion(){
     b.querySelector('.stale-restart').onclick=()=>{
       const btn=b.querySelector('.stale-restart');const msg=b.querySelector('.stale-msg');
       btn.disabled=true;btn.textContent='Restarting…';
-      msg.innerHTML='<b>Restarting server…</b> Page will reload when the new version is ready.';
+      msg.innerHTML=b.dataset.stopFirst==='1'?'<b>Stopping the running job, then restarting…</b>':'<b>Restarting server…</b> Page will reload when the new version is ready.';
       const oldStarted=info.startedAt;
-      let refused=false;
-      post('/api/update/restart-source',{}).then(d=>{if(!d||!d.error)return;refused=true;msg.textContent=d.error;btn.disabled=false;btn.textContent='Restart now'}).catch(()=>{});
-      const deadline=Date.now()+20000;
-      (function poll(){
-        if(refused)return;
+      fetch('/api/update/restart-source',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({csrf:csrf,stop_running:b.dataset.stopFirst==='1'})}).then(r=>{
+        if(r.ok){poll();return}
+        return r.json().then(d=>{
+          msg.textContent=d.error||'LensLedger could not restart.';btn.disabled=false;
+          if(d.running_jobs&&d.running_jobs.length){b.dataset.stopFirst='1';btn.textContent='Stop and restart'}
+          else btn.textContent='Restart now';
+        });
+      }).catch(()=>poll());
+      const deadline=Date.now()+90000;
+      function poll(){
         if(Date.now()>deadline){msg.innerHTML='<b>Server did not restart.</b> Close and reopen LensLedger manually.';return}
         fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(j=>{
           if(j&&j.startedAt&&j.startedAt!==oldStarted)setTimeout(()=>location.reload(),200);
           else setTimeout(poll,500);
         }).catch(()=>setTimeout(poll,700));
-      })();
+      }
     };
     document.body.prepend(b);
   }).catch(()=>{});

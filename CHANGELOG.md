@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.3 — 2026-09-26
+
+- When a restart is refused because a job is still running, the "Restart now" button in the "Server is running … on disk" banner becomes "Stop and restart", and the notice from "Restart server" in the menu shows a "Stop and restart" button. It stops the running job at its next safe point, waits for it, and then restarts. "Update now" and "Restart" in the update panel ask whether to stop the job and continue. Previously the message said to stop the job first, with no control to do so for jobs such as the photo location scan that runs at startup.
+
 ## 1.10.2 — 2026-09-26
 
 - Removed two files from the repository that nothing uses: CONVENTIONS.md, a duplicate of the coding-assistant instructions kept for the Aider tool, and an old roadmap notes file. LensLedger itself is unchanged.

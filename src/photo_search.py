@@ -5907,9 +5907,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         threading.Thread(target=stop_server, name="LensLedger-update-shutdown", daemon=True).start()
 
-    def install_update(self, _body):
+    def install_update(self, body):
         install_root = Path(__file__).parent.parent.resolve()
-        self._refuse_restart_while_busy()
+        if self._refuse_restart_while_busy(body):
+            return
 
         # A git checkout updates by fetching and checking out the newest release
         # tag. That is quick enough to do inline, and it reuses restart-source
@@ -6005,15 +6006,39 @@ class SearchHandler(BaseHTTPRequestHandler):
             "message": "The verified update is being installed. LensLedger will reopen automatically.",
         }, 202)
 
-    def _refuse_restart_while_busy(self):
-        running = running_cancellable_jobs(type(self))
+    def _refuse_restart_while_busy(self, body) -> bool:
+        """Answer the request and return True when a running job blocks the
+        restart. With `stop_running`, ask those jobs to stop at their next
+        safe point and wait for them -- the same stop Ctrl+C gives -- so the
+        banner's "Stop and restart" is one click rather than a hunt for each
+        job's own Stop button."""
+        handler_class = type(self)
+        running = running_cancellable_jobs(handler_class)
+        if running and body.get("stop_running"):
+            cancel_running_jobs(handler_class)
+            deadline = time.monotonic() + 60
+            while running and time.monotonic() < deadline:
+                time.sleep(0.5)
+                running = running_cancellable_jobs(handler_class)
+            if running:
+                self.send_json({
+                    "error": f"{' and '.join(running).capitalize()} did not stop within a minute. "
+                             "Try again shortly.",
+                    "running_jobs": running,
+                }, 409)
+                return True
+            return False
         if running:
-            raise ValueError(
-                f"LensLedger is still busy with {' and '.join(running)}. Restarting now would "
-                "cut it off. Wait for it to finish, or stop it first, then restart."
-            )
+            self.send_json({
+                "error": f"LensLedger is still busy with {' and '.join(running)}. Restarting now "
+                         "would cut it off. Choose \"Stop and restart\" to stop it at its next safe "
+                         "point and then restart, or wait for it to finish.",
+                "running_jobs": running,
+            }, 409)
+            return True
+        return False
 
-    def restart_source(self, _body):
+    def restart_source(self, body):
         """Restart this process in place -- no download, no file changes. For a
         source checkout where `git pull` (or any other on-disk edit) already
         moved the code past what this running process has loaded; see
@@ -6021,18 +6046,20 @@ class SearchHandler(BaseHTTPRequestHandler):
         install_root = Path(__file__).parent.parent.resolve()
         if not (install_root / ".git").exists():
             raise ValueError("This copy is not a source checkout, so there is no on-disk code to restart into.")
-        self._refuse_restart_while_busy()
+        if self._refuse_restart_while_busy(body):
+            return
         self._restart_in_place(
             "Restarting LensLedger to load the code already on disk…",
             "Restarting to load the code already on disk. LensLedger will reopen automatically.",
         )
 
-    def restart_server(self, _body):
+    def restart_server(self, body):
         """The menu's "Restart server": a plain stop-and-start of this copy,
         whether it is a source checkout, a managed install or an extracted
         download -- the helper relaunches Start LensLedger.cmd from the
         install root in each case."""
-        self._refuse_restart_while_busy()
+        if self._refuse_restart_while_busy(body):
+            return
         self._restart_in_place(
             "Restarting LensLedger…",
             "Restarting LensLedger. It will reopen automatically.",

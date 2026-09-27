@@ -123,7 +123,7 @@ function reportIssue() {
 
 // Wired here rather than with an onclick attribute: the page's Content
 // Security Policy allows only script files, so inline handlers never run.
-function restartServer() {
+function restartServer(stopRunning) {
   var csrf = '';
   try { csrf = JSON.parse(document.body.getAttribute('data-ll') || '{}').csrf || ''; } catch (e) {}
   var notice = document.getElementById('restartNotice');
@@ -133,17 +133,30 @@ function restartServer() {
     notice.className = 'restart-notice';
     document.body.prepend(notice);
   }
-  function say(text) { notice.textContent = text; notice.hidden = false; }
-  if (!confirm('Restart LensLedger now?\n\nThe server stops and starts again in a new window, and this page reloads when it is back.')) return;
+  function say(text, offerStop) {
+    notice.textContent = text;
+    notice.hidden = false;
+    if (offerStop) {
+      var stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'restart-notice-stop';
+      stop.textContent = 'Stop and restart';
+      stop.addEventListener('click', function() { restartServer(true); });
+      notice.append(' ', stop);
+    }
+  }
+  if (!stopRunning && !confirm('Restart LensLedger now?\n\nThe server stops and starts again in a new window, and this page reloads when it is back.')) return;
   fetch('/api/version', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(before) {
-    say('Restarting LensLedger…');
+    say(stopRunning ? 'Stopping the running job, then restarting LensLedger…' : 'Restarting LensLedger…');
     return fetch('/api/restart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csrf: csrf })
+      body: JSON.stringify({ csrf: csrf, stop_running: !!stopRunning })
     }).then(function(r) {
       if (r.ok) return before.startedAt;
       return r.json().catch(function() { return {}; }).then(function(d) {
-        throw new Error(d.error || 'LensLedger could not restart.');
+        var error = new Error(d.error || 'LensLedger could not restart.');
+        error.running = !!(d.running_jobs && d.running_jobs.length);
+        throw error;
       });
     });
   }).then(function(oldStarted) {
@@ -155,10 +168,10 @@ function restartServer() {
         else setTimeout(poll, 500);
       }).catch(function() { setTimeout(poll, 700); });
     })();
-  }).catch(function(error) { say(error.message); });
+  }).catch(function(error) { say(error.message, error.running); });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
   var item = document.getElementById('restartServerMenu');
-  if (item) item.addEventListener('click', restartServer);
+  if (item) item.addEventListener('click', function() { restartServer(false); });
 });

@@ -341,8 +341,31 @@ class ServerWorkflowTests(unittest.TestCase):
                 self.post("/api/restart", {})
             body = json.loads(rejected.exception.read().decode("utf-8"))
             rejected.exception.close()
-        self.assertEqual(rejected.exception.code, 400)
+        self.assertEqual(rejected.exception.code, 409)
         self.assertIn("face detection", body["error"])
+        self.assertEqual(body["running_jobs"], ["face detection"])
+
+    def test_stop_and_restart_stops_the_running_job_then_restarts(self):
+        import threading
+        handler = self.photo_search.SearchHandler
+        job = {"state": "scanning"}
+        cancel = threading.Event()
+
+        def job_honours_cancel():
+            if cancel.wait(10):
+                job["state"] = "cancelled"
+
+        threading.Thread(target=job_honours_cancel, daemon=True).start()
+        spawned = []
+        with patch.object(handler, "library_job", job), \
+             patch.object(handler, "library_cancel", cancel), \
+             patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: spawned.append(extra_args)), \
+             patch.object(handler, "_schedule_shutdown", lambda self: None):
+            result = self.json_response(self.post("/api/restart", {"stop_running": True}))
+        self.assertTrue(cancel.is_set(), "the running scan must be asked to stop")
+        self.assertEqual(job["state"], "cancelled")
+        self.assertEqual(result["state"], "restarting")
+        self.assertEqual(len(spawned), 1)
 
     def test_every_page_menu_offers_restart_server(self):
         with self.get("/settings") as response:
@@ -358,7 +381,7 @@ class ServerWorkflowTests(unittest.TestCase):
                 self.post("/api/update/restart-source", {})
             body = json.loads(rejected.exception.read().decode("utf-8"))
             rejected.exception.close()
-        self.assertEqual(rejected.exception.code, 400)
+        self.assertEqual(rejected.exception.code, 409)
         self.assertIn("writing tags", body["error"])
 
     def test_csrf_metadata_publish_restore_and_review_bin(self):
