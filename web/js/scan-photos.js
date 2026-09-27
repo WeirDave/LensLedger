@@ -239,19 +239,56 @@ async function refreshPhotoBackups() {
     heading.textContent = interrupted.length === 1
       ? 'One photo was being written when LensLedger stopped:'
       : `${interrupted.length.toLocaleString()} photos were being written when LensLedger stopped:`;
+    const explain = document.createElement('p');
+    explain.className = 'interrupted-explain';
+    explain.textContent = 'Each photo is written in a single step, so it is either fully written or '
+      + 'still as it was. Keeping them as they are is usually right. Put back the originals to undo '
+      + 'these writes from the safety copies taken just before them.';
     const list = document.createElement('ul');
     interrupted.slice(0, 20).forEach(item => {
       const row = document.createElement('li');
       const name = document.createElement('strong');
       name.textContent = item.path;
-      const state = document.createElement('span');
-      state.textContent = item.backup_exists
-        ? ' — the original was kept and can be put back from the photo\u2019s own page.'
-        : ' — no safety copy remains for this one.';
-      row.append(name, state);
+      row.append(name);
+      if (!item.backup_exists) {
+        const state = document.createElement('span');
+        state.textContent = ' — no safety copy remains for this one.';
+        row.append(state);
+      }
       list.append(row);
     });
-    warn.replaceChildren(heading, list);
+    if (interrupted.length > 20) {
+      const more = document.createElement('li');
+      more.textContent = `and ${(interrupted.length - 20).toLocaleString()} more`;
+      list.append(more);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'interrupted-actions';
+    const keep = document.createElement('button');
+    keep.type = 'button';
+    keep.textContent = 'Keep the photos as they are';
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    restore.className = 'secondary';
+    restore.textContent = 'Put back the originals';
+    const status = document.createElement('span');
+    const settle = async action => {
+      if (action === 'restore' && !confirm(`Put back the originals of ${interrupted.length.toLocaleString()} photos from their safety copies?`)) return;
+      keep.disabled = restore.disabled = true;
+      status.textContent = action === 'restore' ? 'Putting back the originals…' : 'Saving…';
+      try {
+        const result = await api('/api/publish/interrupted', { action });
+        await refreshPhotoBackups();
+        $('photoBackupStatus').textContent = result.message;
+      } catch (error) {
+        status.textContent = error.message;
+        keep.disabled = restore.disabled = false;
+      }
+    };
+    keep.onclick = () => settle('keep');
+    restore.onclick = () => settle('restore');
+    actions.append(keep, restore, status);
+    warn.replaceChildren(heading, explain, list, actions);
   }
 }
 

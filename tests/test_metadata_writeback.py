@@ -599,6 +599,54 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertEqual(interrupted[0]["path"], self.photo.name)
         self.assertTrue(interrupted[0]["backup_exists"])
 
+    def _record_interrupted_write(self, operation="write_tags"):
+        backup = self.photo_search.metadata_backup_root() / f"interrupted-{operation}.jpg"
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_bytes(self.photo.read_bytes())
+        con = sqlite3.connect(self.database)
+        con.execute(
+            """INSERT INTO metadata_publications
+               (asset_id, relative_path, backup_path, before_json, after_json,
+                operation, published_at, completed_at)
+               VALUES (?, ?, ?, '{}', '{}', ?, datetime('now'), NULL)""",
+            (self.asset_id, self.photo.name, str(backup), operation),
+        )
+        con.commit()
+        con.close()
+        return backup
+
+    def test_keep_as_they_are_clears_the_interrupted_list(self):
+        self._record_interrupted_write()
+        result = self.json_response(self.post("/api/publish/interrupted", {"action": "keep"}))
+        self.assertEqual(result["kept"], 1)
+        self.assertEqual(self.photo_search.interrupted_publications(self.database), [])
+
+    def test_put_back_the_originals_restores_each_photo_from_its_safety_copy(self):
+        backup = self._record_interrupted_write()
+        original = backup.read_bytes()
+        Image.new("RGB", (16, 16), (10, 200, 10)).save(self.photo)
+        self.assertNotEqual(self.photo.read_bytes(), original)
+
+        result = self.json_response(self.post("/api/publish/interrupted", {"action": "restore"}))
+        self.assertEqual(result["restored"], 1)
+        self.assertEqual(self.photo.read_bytes(), original)
+        self.assertEqual(self.photo_search.interrupted_publications(self.database), [])
+
+    def test_upgrade_clears_publishes_that_were_wrongly_left_unfinished(self):
+        """Publishing people recorded its writes without completed_at."""
+        self._record_interrupted_write(operation="people")
+        self._record_interrupted_write(operation="write_tags")
+        con = sqlite3.connect(self.database)
+        con.execute("PRAGMA user_version=19")
+        con.commit()
+        con.close()
+        from photo_index import connect
+        connect(self.database).close()
+
+        interrupted = self.photo_search.interrupted_publications(self.database)
+        self.assertEqual(len(interrupted), 1,
+                         "only the genuinely unfinished Write all tags record should remain")
+
     def test_a_failed_write_leaves_nothing_recorded(self):
         """A rolled-back write must not linger as an interrupted one."""
         self._exiftool_or_skip()

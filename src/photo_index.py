@@ -43,7 +43,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -427,6 +427,15 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         # have been rolled back; marking them complete avoids reporting every
         # historical write as interrupted.
         con.execute("UPDATE metadata_publications SET completed_at=published_at")
+    if int(con.execute("PRAGMA user_version").fetchone()[0]) < 20:
+        # Publishing people and single-photo publishes recorded their write
+        # only after it had finished and been verified, but left completed_at
+        # empty, so every one was later reported as interrupted. Only
+        # "Write all tags" records a write before it happens.
+        con.execute(
+            "UPDATE metadata_publications SET completed_at=published_at "
+            "WHERE completed_at IS NULL AND operation <> 'write_tags'"
+        )
     if not con.execute("SELECT 1 FROM library_metadata WHERE key='library_id'").fetchone():
         import uuid
         con.execute("INSERT OR IGNORE INTO library_metadata(key,value) VALUES ('library_id',?)", (str(uuid.uuid4()),))

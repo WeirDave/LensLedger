@@ -79,3 +79,6 @@ main{width:min(1180px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:
 .interrupted-writes ul{margin:0;padding-left:18px;display:grid;gap:4px}
 .interrupted-writes li{font-size:12px;line-height:1.45;color:var(--text-secondary);word-break:break-word}
 .interrupted-writes li strong{color:var(--accent);font-weight:650}
+.interrupted-explain{margin:0 0 8px;font-size:12px;line-height:1.45;color:var(--text-secondary)}
+.interrupted-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.interrupted-actions span{font-size:12px;color:var(--text-secondary)}

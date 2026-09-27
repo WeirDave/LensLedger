@@ -417,6 +417,16 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertTrue(restored_bin["ok"])
         self.assertTrue(self.photo.is_file())
 
+    def test_a_finished_publish_is_not_reported_as_interrupted(self):
+        preview = self.json_response(self.post(
+            "/api/publish/preview", {"id": self.asset_id, "description": "Finished write"}
+        ))
+        self.json_response(self.post(
+            "/api/publish",
+            {"id": self.asset_id, "description": "Finished write", "expected_after": preview["after"]},
+        ))
+        self.assertEqual(self.photo_search.interrupted_publications(self.database), [])
+
     def test_media_path_outside_library_is_refused(self):
         outside = self.root / "outside.jpg"
         Image.new("RGB", (8, 8), "red").save(outside)

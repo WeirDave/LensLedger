@@ -573,6 +573,7 @@ ACTION_LABELS = {
     "/api/publish": "Publish metadata to one photo",
     "/api/publish/run": "Publish people metadata",
     "/api/publish/restore": "Restore a photo from its safety copy",
+    "/api/publish/interrupted": "Settle interrupted photo writes",
     "/api/publish/repair": "Repair a photo",
     "/api/photo-backups/clear": "Clear photo safety copies",
     "/api/database/backup": "Create database backup",
@@ -713,7 +714,7 @@ def interrupted_publications(db_path) -> list[dict]:
                 """SELECT id, relative_path, backup_path, published_at
                    FROM metadata_publications
                    WHERE completed_at IS NULL AND restored_at IS NULL
-                   ORDER BY published_at DESC LIMIT 200"""
+                   ORDER BY published_at DESC"""
             ).fetchall()
     except Exception:
         return []
@@ -1421,6 +1422,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.publish_metadata(body)
             if route == "/api/publish/restore":
                 return self.restore_published_metadata(body)
+            if route == "/api/publish/interrupted":
+                return self.settle_interrupted_writes(body)
             if route == "/api/publish/repair":
                 return self.repair_image(body)
             if route == "/api/library/browse":
@@ -3295,13 +3298,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise
 
         stat = path.stat()
+        now = utc_now()
         con.execute(
             """INSERT INTO metadata_publications
                (asset_id,relative_path,backup_path,before_json,after_json,
-                operation,review_action_id,published_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
+                operation,review_action_id,published_at,completed_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             (asset_id, asset["relative_path"], str(backup), json.dumps(before),
-             json.dumps(after), operation, review_action_id, utc_now()),
+             json.dumps(after), operation, review_action_id, now, now),
         )
         con.execute(
             "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
@@ -3543,10 +3547,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             stat = path.stat()
             con.execute(
                 """INSERT INTO metadata_publications
-                   (asset_id,relative_path,backup_path,before_json,after_json,published_at)
-                   VALUES (?,?,?,?,?,?)""",
+                   (asset_id,relative_path,backup_path,before_json,after_json,published_at,completed_at)
+                   VALUES (?,?,?,?,?,?,?)""",
                 (asset_id, asset["relative_path"], str(backup), json.dumps(preview["before"]),
-                 json.dumps(preview["after"]), utc_now()),
+                 json.dumps(preview["after"]), utc_now(), utc_now()),
             )
             con.execute(
                 "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
@@ -3581,22 +3585,60 @@ class SearchHandler(BaseHTTPRequestHandler):
             ).fetchone()
             if not record:
                 raise ValueError("There is no published version to restore")
-            source = (self.library_root / Path(asset["relative_path"])).resolve()
-            source.relative_to(self.library_root)
-            backup = Path(record["backup_path"]).resolve()
-            backup.relative_to(metadata_backup_root().resolve())
-            if not backup.is_file():
-                raise ValueError("The safety backup is missing")
-            shutil.copy2(backup, source)
-            stat = source.stat()
-            con.execute("UPDATE metadata_publications SET restored_at=? WHERE id=?", (utc_now(), record["id"]))
-            con.execute(
-                "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-                (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
-            )
-            store_embedded_tags(con, asset_id, *extract_embedded_tags(source))
-            rebuild_search_row(con, asset_id)
+            self._restore_from_safety_copy(con, asset, record)
         self.send_json({"ok": True, "message": "The photo was restored from its safety backup"})
+
+    def _restore_from_safety_copy(self, con, asset, record):
+        source = (self.library_root / Path(asset["relative_path"])).resolve()
+        source.relative_to(self.library_root)
+        backup = Path(record["backup_path"]).resolve()
+        backup.relative_to(metadata_backup_root().resolve())
+        if not backup.is_file():
+            raise ValueError("The safety backup is missing")
+        shutil.copy2(backup, source)
+        stat = source.stat()
+        con.execute("UPDATE metadata_publications SET restored_at=? WHERE id=?", (utc_now(), record["id"]))
+        con.execute(
+            "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+            (stat.st_size, stat.st_mtime_ns, utc_now(), int(asset["id"])),
+        )
+        store_embedded_tags(con, int(asset["id"]), *extract_embedded_tags(source))
+        rebuild_search_row(con, int(asset["id"]))
+
+    def settle_interrupted_writes(self, body):
+        """The two answers to "N photos were being written when LensLedger
+        stopped": keep every photo as it is now, or put each one back from
+        the safety copy taken just before the write."""
+        choice = str(body.get("action", ""))
+        if choice not in ("keep", "restore"):
+            raise ValueError("Choose keep or restore")
+        now = utc_now()
+        restored, kept, failed = 0, 0, []
+        with self.db() as con:
+            rows = con.execute(
+                """SELECT * FROM metadata_publications
+                   WHERE completed_at IS NULL AND restored_at IS NULL ORDER BY id"""
+            ).fetchall()
+            for record in rows:
+                if choice == "restore":
+                    try:
+                        asset = self.get_active_asset(con, int(record["asset_id"]))
+                        self._restore_from_safety_copy(con, asset, record)
+                        restored += 1
+                        continue
+                    except Exception as exc:
+                        failed.append({"path": record["relative_path"], "error": str(exc)})
+                        continue
+                con.execute("UPDATE metadata_publications SET completed_at=? WHERE id=?", (now, record["id"]))
+                kept += 1
+        if choice == "restore":
+            message = f"Put back {restored:,} photo{'s' if restored != 1 else ''} from the safety copies."
+            if failed:
+                message += f" {len(failed):,} could not be put back; they are still listed."
+        else:
+            message = f"Kept {kept:,} photo{'s' if kept != 1 else ''} as they are."
+        console_log(f"Interrupted writes: {message}")
+        self.send_json({"ok": True, "restored": restored, "kept": kept, "failed": failed, "message": message})
 
     def repair_image(self, body):
         rel = body.get("path", "")

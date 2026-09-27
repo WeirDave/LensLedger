@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.5 — 2026-09-26
+
+- Fixed the "photos were being written when LensLedger stopped" warning on the Scan photos page listing photos that had been written successfully. Every photo written by "Publish people metadata" or by publishing a single photo was reported this way. Those records are corrected when the catalog is next opened, so the false list clears on its own.
+- The warning now offers two buttons for writes that really were cut off: "Keep the photos as they are" and "Put back the originals", which restores each listed photo from the safety copy taken just before its write. The warning also shows the full count instead of stopping at 200.
+
 ## 1.10.4 — 2026-09-26
 
 - Merged requirements-semantic.txt and requirements-face.txt into requirements.txt. The optional meaning-search and face-location packages are listed there in commented, labelled sections, so the first-launch install still installs only the small base set, and the install buttons in Settings install their own section.
