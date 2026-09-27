@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.1 — 2026-09-26
+
+- Fixed "Restart server", "Restart now" and installing an update leaving LensLedger stopped when it ran in Windows Terminal. The old LensLedger tab now stays open for about five seconds after a restart ("Restarting LensLedger in a new window...") and then closes itself, instead of closing at the moment the new window was being opened, which could take the new window down with it.
+
 ## 1.10.0 — 2026-09-26
 
 - Added "🔄 Restart server" to the menu (☰), under "Help & Support". It asks for confirmation, stops LensLedger and starts it again in a new window, and reloads the page once the server is back. It works for every kind of install, and is refused with the name of the job while "Write all tags" or another long job is running.

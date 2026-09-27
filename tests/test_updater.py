@@ -387,7 +387,10 @@ class UpdaterTests(unittest.TestCase):
         seen = {}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with patch.object(updater.os, "name", "nt"),                  patch.object(updater.subprocess, "Popen"),                  patch.object(updater, "close_old_launcher_window",
+            with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater.subprocess, "Popen"), \
+                 patch.object(updater, "wait_for_process", lambda pid, timeout_seconds=180: None), \
+                 patch.object(updater, "close_old_launcher_window",
                               lambda pid, started_before=None: seen.update(pid=pid, cutoff=started_before)):
                 updater.launch_lensledger(root, old_window_pid=777)
         self.assertEqual(seen["pid"], 777)
@@ -399,9 +402,27 @@ class UpdaterTests(unittest.TestCase):
             root = Path(temporary)
             with patch.object(updater.os, "name", "nt"), \
                  patch.object(updater.subprocess, "Popen", lambda *a, **k: order.append("launch")), \
+                 patch.object(updater, "wait_for_process",
+                              lambda pid, timeout_seconds=180: order.append(("wait", pid))), \
                  patch.object(updater, "close_old_launcher_window", lambda pid, **kw: order.append(("close", pid))):
                 updater.launch_lensledger(root, old_window_pid=777)
-        self.assertEqual(order, ["launch", ("close", 777)])
+        self.assertEqual(order, ["launch", ("wait", 777), ("close", 777)],
+                         "the old window gets to close itself before anything forces it")
+
+    def test_launch_lensledger_still_closes_an_old_window_that_does_not_exit(self):
+        closed = []
+
+        def never_exits(pid, timeout_seconds=180):
+            raise updater.UpdateError("still open")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater.subprocess, "Popen"), \
+                 patch.object(updater, "wait_for_process", never_exits), \
+                 patch.object(updater, "close_old_launcher_window", lambda pid, **kw: closed.append(pid)):
+                updater.launch_lensledger(root, old_window_pid=777)
+        self.assertEqual(closed, [777])
 
     def test_launch_lensledger_skips_closing_when_no_old_window_pid_is_given(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -322,7 +322,9 @@ class ServerWorkflowTests(unittest.TestCase):
     def test_menu_restart_server_relaunches_this_copy_in_place(self):
         spawned = []
         handler = self.photo_search.SearchHandler
-        with patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: spawned.append(extra_args)),              patch.object(handler, "_schedule_shutdown", lambda self: None),              patch.object(self.photo_search, "is_git_install", return_value=False):
+        with patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: spawned.append(extra_args)), \
+             patch.object(handler, "_schedule_shutdown", lambda self: None), \
+             patch.object(self.photo_search, "is_git_install", return_value=False):
             result = self.json_response(self.post("/api/restart", {}))
         self.assertTrue(result["ok"])
         self.assertEqual(result["state"], "restarting")
@@ -332,7 +334,9 @@ class ServerWorkflowTests(unittest.TestCase):
 
     def test_menu_restart_server_is_refused_while_a_job_runs(self):
         handler = self.photo_search.SearchHandler
-        with patch.object(handler, "face_scan_job", {"state": "running"}),              patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: None),              patch.object(handler, "_schedule_shutdown", lambda self: None):
+        with patch.object(handler, "face_scan_job", {"state": "running"}), \
+             patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: None), \
+             patch.object(handler, "_schedule_shutdown", lambda self: None):
             with self.assertRaises(urllib.error.HTTPError) as rejected:
                 self.post("/api/restart", {})
             body = json.loads(rejected.exception.read().decode("utf-8"))
@@ -347,7 +351,9 @@ class ServerWorkflowTests(unittest.TestCase):
 
     def test_restart_is_refused_while_tags_are_being_written(self):
         handler = self.photo_search.SearchHandler
-        with patch.object(handler, "write_tags_job", {"state": "running"}),              patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: self.fail("must not restart")),              patch.object(handler, "_schedule_shutdown", lambda self: self.fail("must not shut down")):
+        with patch.object(handler, "write_tags_job", {"state": "running"}), \
+             patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: self.fail("must not restart")), \
+             patch.object(handler, "_schedule_shutdown", lambda self: self.fail("must not shut down")):
             with self.assertRaises(urllib.error.HTTPError) as rejected:
                 self.post("/api/update/restart-source", {})
             body = json.loads(rejected.exception.read().decode("utf-8"))

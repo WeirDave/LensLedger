@@ -916,6 +916,15 @@ def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> 
             close_fds=True,
         )
     if old_window_pid:
+        # A current Start LensLedger.cmd lingers a few seconds after a restart
+        # exit and then closes itself cleanly; closing it from here instead
+        # would leave Windows Terminal holding a tab for the non-zero exit. So
+        # give it the chance first, and only force a launcher that is still
+        # sitting there afterwards -- an older script paused at "Press any key".
+        try:
+            wait_for_process(old_window_pid, timeout_seconds=15)
+        except UpdateError:
+            pass
         close_old_launcher_window(old_window_pid, started_before=launched_at)
 
 
