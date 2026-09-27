@@ -271,7 +271,7 @@ async function setCardPhoto(){if(!viewedPersonId||!selectedId)return;const btn=$
 async function addContextTag(){const value=$('newContextTag').value.trim();if(!value)return;try{const result=await api('/api/folder-tag/add',{id:selectedId,tag:value});$('newContextTag').value='';await selectAsset(selectedId);if(result.added===0)setStatus('Those tags are already on this event');else setStatus(result.added===1?'Event tag added to '+result.assets+' photos':result.added+' event tags added to '+result.assets+' photos')}catch(e){setStatus(e.message,true)}}
 async function removeTag(tag){try{await api('/api/tag/remove',{id:selectedId,tag:tag.name,source:tag.source});setStatus('Tag hidden for this photo')}catch(e){await selectAsset(selectedId);setStatus(e.message,true)}}
 async function restoreTag(name){try{await api('/api/tag/restore',{id:selectedId,tag:name});await selectAsset(selectedId);setStatus('Tag restored')}catch(e){setStatus(e.message,true)}}
-async function moveToBin(){if(!currentDetail||!confirm('Move “'+currentDetail.filename+'” to Trash?\n\nIt will leave the photo library and disappear from search. You can undo immediately or restore it later from ☰ → Trash & restore.'))return;try{const oldId=selectedId;const result=await api('/api/review-bin',{id:selectedId});const i=items.findIndex(x=>Number(x.id)===oldId);items.splice(i,1);document.querySelector('.thumb[data-id="'+oldId+'"]').remove();showUndo(result.review_id,currentDetail.filename);if(items.length)selectAsset(items[Math.min(i,items.length-1)].id);else location.reload()}catch(e){setStatus(e.message,true)}}
+async function moveToBin(){if(!currentDetail||!confirm('Move “'+currentDetail.filename+'” to Trash?\n\nIt will leave the photo library and disappear from search. You can undo immediately or restore it later from ☰ → Trash & restore.'))return;const oldId=selectedId;const name=currentDetail.filename;const i=items.findIndex(x=>Number(x.id)===oldId);items.splice(i,1);document.querySelector('.thumb[data-id="'+oldId+'"]')?.remove();if(items.length)selectAsset(items[Math.min(i,items.length-1)].id);setStatus('Moving '+name+' to Trash…');try{const result=await api('/api/review-bin',{id:oldId});setStatus('');showUndo(result.review_id,name);if(!items.length)location.reload()}catch(e){alert('Could not move '+name+' to Trash: '+e.message);location.reload()}}
 function showUndo(reviewId,name){const t=$('toast');t.replaceChildren(document.createTextNode('Moved '+name+' to Trash. '));const b=document.createElement('button');b.textContent='Undo';b.onclick=async()=>{try{await api('/api/review-bin/restore',{review_id:reviewId});location.reload()}catch(e){setStatus(e.message,true)}};t.append(b);t.classList.add('visible');setTimeout(()=>t.classList.remove('visible'),12000)}
 function closeHelp(){document.querySelectorAll('.help-popover.open').forEach(x=>x.classList.remove('open'))}
 let _modalTrigger=null;
@@ -423,21 +423,20 @@ async function batchAddTags(){
 async function batchTrash(){
   if(!batchSelected.size)return;
   if(!confirm('Move '+batchSelected.size+' selected photo(s) to Trash?\n\nThey will leave the photo library and disappear from search. You can restore them from ☰ → Trash & restore.'))return;
-  $('batchTrash').disabled=true;
+  const ids=[...batchSelected];
+  for(const id of ids){
+    const idx=items.findIndex(x=>Number(x.id)===Number(id));
+    if(idx>=0)items.splice(idx,1);
+    document.querySelector('.thumb[data-id="'+id+'"]')?.remove();
+  }
+  clearBatchSelection();
+  if(ids.includes(selectedId)&&items.length)selectAsset(items[0].id);
+  setStatus('Moving '+ids.length+' photo(s) to Trash…');
   try{
-    const ids=[...batchSelected];
     const result=await api('/api/review-bin/batch',{ids});
-    for(const id of ids){
-      const idx=items.findIndex(x=>Number(x.id)===Number(id));
-      if(idx>=0)items.splice(idx,1);
-      document.querySelector('.thumb[data-id="'+id+'"]')?.remove();
-    }
-    clearBatchSelection();
     setStatus(result.moved+' photo(s) moved to Trash');
-    if(ids.includes(selectedId)){
-      if(items.length)selectAsset(items[0].id);else location.reload();
-    }
-  }catch(e){setStatus(e.message,true)}finally{$('batchTrash').disabled=false}
+    if(!items.length)location.reload();
+  }catch(e){alert('Could not move the selected photos to Trash: '+e.message);location.reload()}
 }
 function buildThumb(item){const b=document.createElement('button');b.className='thumb';b.dataset.id=item.id;b.title=item.filename;b.onclick=e=>{
   if(e.ctrlKey||e.metaKey){

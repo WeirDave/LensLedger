@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.8.1 — 2026-09-26
+
+- Trash on the main photo screen now takes the photo out of the film strip and moves to the next one immediately, for both the "Move to Trash" button in the sidebar and the batch "Trash" button. The file is moved into the Review Bin in the background and the "Undo" notice appears once the move has finished.
+
 ## 1.8.0 — 2026-09-26
 
 - Scanning now reads keywords from all three keyword fields a photo can carry (XMP subject, IPTC Keywords and Microsoft's keyword list), and the names in its "people in image" field, for JPEG and HEIC files. Previously only the XMP subject list was read, and only for JPEG.
