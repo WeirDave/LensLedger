@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.0 — 2026-09-26
+
+- Added "🔄 Restart server" to the menu (☰), under "Help & Support". It asks for confirmation, stops LensLedger and starts it again in a new window, and reloads the page once the server is back. It works for every kind of install, and is refused with the name of the job while "Write all tags" or another long job is running.
+- Fixed "Restart now" and installing an update sometimes leaving LensLedger stopped. The restart closed the new LensLedger window as well as the old one when Windows gave the new window the old window's process number, so the server never started.
+
 ## 1.9.0 — 2026-09-26
 
 - "Write all tags" now records each photo once its tags are written, and a later run skips photos that already carry exactly those tags and have not changed on disk. A run that was stopped, or cut off by a restart, carries on where it left off instead of starting from the first photo. Photos whose tags, people, description or title changed since, photos changed on disk, and a change of write mode are written again. The progress line and the finished message show how many photos were already up to date.

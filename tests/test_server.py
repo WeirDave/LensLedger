@@ -319,6 +319,32 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(result["state"], "restarting")
         self.assertEqual(self.photo_search.SearchHandler.update_job["state"], "restarting")
 
+    def test_menu_restart_server_relaunches_this_copy_in_place(self):
+        spawned = []
+        handler = self.photo_search.SearchHandler
+        with patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: spawned.append(extra_args)),              patch.object(handler, "_schedule_shutdown", lambda self: None),              patch.object(self.photo_search, "is_git_install", return_value=False):
+            result = self.json_response(self.post("/api/restart", {}))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "restarting")
+        self.assertEqual(len(spawned), 1)
+        self.assertEqual(spawned[0][0], "restart-source")
+        self.assertIn("--old-window-pid", spawned[0])
+
+    def test_menu_restart_server_is_refused_while_a_job_runs(self):
+        handler = self.photo_search.SearchHandler
+        with patch.object(handler, "face_scan_job", {"state": "running"}),              patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: None),              patch.object(handler, "_schedule_shutdown", lambda self: None):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/restart", {})
+            body = json.loads(rejected.exception.read().decode("utf-8"))
+            rejected.exception.close()
+        self.assertEqual(rejected.exception.code, 400)
+        self.assertIn("face detection", body["error"])
+
+    def test_every_page_menu_offers_restart_server(self):
+        with self.get("/settings") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn('id="restartServerMenu"', page)
+
     def test_restart_is_refused_while_tags_are_being_written(self):
         handler = self.photo_search.SearchHandler
         with patch.object(handler, "write_tags_job", {"state": "running"}),              patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: self.fail("must not restart")),              patch.object(handler, "_schedule_shutdown", lambda self: self.fail("must not shut down")):

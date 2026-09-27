@@ -209,6 +209,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<button type="button" class="menu-item" onclick="reportIssue()">🐛 Report an issue</button>'
         '<button type="button" class="menu-item" onclick="copyDiagnostics()">\U0001f4cb Copy diagnostics</button>'
         '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'
+        '<button type="button" class="menu-item" id="restartServerMenu">🔄 Restart server</button>'
         '</details>'
         '<div class="menu-divider"></div>'
         '<details class="menu-section">'
@@ -594,6 +595,7 @@ ACTION_LABELS = {
     "/api/group/delete": "Delete a group",
     "/api/update/install": "Install update",
     "/api/update/restart-source": "Restart LensLedger",
+    "/api/restart": "Restart LensLedger",
 }
 
 # Body fields safe to name in the log: they describe the scope of the action,
@@ -1444,6 +1446,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.install_update(body)
             if route == "/api/update/restart-source":
                 return self.restart_source(body)
+            if route == "/api/restart":
+                return self.restart_server(body)
             if route == "/api/reveal-file":
                 return self.reveal_file(body)
             if route == "/api/reveal-path":
@@ -6018,10 +6022,28 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not (install_root / ".git").exists():
             raise ValueError("This copy is not a source checkout, so there is no on-disk code to restart into.")
         self._refuse_restart_while_busy()
+        self._restart_in_place(
+            "Restarting LensLedger to load the code already on disk…",
+            "Restarting to load the code already on disk. LensLedger will reopen automatically.",
+        )
+
+    def restart_server(self, _body):
+        """The menu's "Restart server": a plain stop-and-start of this copy,
+        whether it is a source checkout, a managed install or an extracted
+        download -- the helper relaunches Start LensLedger.cmd from the
+        install root in each case."""
+        self._refuse_restart_while_busy()
+        self._restart_in_place(
+            "Restarting LensLedger…",
+            "Restarting LensLedger. It will reopen automatically.",
+        )
+
+    def _restart_in_place(self, job_message, reply_message):
+        install_root = Path(__file__).parent.parent.resolve()
         with type(self).update_lock:
             type(self).update_job = {
                 "state": "restarting",
-                "message": "Restarting LensLedger to load the code already on disk…",
+                "message": job_message,
                 "current_version": APP_VERSION,
             }
 
@@ -6032,11 +6054,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "--old-window-pid", str(os.getppid()),
         ])
         self._schedule_shutdown()
-        self.send_json({
-            "ok": True,
-            "state": "restarting",
-            "message": "Restarting to load the code already on disk. LensLedger will reopen automatically.",
-        }, 202)
+        self.send_json({"ok": True, "state": "restarting", "message": reply_message}, 202)
 
     def reveal_file(self, body):
         asset_id = int(body["id"])

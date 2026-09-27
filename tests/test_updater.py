@@ -373,13 +373,33 @@ class UpdaterTests(unittest.TestCase):
         self.assertIn("Start LensLedger.cmd", script)
         self.assertIn("cmd.exe", script)
 
+    def test_close_old_launcher_window_spares_a_window_started_after_the_cutoff(self):
+        """A restarted launcher can inherit the old window's PID; it must not be closed."""
+        import datetime as dt
+        with patch.object(updater.os, "name", "nt"), patch.object(updater.subprocess, "run") as mocked_run:
+            updater.close_old_launcher_window(4242, started_before=dt.datetime(2026, 9, 26, 18, 32, 45, 123456))
+        command = mocked_run.call_args.args[0]
+        script = command[command.index("-Command") + 1]
+        self.assertIn("CreationDate -lt", script)
+        self.assertIn("2026-09-26T18:32:45.123456", script)
+
+    def test_launch_lensledger_only_closes_windows_older_than_the_new_launch(self):
+        seen = {}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(updater.os, "name", "nt"),                  patch.object(updater.subprocess, "Popen"),                  patch.object(updater, "close_old_launcher_window",
+                              lambda pid, started_before=None: seen.update(pid=pid, cutoff=started_before)):
+                updater.launch_lensledger(root, old_window_pid=777)
+        self.assertEqual(seen["pid"], 777)
+        self.assertIsNotNone(seen["cutoff"], "the close must be limited to windows older than the launch")
+
     def test_launch_lensledger_starts_the_new_copy_before_closing_the_old_window(self):
         order = []
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with patch.object(updater.os, "name", "nt"), \
                  patch.object(updater.subprocess, "Popen", lambda *a, **k: order.append("launch")), \
-                 patch.object(updater, "close_old_launcher_window", lambda pid: order.append(("close", pid))):
+                 patch.object(updater, "close_old_launcher_window", lambda pid, **kw: order.append(("close", pid))):
                 updater.launch_lensledger(root, old_window_pid=777)
         self.assertEqual(order, ["launch", ("close", 777)])
 

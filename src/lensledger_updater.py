@@ -854,7 +854,7 @@ def wait_for_process(process_id: int, timeout_seconds: int = 180) -> None:
     raise UpdateError("LensLedger did not close in time; the update was not installed")
 
 
-def close_old_launcher_window(pid: int) -> None:
+def close_old_launcher_window(pid: int, started_before: dt.datetime | None = None) -> None:
     """Best-effort cleanup for the disposable cmd.exe console that ran the
     previous instance via Start LensLedger.cmd -- that script always ends
     with `pause`, so the window it opened never closes itself once Python
@@ -867,12 +867,22 @@ def close_old_launcher_window(pid: int) -> None:
     `python src/photo_search.py` run from an interactive shell (as in
     development, or any launch not via the .cmd), that parent won't match
     and is left untouched, since it could be a shell the user is otherwise
-    using."""
+    using.
+
+    `started_before` guards against Windows reusing the PID: the old window
+    usually closes itself once its server exits for a restart, and the new
+    launcher window can be handed the very same PID -- it matches the name
+    and script too, so only its creation time tells them apart."""
     if os.name != "nt" or pid <= 0:
         return
+    age_check = ""
+    if started_before is not None:
+        cutoff = started_before.strftime("%Y-%m-%dT%H:%M:%S.%f")
+        age_check = (f" -and $p.CreationDate -lt [datetime]::ParseExact('{cutoff}', "
+                     "'yyyy-MM-ddTHH:mm:ss.ffffff', [Globalization.CultureInfo]::InvariantCulture)")
     script = (
         f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\" -ErrorAction SilentlyContinue; "
-        "if ($p -and $p.Name -eq 'cmd.exe' -and $p.CommandLine -like '*Start LensLedger.cmd*') { "
+        f"if ($p -and $p.Name -eq 'cmd.exe' -and $p.CommandLine -like '*Start LensLedger.cmd*'{age_check}) {{ "
         f"Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue }}"
     )
     try:
@@ -889,6 +899,7 @@ def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> 
     copy is started first and only then is the old launcher window closed
     (see close_old_launcher_window) -- so a failure to launch never leaves
     the user with no LensLedger window at all, just a stale extra one."""
+    launched_at = dt.datetime.now()
     if os.name == "nt":
         cmd_args = ["cmd.exe", "/c", str(install_root / "Start LensLedger.cmd")]
         if old_window_pid:
@@ -905,7 +916,7 @@ def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> 
             close_fds=True,
         )
     if old_window_pid:
-        close_old_launcher_window(old_window_pid)
+        close_old_launcher_window(old_window_pid, started_before=launched_at)
 
 
 def install_current(source: Path, target: Path | None = None, legacy_root: Path | None = None,

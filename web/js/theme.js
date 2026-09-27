@@ -120,3 +120,45 @@ function reportIssue() {
     showToast('Could not gather diagnostics');
   });
 }
+
+// Wired here rather than with an onclick attribute: the page's Content
+// Security Policy allows only script files, so inline handlers never run.
+function restartServer() {
+  var csrf = '';
+  try { csrf = JSON.parse(document.body.getAttribute('data-ll') || '{}').csrf || ''; } catch (e) {}
+  var notice = document.getElementById('restartNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'restartNotice';
+    notice.className = 'restart-notice';
+    document.body.prepend(notice);
+  }
+  function say(text) { notice.textContent = text; notice.hidden = false; }
+  if (!confirm('Restart LensLedger now?\n\nThe server stops and starts again in a new window, and this page reloads when it is back.')) return;
+  fetch('/api/version', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(before) {
+    say('Restarting LensLedger…');
+    return fetch('/api/restart', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf: csrf })
+    }).then(function(r) {
+      if (r.ok) return before.startedAt;
+      return r.json().catch(function() { return {}; }).then(function(d) {
+        throw new Error(d.error || 'LensLedger could not restart.');
+      });
+    });
+  }).then(function(oldStarted) {
+    var deadline = Date.now() + 30000;
+    (function poll() {
+      if (Date.now() > deadline) { say('LensLedger did not come back. Start it again with Start LensLedger.cmd.'); return; }
+      fetch('/api/version', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j && j.startedAt && j.startedAt !== oldStarted) setTimeout(function() { location.reload(); }, 200);
+        else setTimeout(poll, 500);
+      }).catch(function() { setTimeout(poll, 700); });
+    })();
+  }).catch(function(error) { say(error.message); });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var item = document.getElementById('restartServerMenu');
+  if (item) item.addEventListener('click', restartServer);
+});
