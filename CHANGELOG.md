@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.9.0 — 2026-09-26
+
+- "Write all tags" now records each photo once its tags are written, and a later run skips photos that already carry exactly those tags and have not changed on disk. A run that was stopped, or cut off by a restart, carries on where it left off instead of starting from the first photo. Photos whose tags, people, description or title changed since, photos changed on disk, and a change of write mode are written again. The progress line and the finished message show how many photos were already up to date.
+- "Restart now" in the "Server is running … on disk" banner, and installing an update, are now refused while "Write all tags" or any other long job is running. The banner shows which job is still busy and leaves the button available for when it has finished or been stopped.
+
 ## 1.8.3 — 2026-09-26
 
 - On the People page, a face in an "Also looks like …" group that is named, marked "Unknown person" or "Not a person", or moved to Trash from its "⛶ Enlarge" view now leaves the group. Previously it stayed ticked, and "Confirm all" then assigned it to the suggested person, overwriting the name just chosen.

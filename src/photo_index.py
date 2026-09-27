@@ -43,7 +43,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -356,6 +356,8 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE assets ADD COLUMN gps_latitude REAL")
     if "gps_longitude" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN gps_longitude REAL")
+    if "tags_written" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN tags_written TEXT")
     if "face_scanned" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN face_scanned INTEGER NOT NULL DEFAULT 0")
         con.execute(

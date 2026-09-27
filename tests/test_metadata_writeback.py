@@ -516,6 +516,49 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         for item in job["fell_back"]:
             self.assertTrue(item.get("error"), "every reported file needs a reason")
 
+    def _run_write_all_tags(self, write_mode):
+        import time
+        self.json_response(self.post(
+            "/api/write-tags/batch", {"scope": "all", "write_mode": write_mode},
+        ))
+        deadline = time.monotonic() + 60
+        job = {}
+        while time.monotonic() < deadline:
+            job = dict(self.photo_search.SearchHandler.write_tags_job)
+            if job.get("state") in ("complete", "cancelled", "error"):
+                break
+            time.sleep(0.2)
+        self.assertEqual(job.get("state"), "complete", f"batch did not finish: {job}")
+        return job
+
+    def test_write_all_tags_skips_photos_already_written_and_rewrites_changed_ones(self):
+        """A second run carries on where the first stopped instead of starting over."""
+        self._seed_every_category()
+
+        first = self._run_write_all_tags("sidecar")
+        self.assertEqual((first["written"], first["up_to_date"]), (1, 0))
+
+        second = self._run_write_all_tags("sidecar")
+        self.assertEqual((second["written"], second["up_to_date"]), (0, 1),
+                         "unchanged tags on an unchanged file must not be written again")
+        self.assertIn("already had these tags", second["message"])
+
+        con = sqlite3.connect(self.database)
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('harbour')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) VALUES (?, ?, 'semantic_auto', 0.5)",
+            (self.asset_id, tag_id),
+        )
+        con.commit()
+        con.close()
+        third = self._run_write_all_tags("sidecar")
+        self.assertEqual((third["written"], third["up_to_date"]), (1, 0),
+                         "a photo whose tags changed must be written again")
+
+        switched = self._run_write_all_tags("both")
+        self.assertEqual(switched["up_to_date"], 0,
+                         "a different write mode is a different write")
+
     def test_write_records_completion_so_an_interrupted_write_is_visible(self):
         self._exiftool_or_skip()
         self._seed_every_category()

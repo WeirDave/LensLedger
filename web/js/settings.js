@@ -464,9 +464,11 @@ function checkServerVersion(){
       btn.disabled=true;btn.textContent='Restarting…';
       msg.innerHTML='<b>Restarting server…</b> Page will reload when the new version is ready.';
       const oldStarted=info.startedAt;
-      post('/api/update/restart-source',{}).catch(()=>{});
+      let refused=false;
+      post('/api/update/restart-source',{}).then(d=>{if(!d||!d.error)return;refused=true;msg.textContent=d.error;btn.disabled=false;btn.textContent='Restart now'}).catch(()=>{});
       const deadline=Date.now()+20000;
       (function poll(){
+        if(refused)return;
         if(Date.now()>deadline){msg.innerHTML='<b>Server did not restart.</b> Close and reopen LensLedger manually.';return}
         fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(j=>{
           if(j&&j.startedAt&&j.startedAt!==oldStarted)setTimeout(()=>location.reload(),200);

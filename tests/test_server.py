@@ -319,6 +319,16 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(result["state"], "restarting")
         self.assertEqual(self.photo_search.SearchHandler.update_job["state"], "restarting")
 
+    def test_restart_is_refused_while_tags_are_being_written(self):
+        handler = self.photo_search.SearchHandler
+        with patch.object(handler, "write_tags_job", {"state": "running"}),              patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: self.fail("must not restart")),              patch.object(handler, "_schedule_shutdown", lambda self: self.fail("must not shut down")):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/update/restart-source", {})
+            body = json.loads(rejected.exception.read().decode("utf-8"))
+            rejected.exception.close()
+        self.assertEqual(rejected.exception.code, 400)
+        self.assertIn("writing tags", body["error"])
+
     def test_csrf_metadata_publish_restore_and_review_bin(self):
         with self.assertRaises(urllib.error.HTTPError) as rejected:
             self.post("/api/subject", {"id": self.asset_id, "subject": "Blue test image"}, csrf="wrong")

@@ -7,6 +7,7 @@ import argparse
 import datetime as dt
 import html
 import io
+import hashlib
 import json
 import mimetypes
 import os
@@ -1108,6 +1109,10 @@ class _LibraryAttr:
 
 
 RESTART_EXIT_CODE = 75
+
+class _AlreadyWritten(Exception):
+    """Raised inside a Write all tags step to skip a photo that is up to date."""
+
 
 class SearchHandler(BaseHTTPRequestHandler):
     current_library: tuple[Path, Path]
@@ -3827,6 +3832,28 @@ class SearchHandler(BaseHTTPRequestHandler):
             "message": f"{note} Freed {metadata_backups.human_bytes(result['freed_bytes'])}.",
         })
 
+    @staticmethod
+    def _write_tags_fingerprint(data: dict, mode: str) -> str:
+        payload = json.dumps(
+            [mode, data["subject"], data["description"], data["keywords"], data["people"]],
+            ensure_ascii=False,
+        )
+        return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _tags_already_written(asset, fingerprint: str, path: Path) -> bool:
+        """True when this photo was last written with exactly these tags and the
+        file has not changed since -- so a stopped or restarted run carries on
+        where it left off instead of rewriting every photo from the start."""
+        try:
+            record = json.loads(asset["tags_written"] or "{}")
+            stat = path.stat()
+        except (ValueError, OSError):
+            return False
+        return (record.get("fingerprint") == fingerprint
+                and record.get("size") == stat.st_size
+                and record.get("mtime_ns") == stat.st_mtime_ns)
+
     def write_tags_status(self):
         with SearchHandler.write_tags_lock:
             self.send_json(dict(SearchHandler.write_tags_job))
@@ -3885,7 +3912,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             with self.db() as con:
                 photo_paths = [
                     row[0] for row in con.execute(
-                        f"SELECT path FROM assets WHERE id IN ({','.join('?' * len(asset_ids))})",
+                        f"SELECT path FROM assets WHERE id IN ({','.join('?' * len(asset_ids))}) "
+                        "AND tags_written IS NULL",
                         asset_ids,
                     )
                 ]
@@ -3915,12 +3943,13 @@ class SearchHandler(BaseHTTPRequestHandler):
         with SearchHandler.write_tags_lock:
             SearchHandler.write_tags_job = {
                 "state": "running", "message": f"Writing tags to {total:,} photos…",
-                "total": total, "done": 0, "written": 0,
+                "total": total, "done": 0, "written": 0, "up_to_date": 0,
                 "failed": [], "fell_back": [], "incomplete": [], "started_at": started_at,
             }
 
         def run():
             written = 0
+            up_to_date = 0
             failed: list[dict] = []
             fell_back: list[dict] = []
             incomplete: list[dict] = []
@@ -3938,6 +3967,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                         path = data["path"]
                         can_embed = path.suffix.lower() in PUBLISHABLE_EXTENSIONS
                         mode = write_mode if can_embed else "sidecar"
+                        fingerprint = self._write_tags_fingerprint(data, mode)
+                        if self._tags_already_written(data["asset"], fingerprint, path):
+                            up_to_date += 1
+                            raise _AlreadyWritten
                         if write_mode in ("embedded", "both") and not can_embed:
                             suffix = path.suffix or "this file type"
                             reason = (f"{suffix} files cannot carry embedded tags — "
@@ -3960,22 +3993,36 @@ class SearchHandler(BaseHTTPRequestHandler):
                                     "path": relative,
                                     "error": f"{item['category']} — {item['reason']}",
                                 })
+                        stat = path.stat()
+                        con.execute(
+                            "UPDATE assets SET tags_written=? WHERE id=?",
+                            (json.dumps({"fingerprint": fingerprint, "size": stat.st_size,
+                                         "mtime_ns": stat.st_mtime_ns, "at": utc_now()}),
+                             int(asset_id)),
+                        )
                     written += 1
+                except _AlreadyWritten:
+                    pass
                 except Exception as exc:
                     failed.append({"asset_id": asset_id, "path": relative,
                                    "reason": str(exc), "error": str(exc)})
                     action.failure(relative, str(exc))
                 action.progress(f"{written:,} of {total:,} photos written")
+                progress = f"Wrote {written:,} of {total:,} photos…"
+                if up_to_date:
+                    progress += f" ({up_to_date:,} already up to date)"
                 with SearchHandler.write_tags_lock:
                     SearchHandler.write_tags_job = {
                         "state": "running",
-                        "message": f"Wrote {written:,} of {total:,} photos…",
-                        "total": total, "done": index, "written": written,
+                        "message": progress,
+                        "total": total, "done": index, "written": written, "up_to_date": up_to_date,
                         "failed": list(failed), "fell_back": list(fell_back),
                         "incomplete": list(incomplete), "started_at": started_at,
                     }
 
             summary_parts = [f"{written:,} of {total:,} photos written"]
+            if up_to_date:
+                summary_parts.append(f"{up_to_date:,} already up to date")
             if fell_back:
                 summary_parts.append(f"{len(fell_back):,} got a sidecar file instead")
             if incomplete:
@@ -3989,6 +4036,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             else:
                 action.finish(summary)
                 message = f"Wrote tags to {written:,} of {total:,} photos."
+            if up_to_date:
+                message += (f" {up_to_date:,} already had these tags and were skipped."
+                            if not cancelled else
+                            f" {up_to_date:,} already had these tags.")
             pruned = prune_metadata_backups()
             if pruned["removed"]:
                 console_log(
@@ -4000,7 +4051,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "state": "cancelled" if cancelled else "complete",
                     "message": message,
                     "total": total, "done": index if cancelled else total, "written": written,
-                    "failed": failed, "fell_back": fell_back, "incomplete": incomplete,
+                    "up_to_date": up_to_date, "failed": failed, "fell_back": fell_back, "incomplete": incomplete,
                     "started_at": started_at,
                 }
 
@@ -5854,6 +5905,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def install_update(self, _body):
         install_root = Path(__file__).parent.parent.resolve()
+        self._refuse_restart_while_busy()
 
         # A git checkout updates by fetching and checking out the newest release
         # tag. That is quick enough to do inline, and it reuses restart-source
@@ -5949,6 +6001,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             "message": "The verified update is being installed. LensLedger will reopen automatically.",
         }, 202)
 
+    def _refuse_restart_while_busy(self):
+        running = running_cancellable_jobs(type(self))
+        if running:
+            raise ValueError(
+                f"LensLedger is still busy with {' and '.join(running)}. Restarting now would "
+                "cut it off. Wait for it to finish, or stop it first, then restart."
+            )
+
     def restart_source(self, _body):
         """Restart this process in place -- no download, no file changes. For a
         source checkout where `git pull` (or any other on-disk edit) already
@@ -5957,6 +6017,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         install_root = Path(__file__).parent.parent.resolve()
         if not (install_root / ".git").exists():
             raise ValueError("This copy is not a source checkout, so there is no on-disk code to restart into.")
+        self._refuse_restart_while_busy()
         with type(self).update_lock:
             type(self).update_job = {
                 "state": "restarting",
