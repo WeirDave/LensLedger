@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.2 — 2026-09-26
+
+- Removed two files from the repository that nothing uses: CONVENTIONS.md, a duplicate of the coding-assistant instructions kept for the Aider tool, and an old roadmap notes file. LensLedger itself is unchanged.
+
 ## 1.10.1 — 2026-09-26
 
 - Fixed "Restart server", "Restart now" and installing an update leaving LensLedger stopped when it ran in Windows Terminal. The old LensLedger tab now stays open for about five seconds after a restart ("Restarting LensLedger in a new window...") and then closes itself, instead of closing at the moment the new window was being opened, which could take the new window down with it.
