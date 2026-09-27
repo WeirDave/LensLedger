@@ -56,8 +56,8 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
-    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_xmp_keywords,
-    is_cloud_placeholder, ocr_assets,
+    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_embedded_tags,
+    is_cloud_placeholder, store_embedded_tags, ocr_assets,
     pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
@@ -2426,7 +2426,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         # for that case, and search_everything_scope builds its own
         # MATCH/EXISTS queries independently.
         if tokens and scope not in {"all", "people", "semantic"}:
-            sources = "('subject','asset_rule','embedded_xmp','person')" if scope == "image" else "('folder_rule')"
+            sources = "('subject','asset_rule','embedded_xmp','embedded_people','person')" if scope == "image" else "('folder_rule')"
             for token in tokens:
                 pattern = like_pattern(token)
                 tag_clause = f"""EXISTS (
@@ -2995,13 +2995,16 @@ class SearchHandler(BaseHTTPRequestHandler):
             with self.db() as con:
                 asset = self.get_active_asset(con, asset_id)
                 source_path = self.library_root / Path(asset["relative_path"])
-                embedded_keywords = extract_xmp_keywords(source_path)
-                stored_keywords = [row[0] for row in con.execute(
-                    """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
-                       WHERE at.asset_id=? AND at.source='embedded_xmp' ORDER BY t.name""", (asset_id,)
-                )]
-                if [value.casefold() for value in stored_keywords] != [value.casefold() for value in embedded_keywords]:
-                    set_source_tags(con, asset_id, "embedded_xmp", embedded_keywords)
+                embedded_keywords, embedded_people = extract_embedded_tags(source_path)
+                stored = {"embedded_xmp": set(), "embedded_people": set()}
+                for row in con.execute(
+                    """SELECT t.name,at.source FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+                       WHERE at.asset_id=? AND at.source IN ('embedded_xmp','embedded_people')""", (asset_id,)
+                ):
+                    stored[row["source"]].add(row["name"].casefold())
+                if (stored["embedded_xmp"] != {value.casefold() for value in embedded_keywords}
+                        or stored["embedded_people"] != {value.casefold() for value in embedded_people}):
+                    store_embedded_tags(con, asset_id, embedded_keywords, embedded_people)
                     rebuild_search_row(con, asset_id)
                 annotation = con.execute(
                     "SELECT subject FROM asset_annotations WHERE relative_path=?", (asset["relative_path"],)
@@ -3115,16 +3118,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         seen: set[str] = set()
         for row in con.execute(
             """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
-               WHERE at.asset_id=? AND at.source<>'subject' ORDER BY t.name""", (asset_id,)
+               WHERE at.asset_id=? AND at.source NOT IN ('subject','embedded_people')
+               ORDER BY t.name""", (asset_id,)
         ):
             key = row["name"].casefold()
             if key not in excluded and key not in seen:
                 keywords.append(row["name"]); seen.add(key)
         subject = annotation["subject"] if annotation else ""
-        people = [row[0] for row in con.execute(
-            """SELECT p.name FROM asset_people ap JOIN people p ON p.id=ap.person_id
-               WHERE ap.asset_id=? AND ap.state='confirmed' ORDER BY p.name""", (asset_id,)
-        )]
+        people = self._people_for_file(con, asset_id, excluded)
         before_fields = _exiftool_values(path)
         before_fields.pop("SourceFile", None)
         after_fields = {
@@ -3144,6 +3145,31 @@ class SearchHandler(BaseHTTPRequestHandler):
             "after": after_fields,
             "summary": {"subject": subject, "description": description, "keywords": keywords, "people": people},
         }
+
+    @staticmethod
+    def _people_for_file(con: sqlite3.Connection, asset_id: int, excluded: set[str]) -> list[str]:
+        """Confirmed people, then any other names the file already carried.
+
+        A photo can name people LensLedger has not been told about yet --
+        written by other software, or not reached in face review -- and a
+        write that replaces the people field must carry those names over.
+        """
+        people: list[str] = []
+        seen: set[str] = set()
+        for row in con.execute(
+            """SELECT p.name FROM asset_people ap JOIN people p ON p.id=ap.person_id
+               WHERE ap.asset_id=? AND ap.state='confirmed' ORDER BY p.name""", (asset_id,)
+        ):
+            if row[0].casefold() not in seen:
+                people.append(row[0]); seen.add(row[0].casefold())
+        for row in con.execute(
+            """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+               WHERE at.asset_id=? AND at.source='embedded_people' ORDER BY t.name""", (asset_id,)
+        ):
+            key = row[0].casefold()
+            if key not in seen and key not in excluded:
+                people.append(row[0]); seen.add(key)
+        return people
 
     @staticmethod
     def _metadata_values(value) -> list[str]:
@@ -3251,7 +3277,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
             (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
         )
-        set_source_tags(con, asset_id, "embedded_xmp", keywords)
+        store_embedded_tags(con, asset_id, keywords, people)
         rebuild_search_row(con, asset_id)
         con.execute(
             "UPDATE asset_people SET published_at=? WHERE asset_id=? AND state='confirmed'",
@@ -3339,18 +3365,15 @@ class SearchHandler(BaseHTTPRequestHandler):
         # One invocation, not a clear pass followed by an add pass: exiftool
         # applies arguments in order onto a single temporary file, so an
         # interrupted run can never leave the photo stripped of the old values
-        # and not yet carrying the new ones.
+        # and not yet carrying the new ones. Within one invocation "-F=" does
+        # not clear what a later "-F+=" appends to -- the old values stay and
+        # every kept tag is doubled -- whereas repeated "-F=value" replaces
+        # the whole list.
         arguments = ["-overwrite_original", "-charset", "iptc=UTF8"]
-        for field in ("XMP-dc:Subject", "IPTC:Keywords", "XMP-microsoft:LastKeywordXMP",
-                      "XMP-iptcExt:PersonInImage"):
-            arguments.append(f"-{field}=")
-        for keyword in keywords:
-            arguments.extend([
-                f"-XMP-dc:Subject+={keyword}", f"-IPTC:Keywords+={keyword}",
-                f"-XMP-microsoft:LastKeywordXMP+={keyword}",
-            ])
-        for person in people:
-            arguments.append(f"-XMP-iptcExt:PersonInImage+={person}")
+        list_fields = [(field, keywords) for field in self.EMBEDDED_CATEGORY_FIELDS["keywords"]]
+        list_fields += [(field, people) for field in self.EMBEDDED_CATEGORY_FIELDS["people"]]
+        for field, values in list_fields:
+            arguments.extend([f"-{field}={value}" for value in values] or [f"-{field}="])
         for field in self.EMBEDDED_CATEGORY_FIELDS["description"]:
             arguments.append(f"-{field}={description}")
         for field in self.EMBEDDED_CATEGORY_FIELDS["subject"]:
@@ -3378,7 +3401,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
             (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
         )
-        set_source_tags(con, asset_id, "embedded_xmp", keywords)
+        store_embedded_tags(con, asset_id, keywords, people)
         rebuild_search_row(con, asset_id)
         con.execute(
             "UPDATE asset_people SET published_at=? WHERE asset_id=? AND state='confirmed'",
@@ -3499,7 +3522,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
                 (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
             )
-            set_source_tags(con, asset_id, "embedded_xmp", after["keywords"])
+            store_embedded_tags(con, asset_id, after["keywords"], after["people"])
             rebuild_search_row(con, asset_id)
         self.send_json({"ok": True, "backup": str(backup), "message": "Metadata published and picture pixels verified"})
 
@@ -3541,7 +3564,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
                 (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
             )
-            set_source_tags(con, asset_id, "embedded_xmp", extract_xmp_keywords(source))
+            store_embedded_tags(con, asset_id, *extract_embedded_tags(source))
             rebuild_search_row(con, asset_id)
         self.send_json({"ok": True, "message": "The photo was restored from its safety backup"})
 
@@ -3667,7 +3690,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         seen: set[str] = set()
         for row in con.execute(
             """SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id
-               WHERE at.asset_id=? AND at.source<>'subject' ORDER BY t.name""", (asset_id,)
+               WHERE at.asset_id=? AND at.source NOT IN ('subject','embedded_people')
+               ORDER BY t.name""", (asset_id,)
         ):
             key = row["name"].casefold()
             # A tag with no letters or digits -- "." from a library-root folder,
@@ -3677,10 +3701,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             if key not in excluded and key not in seen:
                 keywords.append(row["name"]); seen.add(key)
 
-        people = [row[0] for row in con.execute(
-            """SELECT p.name FROM asset_people ap JOIN people p ON p.id=ap.person_id
-               WHERE ap.asset_id=? AND ap.state='confirmed' ORDER BY p.name""", (asset_id,)
-        )]
+        people = self._people_for_file(con, asset_id, excluded)
         for name in people:
             key = name.casefold()
             if key not in seen:
@@ -3840,7 +3861,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 asset_ids = [r[0] for r in con.execute(
                     """SELECT a.id FROM assets a
                        WHERE a.in_review_bin = 0 AND a.media_type = 'image'
-                       AND (EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id AND at.source IN ('semantic_auto','folder_rule','embedded_xmp'))
+                       AND (EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id AND at.source IN ('semantic_auto','folder_rule','embedded_xmp','embedded_people'))
                             OR EXISTS (SELECT 1 FROM asset_people ap WHERE ap.asset_id = a.id AND ap.state = 'confirmed')
                             OR EXISTS (SELECT 1 FROM text_data td WHERE td.asset_id = a.id AND td.ocr_text <> ''))"""
                 ).fetchall()]
@@ -4382,7 +4403,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
                 (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
             )
-            set_source_tags(con, asset_id, "embedded_xmp", extract_xmp_keywords(source))
+            store_embedded_tags(con, asset_id, *extract_embedded_tags(source))
         sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
 
     def undo_people_review(self, body):
@@ -5343,7 +5364,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                         """SELECT at.asset_id FROM asset_tags at JOIN tags t ON t.id=at.tag_id
                            WHERE at.asset_id IN (
                                SELECT asset_id FROM asset_people WHERE person_id=? AND state='confirmed'
-                           ) AND at.source='embedded_xmp' AND t.name=? COLLATE NOCASE""",
+                           ) AND at.source IN ('embedded_xmp','embedded_people')
+                             AND t.name=? COLLATE NOCASE""",
                         (person_id, old_name),
                     )
                 }

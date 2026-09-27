@@ -407,6 +407,36 @@ class TestWriteTagsEndpoint(unittest.TestCase):
                     f"{', '.join(category_fields[category])}, found {found}",
                 )
 
+    def test_write_all_tags_keeps_what_other_software_put_in_the_file(self):
+        """Tags LensLedger did not write -- IPTC-only keywords, and people it
+        has not been told about yet -- survive "Write all tags"."""
+        self._exiftool_or_skip()
+        self.photo_search._run_exiftool([
+            "-overwrite_original", "-charset", "iptc=UTF8",
+            "-IPTC:Keywords+=Harbour", "-XMP-microsoft:LastKeywordXMP+=Ferry",
+            "-XMP-iptcExt:PersonInImage+=Otto Brandt", str(self.photo),
+        ])
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        self._seed_every_category()
+
+        result = self.json_response(self.post(
+            "/api/write-tags",
+            {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+        self.assertTrue(result["ok"])
+
+        values = self.photo_search._exiftool_values(self.photo)
+        keywords = self.photo_search.SearchHandler._metadata_values(values.get("XMP-dc:Subject"))
+        iptc = self.photo_search.SearchHandler._metadata_values(values.get("IPTC:Keywords"))
+        people = self.photo_search.SearchHandler._metadata_values(values.get("XMP-iptcExt:PersonInImage"))
+        for needle in ("Harbour", "Ferry", "sunset"):
+            with self.subTest(keyword=needle):
+                self.assertIn(needle, keywords)
+                self.assertIn(needle, iptc)
+        self.assertEqual(sorted(people), ["Marta Quill", "Otto Brandt"])
+        self.assertEqual(len(keywords), len({k.casefold() for k in keywords}))
+
     def test_write_tags_embedded_keeps_a_restorable_backup(self):
         self._exiftool_or_skip()
         self._seed_every_category()

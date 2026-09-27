@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.8.0 — 2026-09-26
+
+- Scanning now reads keywords from all three keyword fields a photo can carry (XMP subject, IPTC Keywords and Microsoft's keyword list), and the names in its "people in image" field, for JPEG and HEIC files. Previously only the XMP subject list was read, and only for JPEG.
+- "Write all tags" on the Publish photos page keeps names already stored in a photo that are not confirmed people in LensLedger, instead of clearing them.
+- "Write all tags" no longer doubles keywords and names that were already in the photo.
+- The next scan after updating re-reads the tags of photos already in the index once; the photos themselves are not changed.
+
 ## 1.7.5 — 2026-09-26
 
 - On the People page, the "Also looks like …" panel now shows a spinning shutter icon next to "Confirming N faces…" and "N confirmed. Looking for more…" after "Confirm all" is clicked, so the wait for the next set of matches is visibly in progress.

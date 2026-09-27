@@ -43,12 +43,23 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
-    rb"<dc:subject\b[^>]*>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
+    rb"<dc:subject\b[^>]*(?<!/)>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
 )
+XMP_LAST_KEYWORD_RE = re.compile(
+    rb"<([\w.-]+):LastKeywordXMP\b[^>]*(?<!/)>.*?</\1:LastKeywordXMP>", re.IGNORECASE | re.DOTALL
+)
+XMP_PERSON_RE = re.compile(
+    rb"<([\w.-]+):PersonInImage\b[^>]*(?<!/)>.*?</\1:PersonInImage>", re.IGNORECASE | re.DOTALL
+)
+EMBEDDED_TAG_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
+# Raised whenever extract_embedded_tags learns to read another field, so the
+# next scan re-reads unchanged files once instead of trusting what an older
+# reader stored for them.
+EMBEDDED_TAGS_VERSION = 2
 RDF_ITEM_RE = re.compile(rb"<rdf:li\b[^>]*>(.*?)</rdf:li>", re.IGNORECASE | re.DOTALL)
 DATE_RE = re.compile(r"(?P<year>19\d{2}|20\d{2})[-_](?P<month>\d{2})[-_](?P<day>\d{2})")
 
@@ -405,6 +416,8 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE text_data ADD COLUMN ocr_error TEXT NOT NULL DEFAULT ''")
     if "content_hash" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
+    if "tags_scanned" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN tags_scanned INTEGER NOT NULL DEFAULT 0")
     publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
     if "completed_at" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN completed_at TEXT")
@@ -546,28 +559,131 @@ def capture_date_from_path(path: Path) -> str | None:
         return None
 
 
-def extract_xmp_keywords(path: Path) -> list[str]:
-    if path.suffix.lower() not in {".jpg", ".jpeg"}:
-        return []
-    # XMP is near the beginning of a JPEG. Some older Microsoft-written files
-    # place it in a nonstandard application segment, so inspect the complete
-    # header region rather than assuming it is always APP1.
-    try:
-        with path.open("rb") as stream:
-            data = stream.read(1024 * 1024)
-            if not data.startswith(b"\xff\xd8"):
-                return []
-    except OSError:
-        return []
-    block = XMP_SUBJECT_RE.search(data)
+def _unique(values) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        value = value.strip()
+        if value and value.casefold() not in seen:
+            result.append(value); seen.add(value.casefold())
+    return result
+
+
+def _xmp_items(pattern: re.Pattern, data: bytes) -> list[str]:
+    block = pattern.search(data)
     if not block:
         return []
-    values: list[str] = []
-    for item in RDF_ITEM_RE.findall(block.group(0)):
-        value = html.unescape(item.decode("utf-8", errors="replace")).strip()
-        if value and value.casefold() not in {v.casefold() for v in values}:
-            values.append(value)
-    return values
+    return [html.unescape(item.decode("utf-8", errors="replace"))
+            for item in RDF_ITEM_RE.findall(block.group(0))]
+
+
+def _iim_keywords(iim: bytes) -> list[str]:
+    raw: list[bytes] = []
+    utf8 = False
+    pos = 0
+    while pos + 5 <= len(iim) and iim[pos] == 0x1C:
+        record, dataset = iim[pos + 1], iim[pos + 2]
+        size = int.from_bytes(iim[pos + 3:pos + 5], "big")
+        pos += 5
+        if size & 0x8000:
+            width = size & 0x7FFF
+            size = int.from_bytes(iim[pos:pos + width], "big")
+            pos += width
+        value = iim[pos:pos + size]
+        pos += size
+        if record == 1 and dataset == 90 and value == b"\x1b%G":
+            utf8 = True
+        elif record == 2 and dataset == 25:
+            raw.append(value)
+    keywords = []
+    for value in raw:
+        try:
+            keywords.append(value.decode("utf-8"))
+        except UnicodeDecodeError:
+            # IPTC without the UTF-8 marker is conventionally Latin-1/cp1252.
+            keywords.append(value.decode("utf-8" if utf8 else "cp1252", errors="replace"))
+    return keywords
+
+
+def _jpeg_iptc_keywords(data: bytes) -> list[str]:
+    resources = b""
+    pos = 2
+    while pos + 4 <= len(data) and data[pos] == 0xFF:
+        marker = data[pos + 1]
+        if marker == 0xFF:
+            pos += 1
+            continue
+        if marker in (0xD9, 0xDA):
+            break
+        if 0xD0 <= marker <= 0xD7 or marker == 0x01:
+            pos += 2
+            continue
+        length = int.from_bytes(data[pos + 2:pos + 4], "big")
+        segment = data[pos + 4:pos + 2 + length]
+        if marker == 0xED and segment.startswith(b"Photoshop 3.0\x00"):
+            resources += segment[14:]
+        pos += 2 + length
+    keywords: list[str] = []
+    pos = 0
+    while pos + 12 <= len(resources) and resources[pos:pos + 4] == b"8BIM":
+        resource_id = int.from_bytes(resources[pos + 4:pos + 6], "big")
+        name_length = resources[pos + 6] + 1
+        name_length += name_length % 2
+        body_start = pos + 6 + name_length + 4
+        if body_start > len(resources):
+            break
+        size = int.from_bytes(resources[body_start - 4:body_start], "big")
+        if resource_id == 0x0404:
+            keywords.extend(_iim_keywords(resources[body_start:body_start + size]))
+        pos = body_start + size + size % 2
+    return keywords
+
+
+def extract_embedded_tags(path: Path) -> tuple[list[str], list[str]]:
+    """Return (keywords, people) stored inside a photo.
+
+    Keywords are merged from every field LensLedger itself writes -- XMP
+    dc:subject, IPTC Keywords and Microsoft's LastKeywordXMP -- and people
+    from IPTC PersonInImage. Reading only dc:subject meant a later "Write all
+    tags" cleared whatever other software had put in the rest.
+    """
+    suffix = path.suffix.lower()
+    if suffix not in EMBEDDED_TAG_EXTENSIONS:
+        return [], []
+    try:
+        with path.open("rb") as stream:
+            if suffix in {".jpg", ".jpeg"}:
+                # XMP is near the beginning of a JPEG. Some older Microsoft-written
+                # files place it in a nonstandard application segment, so inspect
+                # the complete header region rather than assuming it is always APP1.
+                data = stream.read(1024 * 1024)
+                if not data.startswith(b"\xff\xd8"):
+                    return [], []
+                iptc = _jpeg_iptc_keywords(data)
+            else:
+                # A HEIC file keeps its XMP as an item that can sit anywhere,
+                # and exiftool appends rewritten metadata at the end.
+                data = stream.read()
+                start = data.find(b"<x:xmpmeta")
+                end = data.find(b"</x:xmpmeta>", start) if start >= 0 else -1
+                data = data[start:end + 12] if end >= 0 else b""
+                iptc = []
+    except OSError:
+        return [], []
+    keywords = _unique([*_xmp_items(XMP_SUBJECT_RE, data), *iptc,
+                        *_xmp_items(XMP_LAST_KEYWORD_RE, data)])
+    return keywords, _unique(_xmp_items(XMP_PERSON_RE, data))
+
+
+def store_embedded_tags(con: sqlite3.Connection, asset_id: int, keywords: list[str],
+                        people: list[str]) -> None:
+    set_source_tags(con, asset_id, "embedded_xmp", keywords)
+    set_source_tags(con, asset_id, "embedded_people", people)
+
+
+def refresh_embedded_tags(con: sqlite3.Connection, asset_id: int, path: Path) -> None:
+    store_embedded_tags(con, asset_id, *extract_embedded_tags(path))
+    con.execute("UPDATE assets SET tags_scanned=? WHERE id=?", (EMBEDDED_TAGS_VERSION, asset_id))
 
 
 def _gps_decimal(values, reference: str) -> float | None:
@@ -688,7 +804,7 @@ def scan_library(
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
     known = {row["relative_path"]: row for row in con.execute(
         "SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, "
-        "location_scanned, in_review_bin FROM assets"
+        "location_scanned, tags_scanned, in_review_bin FROM assets"
     )}
     seen: set[str] = set()
     counts: dict[str, int | bool | list] = {
@@ -721,6 +837,12 @@ def scan_library(
                     and (old["metadata_scanned"] or placeholder)
                     and (old["location_scanned"] or placeholder)):
                 counts["unchanged"] += 1
+                if (not placeholder and old["tags_scanned"] < EMBEDDED_TAGS_VERSION
+                        and path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS):
+                    refresh_embedded_tags(con, int(old["id"]), path)
+                    rebuild_search_row(con, int(old["id"]))
+                    if counts["unchanged"] % 500 == 0:
+                        con.commit()
                 continue
             folder = rel.parent.as_posix()
             latitude, longitude = (None, None) if placeholder else extract_gps_coordinates(path)
@@ -751,7 +873,7 @@ def scan_library(
             )
             asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path = ?", (rel_text,)).fetchone()[0])
             if not placeholder:
-                set_source_tags(con, asset_id, "embedded_xmp", extract_xmp_keywords(path))
+                refresh_embedded_tags(con, asset_id, path)
             folder_names = [r[0] for r in con.execute("SELECT tag FROM folder_tags WHERE folder = ?", (folder,))]
             if not folder_names:
                 inferred = infer_tags(folder)
