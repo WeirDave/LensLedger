@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.11 — 2026-09-27
+
+- The About panel (Navigation menu → "About") now displays correctly on every page. On every page except Settings, the logo overflowed the panel and the text ran together.
+
 ## 1.10.10 — 2026-09-27
 
 - Photos whose camera maker notes carry offsets ExifTool cannot verify are now written instead of failing with "MakerNotes offsets may be incorrect (fix or ignore?)". This applies to "Write all tags" and "Publish all" on the Publish photos page, and to publishing a single photo.
