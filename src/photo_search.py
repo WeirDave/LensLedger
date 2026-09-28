@@ -1136,6 +1136,68 @@ class _AlreadyWritten(Exception):
     """Raised inside a Write all tags step to skip a photo that is up to date."""
 
 
+def _explorer_window_titled(user32, folder_name: str):
+    import ctypes
+    from ctypes import wintypes
+    found = []
+    wanted = folder_name.casefold()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _):
+        name = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, name, 64)
+        if name.value == "CabinetWClass" and user32.IsWindowVisible(hwnd):
+            title = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd, title, 512)
+            text = title.value.casefold()
+            if text == wanted or text.startswith(wanted + " - "):
+                found.append(hwnd)
+                return False
+        return True
+
+    user32.EnumWindows(visit, 0)
+    return found[0] if found else None
+
+
+def _open_explorer_in_front(arguments: list[str], folder: Path) -> None:
+    # The server is a background process, so Windows' foreground lock opens
+    # the Explorer window behind the browser the click came from, and it looks
+    # as if nothing happened. Find the window and raise it while attached to
+    # the browser's input queue, which is what lets the raise go through.
+    subprocess.Popen(["explorer", *arguments])
+
+    def raise_window():
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
+            hwnd = None
+            for _ in range(30):
+                time.sleep(0.1)
+                hwnd = _explorer_window_titled(user32, folder.name or str(folder))
+                if hwnd:
+                    break
+            if not hwnd:
+                return
+            foreground_thread = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+            this_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+            attached = bool(foreground_thread and foreground_thread != this_thread
+                            and user32.AttachThreadInput(this_thread, foreground_thread, True))
+            try:
+                if user32.IsIconic(hwnd):
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.BringWindowToTop(hwnd)
+                user32.SetForegroundWindow(hwnd)
+            finally:
+                if attached:
+                    user32.AttachThreadInput(this_thread, foreground_thread, False)
+        except Exception:
+            pass
+
+    threading.Thread(target=raise_window, name="raise-explorer", daemon=True).start()
+
+
 class SearchHandler(BaseHTTPRequestHandler):
     current_library: tuple[Path, Path]
     library_root = _LibraryAttr(0)
@@ -6162,7 +6224,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not folder.exists():
             raise ValueError("Folder not found on disk")
         if sys.platform == "win32":
-            subprocess.Popen(["explorer", str(folder)])
+            _open_explorer_in_front([str(folder)], folder)
         elif sys.platform == "darwin":
             subprocess.Popen(["open", str(folder)])
         else:
@@ -6173,7 +6235,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not source_path.exists():
             raise ValueError("File not found on disk")
         if sys.platform == "win32":
-            subprocess.Popen(["explorer", "/select,", str(source_path)])
+            _open_explorer_in_front(["/select,", str(source_path)], source_path.parent)
         elif sys.platform == "darwin":
             subprocess.Popen(["open", "-R", str(source_path)])
         else:
