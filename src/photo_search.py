@@ -367,6 +367,14 @@ def split_tags(value: str) -> list[str]:
     return result
 
 
+# "-m" lets ExifTool write past its "[minor]" errors. Older cameras and some
+# photo editors leave maker-note offsets ExifTool cannot vouch for, and without
+# it every EXIF write to such a photo is refused outright. The maker note is
+# carried over unchanged, and every write still keeps a safety copy and
+# verifies the pixels afterwards.
+EXIFTOOL_WRITE_OPTIONS = ("-m", "-overwrite_original", "-charset", "iptc=UTF8")
+
+
 def _run_exiftool(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     if not EXIFTOOL_PATH.is_file():
         raise ValueError("The metadata publishing tool is not installed")
@@ -3336,11 +3344,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise ValueError(f"The safety backup could not be verified for {asset['filename']}")
 
         clear_arguments = [
-            "-overwrite_original", "-charset", "iptc=UTF8",
+            *EXIFTOOL_WRITE_OPTIONS,
             "-XMP-dc:Subject=", "-IPTC:Keywords=", "-XMP-microsoft:LastKeywordXMP=",
             "-XMP-iptcExt:PersonInImage=", str(path),
         ]
-        add_arguments = ["-overwrite_original", "-charset", "iptc=UTF8"]
+        add_arguments = [*EXIFTOOL_WRITE_OPTIONS]
         for keyword in keywords:
             add_arguments.extend([
                 f"-XMP-dc:Subject+={keyword}", f"-IPTC:Keywords+={keyword}",
@@ -3465,7 +3473,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         # not clear what a later "-F+=" appends to -- the old values stay and
         # every kept tag is doubled -- whereas repeated "-F=value" replaces
         # the whole list.
-        arguments = ["-overwrite_original", "-charset", "iptc=UTF8"]
+        arguments = [*EXIFTOOL_WRITE_OPTIONS]
         list_fields = [(field, keywords) for field in self.EMBEDDED_CATEGORY_FIELDS["keywords"]]
         list_fields += [(field, people) for field in self.EMBEDDED_CATEGORY_FIELDS["people"]]
         for field, values in list_fields:
@@ -3580,7 +3588,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 raise ValueError("The safety backup could not be verified")
             after = preview["summary"]
             arguments = [
-                "-overwrite_original", "-charset", "iptc=UTF8",
+                *EXIFTOOL_WRITE_OPTIONS,
                 f"-EXIF:ImageDescription={after['description']}",
                 f"-XMP-dc:Description={after['description']}",
                 f"-IPTC:Caption-Abstract={after['description']}",
@@ -3589,7 +3597,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "-XMP-dc:Subject=", "-IPTC:Keywords=", "-XMP-microsoft:LastKeywordXMP=",
                 "-XMP-iptcExt:PersonInImage=",
             ]
-            keyword_arguments = ["-overwrite_original", "-charset", "iptc=UTF8"]
+            keyword_arguments = [*EXIFTOOL_WRITE_OPTIONS]
             for keyword in after["keywords"]:
                 keyword_arguments.extend([
                     f"-XMP-dc:Subject+={keyword}", f"-IPTC:Keywords+={keyword}",

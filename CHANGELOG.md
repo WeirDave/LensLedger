@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.10 — 2026-09-27
+
+- Photos whose camera maker notes carry offsets ExifTool cannot verify are now written instead of failing with "MakerNotes offsets may be incorrect (fix or ignore?)". This applies to "Write all tags" and "Publish all" on the Publish photos page, and to publishing a single photo.
+
 ## 1.10.9 — 2026-09-27
 
 - "Write all tags" on the Publish photos page no longer fails with "too many SQL variables" in libraries with more than about 32,000 tagged photos.

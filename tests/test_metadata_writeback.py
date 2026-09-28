@@ -437,6 +437,55 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertEqual(sorted(people), ["Marta Quill", "Otto Brandt"])
         self.assertEqual(len(keywords), len({k.casefold() for k in keywords}))
 
+    def _save_with_displaced_maker_note(self):
+        """Rewrite the photo so its maker note sits later in the file than its
+        own value offsets claim -- what an editor that moves the EXIF block
+        without fixing the maker note leaves behind. ExifTool reports that as
+        a "[minor]" error and, without -m, refuses every EXIF write."""
+        import struct
+        marker = b"NOTEHERE"
+
+        def maker_note(claimed_start):
+            data_offset = claimed_start + 2 + 12 + 4
+            return (struct.pack("<H", 1) + struct.pack("<HHII", 0x0006, 2, 32, data_offset)
+                    + struct.pack("<I", 0) + b"Examplecam Model 1\0".ljust(48, b"\0"))
+
+        placeholder = marker + b"\0" * (len(maker_note(0)) - len(marker))
+        exif = Image.Exif()
+        exif[0x010F] = "Examplecam"
+        exif[0x0110] = "Examplecam Model 1"
+        exif.get_ifd(0x8769)[0x927C] = placeholder
+        blob = exif.tobytes()
+        tiff = blob[6:] if blob.startswith(b"Exif\0\0") else blob
+        blob = blob.replace(placeholder, maker_note(8))
+        self.assertGreater(tiff.index(marker), 40, "the maker note must sit well past its claimed start")
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(self.photo, quality=92, exif=blob)
+
+    def test_write_all_tags_writes_a_photo_with_displaced_maker_note_offsets(self):
+        self._exiftool_or_skip()
+        self._save_with_displaced_maker_note()
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        expected = self._seed_every_category()
+        maker_note_before = self.photo_search._run_exiftool(
+            ["-a", "-G1", "-s", "-MakerNotes:all", str(self.photo)]).stdout
+        pixels_before = Image.open(self.photo).tobytes()
+
+        result = self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"},
+        ))
+
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["wrote_embedded"])
+        values = self.photo_search._exiftool_values(self.photo)
+        self.assertEqual(values.get("IFD0:ImageDescription"), expected["description"])
+        self.assertIn(expected["keywords"], self.photo_search.SearchHandler._metadata_values(
+            values.get("XMP-dc:Subject")))
+        self.assertEqual(Image.open(self.photo).tobytes(), pixels_before)
+        self.assertEqual(self.photo_search._run_exiftool(
+            ["-a", "-G1", "-s", "-MakerNotes:all", str(self.photo)]).stdout, maker_note_before,
+            "the maker note should be carried over unchanged")
+
     def test_write_tags_embedded_keeps_a_restorable_backup(self):
         self._exiftool_or_skip()
         self._seed_every_category()
