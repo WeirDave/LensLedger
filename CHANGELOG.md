@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.9 — 2026-09-27
+
+- "Write all tags" on the Publish photos page no longer fails with "too many SQL variables" in libraries with more than about 32,000 tagged photos.
+
 ## 1.10.8 — 2026-09-27
 
 - "Show in folder" now brings the Explorer window to the front on Windows. Previously the folder opened behind the browser, so the button appeared to do nothing. Applies to the enlarged-photo view on the People page, double-clicking a photo, and the folder links on the Scan photos and Publish photos pages.

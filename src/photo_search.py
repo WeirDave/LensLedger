@@ -4036,14 +4036,18 @@ class SearchHandler(BaseHTTPRequestHandler):
         # run needs room for a second copy of everything it will write. Checking
         # once here beats discovering it photo by photo with a full disk.
         if write_mode in ("embedded", "both"):
+            # A whole library's ids overflow SQLite's bound-variable limit.
+            photo_paths = []
             with self.db() as con:
-                photo_paths = [
-                    row[0] for row in con.execute(
-                        f"SELECT path FROM assets WHERE id IN ({','.join('?' * len(asset_ids))}) "
-                        "AND tags_written IS NULL",
-                        asset_ids,
+                for start in range(0, total, 500):
+                    chunk = asset_ids[start:start + 500]
+                    photo_paths.extend(
+                        row[0] for row in con.execute(
+                            f"SELECT path FROM assets WHERE id IN ({','.join('?' * len(chunk))}) "
+                            "AND tags_written IS NULL",
+                            chunk,
+                        )
                     )
-                ]
             required = metadata_backups.estimate_required_bytes(photo_paths)
             space = metadata_backups.space_check(metadata_backup_root(), required)
             if not space["ok"]:

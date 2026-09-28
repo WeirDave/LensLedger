@@ -516,6 +516,50 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         for item in job["fell_back"]:
             self.assertTrue(item.get("error"), "every reported file needs a reason")
 
+    def test_write_all_tags_handles_more_photos_than_sqlite_variables(self):
+        """A library-wide run must not bind one SQL variable per photo."""
+        import urllib.error
+        con = sqlite3.connect(self.database)
+        columns = [row[1] for row in con.execute("PRAGMA table_info(assets)") if row[1] != "id"]
+        for n in range(1, 1201):
+            con.execute(
+                f"INSERT INTO assets({','.join(columns)}) SELECT "
+                + ",".join(f"'copy-{n}-' || {name}" if name in ("path", "relative_path") else name for name in columns)
+                + " FROM assets WHERE id=?",
+                (self.asset_id,),
+            )
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('sunset')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) "
+            "SELECT id, ?, 'semantic_auto', 0.5 FROM assets",
+            (tag_id,),
+        )
+        con.commit()
+        con.close()
+
+        real_connect = self.photo_search.connect
+
+        def limited_connect(*args, **kwargs):
+            connection = real_connect(*args, **kwargs)
+            connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+            return connection
+
+        estimated = []
+
+        def estimate(paths):
+            estimated.append(len(paths))
+            return 1
+
+        with patch.object(self.photo_search, "connect", limited_connect), \
+             patch.object(self.photo_search.metadata_backups, "estimate_required_bytes", estimate), \
+             patch.object(self.photo_search.metadata_backups, "space_check",
+                          return_value={"ok": False, "free_bytes": 0, "shortfall_bytes": 1}):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post("/api/write-tags/batch", {"scope": "all", "write_mode": "embedded"})
+            message = json.loads(caught.exception.read())["error"]
+        self.assertIn("Not enough disk space", message)
+        self.assertEqual(estimated, [1201])
+
     def _run_write_all_tags(self, write_mode):
         import time
         self.json_response(self.post(
