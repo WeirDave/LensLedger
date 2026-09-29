@@ -58,8 +58,8 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
-    SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect, extract_embedded_tags,
-    is_cloud_placeholder, store_embedded_tags, ocr_assets,
+    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect,
+    extract_embedded_tags, is_cloud_placeholder, refresh_embedded_tags, store_embedded_tags, ocr_assets,
     pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
@@ -89,8 +89,10 @@ from xmp_sidecar import write_sidecar
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
 PAGE_SIZE = 250  # default; overridden per-request from settings
-PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
-_PUBLISHABLE_SQL = "a.extension IN ('.jpg','.jpeg','.heic','.heif')"
+PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".tif", ".tiff"}
+_PUBLISHABLE_SQL = "a.extension IN ('.jpg','.jpeg','.heic','.heif','.png','.webp','.tif','.tiff')"
+# Repair re-saves the picture as JPEG, so it stays limited to these.
+REPAIRABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
 WEB_ROOT = Path(__file__).parent.parent / "web"
 WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)|img/[a-z][a-z0-9-]*\.(?:png|jpg|svg)")
 WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
@@ -1793,7 +1795,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
 <section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos. Sidecar mode writes a separate .xmp file next to each photo instead of modifying the original.</p>
-<div class="field"><label for="writeMode">Write mode</label><select id="writeMode"><option value="embedded" {"selected" if publish.get("write_mode", "embedded") == "embedded" else ""}>Embedded (modify photo files)</option><option value="sidecar" {"selected" if publish.get("write_mode") == "sidecar" else ""}>Sidecar (.xmp files)</option><option value="both" {"selected" if publish.get("write_mode") == "both" else ""}>Both (embedded + sidecar)</option></select><span class="hint">Embedded writes metadata directly into JPEG/HEIC files with safety backups. Sidecar creates .xmp files that Lightroom, Capture One, and other apps can read without changing originals.</span></div>
+<div class="field"><label for="writeMode">Write mode</label><select id="writeMode"><option value="embedded" {"selected" if publish.get("write_mode", "embedded") == "embedded" else ""}>Embedded (modify photo files)</option><option value="sidecar" {"selected" if publish.get("write_mode") == "sidecar" else ""}>Sidecar (.xmp files)</option><option value="both" {"selected" if publish.get("write_mode") == "both" else ""}>Both (embedded + sidecar)</option></select><span class="hint">Embedded writes metadata directly into JPEG, HEIC, PNG, WebP and TIFF files with safety backups. Sidecar creates .xmp files that Lightroom, Capture One, and other apps can read without changing originals.</span></div>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoClassify" {"checked" if publish.get("auto_classify") else ""}><span class="slider"></span></label><label for="autoClassify">Auto-classify photos after meaning search</label></div>
 <span class="hint hint-under-toggle">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span><div class="field"><label for="backupKeepDays">Keep photo safety copies for (days)</label><input type="number" id="backupKeepDays" min="0" max="3650" value="{int(publish.get('backup_keep_days', 30))}"><span class="hint">Embedded writes keep a full copy of each photo so the change can be undone. Once a copy is cleared that write can no longer be undone. 0 keeps them forever. Default: 30</span></div><div class="field"><label for="backupMaxGb">Total size limit for safety copies (GB)</label><input type="number" id="backupMaxGb" min="0" max="10000" step="1" value="{int(publish.get('backup_max_gb', 20))}"><span class="hint">When the copies exceed this, the oldest are cleared first, and those writes can no longer be undone. 0 means no limit. See current usage on the <a href="/scan-photos">Scan your photos</a> page. Default: 20</span></div></section>
 <section class="card" id="auto-import"><h2>Auto-import photos</h2><p>Automatically import new photos from a source folder and sort them into your library. <a href="/auto-import">Configure source, destination, and sorting rules →</a></p>
@@ -2088,7 +2090,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
 <section class="manual-section" id="publishing">
 <h2>9. Publishing Metadata</h2>
-<p>Publishing writes your subjects, people, tags, and descriptions back into the photo file&rsquo;s embedded metadata (IPTC/XMP). Only JPEG and HEIC/HEIF files are publishable.</p>
+<p>Publishing writes your subjects, people, tags, and descriptions back into the photo file&rsquo;s embedded metadata (IPTC/XMP). JPEG, HEIC/HEIF, PNG, WebP and TIFF files are publishable.</p>
 <h3>How to publish</h3>
 <ol>
 <li>Open a photo and fill in the metadata you want to save</li>
@@ -3779,7 +3781,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         path.relative_to(self.library_root)
         if not path.is_file():
             raise ValueError("File not found on disk")
-        if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS:
+        if path.suffix.lower() not in REPAIRABLE_EXTENSIONS:
             raise ValueError("Only publishable file types can be repaired")
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(rel)
@@ -3884,6 +3886,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         asset = self.get_active_asset(con, asset_id)
         path = (self.library_root / Path(asset["relative_path"])).resolve()
         path.relative_to(self.library_root)
+        # The embedded write makes the file match what is gathered here, so
+        # keywords another program put in the file must be read in first --
+        # otherwise a file type LensLedger has only just learned to read
+        # would lose them.
+        if (asset["tags_scanned"] < EMBEDDED_TAGS_VERSION
+                and path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS and path.is_file()
+                and not is_cloud_placeholder(path.stat(), path)):
+            refresh_embedded_tags(con, asset_id, path)
 
         excluded = {row[0].casefold() for row in con.execute(
             "SELECT tag FROM asset_tag_exclusions WHERE relative_path=?", (asset["relative_path"],)

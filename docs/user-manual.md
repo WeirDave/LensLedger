@@ -307,7 +307,7 @@ Duplicate files are detected by content hash and skipped automatically.
 
 ## Publishing Metadata
 
-Publishing writes your subjects, people, tags, and descriptions back into the photo file's embedded metadata (IPTC/XMP). Only JPEG and HEIC/HEIF files are publishable.
+Publishing writes your subjects, people, tags, and descriptions back into the photo file's embedded metadata (IPTC/XMP). JPEG, HEIC/HEIF, PNG, WebP and TIFF files are publishable.
 
 ### How to publish
 
@@ -489,9 +489,9 @@ Ctrl+Break always closes LensLedger immediately, whatever is running.
 | Format | Metadata | Faces | Viewable | Publishable |
 |--------|----------|-------|----------|-------------|
 | JPEG (.jpg, .jpeg) | Yes | Yes | Yes | Yes |
-| PNG (.png) | Yes | Yes | Yes | No |
-| WebP (.webp) | Yes | Yes | Yes | No |
-| TIFF (.tif, .tiff) | Yes | Yes | Yes | No |
+| PNG (.png) | Yes | Yes | Yes | Yes |
+| WebP (.webp) | Yes | Yes | Yes | Yes |
+| TIFF (.tif, .tiff) | Yes | Yes | Yes | Yes |
 | GIF (.gif) | No | Yes | Yes | No |
 | BMP (.bmp) | No | Yes | Yes | No |
 | HEIC / HEIF | No | Yes | Yes * | Yes |

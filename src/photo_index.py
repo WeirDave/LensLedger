@@ -55,11 +55,11 @@ XMP_LAST_KEYWORD_RE = re.compile(
 XMP_PERSON_RE = re.compile(
     rb"<([\w.-]+):PersonInImage\b[^>]*(?<!/)>.*?</\1:PersonInImage>", re.IGNORECASE | re.DOTALL
 )
-EMBEDDED_TAG_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
+EMBEDDED_TAG_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".tif", ".tiff"}
 # Raised whenever extract_embedded_tags learns to read another field, so the
 # next scan re-reads unchanged files once instead of trusting what an older
 # reader stored for them.
-EMBEDDED_TAGS_VERSION = 2
+EMBEDDED_TAGS_VERSION = 3
 RDF_ITEM_RE = re.compile(rb"<rdf:li\b[^>]*>(.*?)</rdf:li>", re.IGNORECASE | re.DOTALL)
 DATE_RE = re.compile(r"(?P<year>19\d{2}|20\d{2})[-_](?P<month>\d{2})[-_](?P<day>\d{2})")
 
@@ -672,7 +672,7 @@ def extract_embedded_tags(path: Path) -> tuple[list[str], list[str]]:
                     return [], []
                 iptc = _jpeg_iptc_keywords(data)
             else:
-                # A HEIC file keeps its XMP as an item that can sit anywhere,
+                # HEIC, PNG, WebP and TIFF keep XMP in a block that can sit anywhere,
                 # and exiftool appends rewritten metadata at the end.
                 data = stream.read()
                 start = data.find(b"<x:xmpmeta")

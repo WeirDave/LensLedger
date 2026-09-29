@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.11.0 — 2026-09-29
+
+- "Write all tags", "Publish all" and single-photo publishing now embed tags in PNG, WebP and TIFF files. These formats previously always received a sidecar file instead.
+- Keywords and people that other programs stored in PNG, WebP and TIFF files are now read into the library. The next scan reads them once for every photo, and a write reads them first if that scan has not happened yet, so they are kept rather than replaced.
+
 ## 1.10.12 — 2026-09-29
 
 - "Write all tags" and publishing now write photos whose file names contain characters outside the Windows code page. These photos previously failed with "No matching files".

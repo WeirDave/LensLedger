@@ -570,6 +570,70 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertEqual([item["path"] for item in again["fell_back"]], [self.photo.name],
                          "the next run tries again and still says so")
 
+    def test_write_all_tags_embeds_in_png_webp_and_tiff(self):
+        self._exiftool_or_skip()
+        from metadata_reader import pixel_hash
+        original = self.photo
+        for suffix, options in ((".png", {}), (".webp", {"lossless": True}), (".tif", {}),
+                                (".tiff", {"compression": "tiff_lzw"})):
+            with self.subTest(format=suffix):
+                for leftover in self.library.iterdir():
+                    leftover.unlink()
+                self.photo = original.with_suffix(suffix)
+                Image.new("RGB", (32, 24), (24, 80, 140)).save(self.photo, **options)
+                self._asset_id_for(self.photo)
+                con = sqlite3.connect(self.database)
+                con.execute("DELETE FROM asset_annotations")
+                con.execute("DELETE FROM asset_people")
+                con.execute("DELETE FROM people")
+                con.execute("DELETE FROM asset_tags")
+                con.execute("DELETE FROM tags")
+                con.commit()
+                con.close()
+                expected = self._seed_every_category()
+                before = pixel_hash(self.photo)
+
+                job = self._run_write_all_tags("embedded")
+
+                self.assertEqual((job["failed"], job["fell_back"], job["incomplete"]), ([], [], []))
+                self.assertFalse(self.photo.with_suffix(".xmp").exists())
+                values = self.photo_search._exiftool_values(self.photo)
+                self.assertIn(expected["keywords"], self.photo_search.SearchHandler._metadata_values(
+                    values.get("XMP-dc:Subject")))
+                self.assertEqual(self.photo_search.SearchHandler._metadata_values(
+                    values.get("XMP-iptcExt:PersonInImage")), [expected["people"]])
+                self.assertEqual(values.get("XMP-dc:Description"), expected["description"])
+                self.assertEqual(values.get("XMP-dc:Title"), expected["subject"])
+                self.assertEqual(pixel_hash(self.photo), before)
+
+    def test_write_all_tags_keeps_keywords_another_program_put_in_a_png(self):
+        """A PNG scanned before LensLedger read tags from PNGs has its own
+        keywords unknown to the library; the write must read them first
+        rather than replace them."""
+        self._exiftool_or_skip()
+        self.photo.unlink()
+        self.photo = self.library / "2026-08-11 chart.png"
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(self.photo)
+        self.photo_search._run_exiftool([
+            *self.photo_search.EXIFTOOL_WRITE_OPTIONS, "-XMP-dc:Subject=Lighthouse", str(self.photo)])
+        self._asset_id_for(self.photo)
+        con = sqlite3.connect(self.database)
+        con.execute("DELETE FROM asset_tags WHERE source='embedded_xmp'")
+        con.execute("UPDATE assets SET tags_scanned=2")
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('sunset')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) VALUES (?, ?, 'manual', 1)",
+            (self.asset_id, tag_id),
+        )
+        con.commit()
+        con.close()
+
+        self._run_write_all_tags("embedded")
+
+        keywords = self.photo_search.SearchHandler._metadata_values(
+            self.photo_search._exiftool_values(self.photo).get("XMP-dc:Subject"))
+        self.assertEqual(sorted(keywords), ["Lighthouse", "sunset"])
+
     def test_write_tags_embedded_keeps_a_restorable_backup(self):
         self._exiftool_or_skip()
         self._seed_every_category()
@@ -614,7 +678,7 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         from photo_index import scan_library
         unsupported = self.library / "note.txt"
         unsupported.write_text("not a photo", encoding="utf-8")
-        png = self.library / "2026-08-10 diagram.png"
+        png = self.library / "2026-08-10 diagram.gif"
         Image.new("RGB", (16, 16), (200, 40, 40)).save(png)
         scan_library(self.library, self.database)
 
@@ -645,7 +709,7 @@ class TestWriteTagsEndpoint(unittest.TestCase):
 
         fell_back_paths = [item["path"] for item in job["fell_back"]]
         self.assertIn(png.name, fell_back_paths,
-                      "a PNG cannot carry embedded tags, so the run must say so by name")
+                      "a GIF cannot carry embedded tags, so the run must say so by name")
         for item in job["fell_back"]:
             self.assertTrue(item.get("error"), "every reported file needs a reason")
 
