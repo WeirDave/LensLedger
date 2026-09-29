@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.10.12 — 2026-09-29
+
+- "Write all tags" and publishing now write photos whose file names contain characters outside the Windows code page. These photos previously failed with "No matching files".
+- Keywords, names, titles and descriptions containing characters outside the Windows code page are now written exactly. Previously such characters were replaced, usually with "?".
+- Photos whose EXIF block points at an image that is not in the file are now written. Previously they failed with "Error reading OtherImageStart data in IFD0". Their tags go into XMP and IPTC, and the EXIF block is left as it was.
+- JPEGs whose image data has no end marker get a sidecar file from "Write all tags" instead of failing with "JPEG EOI marker not found". They are listed under "got a sidecar file instead" with the reason.
+- "Start LensLedger.cmd" now installs any required Python package that is missing, not only on first launch. Installations made before HEIC support was added now get it, so HEIC photos no longer fail with "cannot identify image file".
+
 ## 1.10.11 — 2026-09-27
 
 - The About panel (Navigation menu → "About") now displays correctly on every page. On every page except Settings, the logo overflowed the panel and the text ran together.

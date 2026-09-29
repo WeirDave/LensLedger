@@ -17,6 +17,7 @@ import signal
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import sys
 import threading
 import time
@@ -375,16 +376,76 @@ def split_tags(value: str) -> list[str]:
 EXIFTOOL_WRITE_OPTIONS = ("-m", "-overwrite_original", "-charset", "iptc=UTF8")
 
 
+class EmbeddingRefused(ValueError):
+    """ExifTool will not rewrite this file because the file itself is damaged."""
+
+
+# ExifTool refuses to rewrite a JPEG whose image data never reaches an end
+# marker when a maker trailer follows it (some phone panoramas are saved this
+# way). Nothing short of rewriting the image data could change that.
+_DAMAGED_FILE_ERRORS = ("JPEG EOI marker not found",)
+
+# A broken offset in the EXIF block stops ExifTool rebuilding that block, while
+# XMP and IPTC -- separate segments -- still write normally.
+_BROKEN_EXIF_BLOCK = re.compile(r"Error reading \w+ data in IFD\d")
+
+
+def _exiftool_argument_line(argument: str, escaped: bool) -> str:
+    if escaped and argument.startswith("-") and "=" in argument:
+        name, value = argument.split("=", 1)
+        value = (value.replace("\\", "\\\\").replace("\n", "\\n")
+                 .replace("\r", "\\r").replace("\t", "\\t"))
+        if value[:1] == " ":
+            value = "\\x20" + value[1:]
+        argument = f"{name}={value}"
+    return argument + "\n"
+
+
 def _run_exiftool(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     if not EXIFTOOL_PATH.is_file():
         raise ValueError("The metadata publishing tool is not installed")
-    result = subprocess.run(
-        [str(EXIFTOOL_PATH), *arguments], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=120, check=False,
-    )
+    # Arguments go through a UTF-8 argument file, never the command line:
+    # ExifTool reads its command line in the Windows ANSI code page, which
+    # turns any other character -- in a keyword, a name, or a file name --
+    # into "?". A "?" in a file name is then taken as a wildcard ("No
+    # matching files"). -ec lets a value carry line breaks in that file.
+    escaped = any(a.startswith("-") and "=" in a for a in arguments)
+    handle, argfile = tempfile.mkstemp(prefix="lensledger-exiftool-", suffix=".args")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            stream.writelines(_exiftool_argument_line(a, escaped) for a in arguments)
+        result = subprocess.run(
+            [str(EXIFTOOL_PATH), "-charset", "filename=utf8", *(["-ec"] if escaped else []),
+             "-@", argfile],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120, check=False,
+        )
+    finally:
+        Path(argfile).unlink(missing_ok=True)
     if result.returncode:
-        raise ValueError((result.stderr or result.stdout or "Metadata publishing failed").strip())
+        message = (result.stderr or result.stdout or "Metadata publishing failed").strip()
+        if any(error in message for error in _DAMAGED_FILE_ERRORS):
+            raise EmbeddingRefused(
+                "the image data in this file is incomplete (it has no end marker), "
+                "so tags cannot be embedded without rewriting the picture"
+            )
+        raise ValueError(message)
     return result
+
+
+def _run_exiftool_write(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """Write, and if the EXIF block is unreadable, write everything else."""
+    try:
+        return _run_exiftool(arguments)
+    except EmbeddingRefused:
+        raise
+    except ValueError as exc:
+        if not _BROKEN_EXIF_BLOCK.search(str(exc)):
+            raise
+        kept = [a for a in arguments if not a.startswith(("-EXIF:", "-IFD0:"))]
+        if kept == arguments:
+            raise
+        return _run_exiftool(kept)
 
 
 def _exiftool_values(path: Path) -> dict[str, object]:
@@ -3485,7 +3546,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         arguments.append(str(path))
 
         try:
-            _run_exiftool(arguments)
+            _run_exiftool_write(arguments)
             if _pixel_hash(path) != before_pixels:
                 raise ValueError(f"Pixel verification failed for {asset['filename']}")
         except Exception:
@@ -3606,7 +3667,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             for person in after["people"]:
                 keyword_arguments.append(f"-XMP-iptcExt:PersonInImage+={person}")
             try:
-                _run_exiftool([*arguments, str(path)])
+                _run_exiftool_write([*arguments, str(path)])
                 if after["keywords"] or after["people"]:
                     _run_exiftool([*keyword_arguments, str(path)])
                 if _pixel_hash(path) != before_pixels:
@@ -4126,7 +4187,22 @@ class SearchHandler(BaseHTTPRequestHandler):
                                 people=data["people"],
                             )
                         if mode in ("embedded", "both") and can_embed:
-                            outcome = self._write_embedded_metadata(con, int(asset_id), data)
+                            try:
+                                outcome = self._write_embedded_metadata(con, int(asset_id), data)
+                            except EmbeddingRefused as refused:
+                                if mode == "embedded":
+                                    write_sidecar(
+                                        path,
+                                        title=data["subject"],
+                                        description=data["description"],
+                                        keywords=data["keywords"],
+                                        people=data["people"],
+                                    )
+                                reason = f"{refused} — a sidecar file was written next to it instead"
+                                fell_back.append({"path": relative, "error": reason})
+                                action.note(f"{relative} — {reason}")
+                                fingerprint = self._write_tags_fingerprint(data, "sidecar")
+                                outcome = {"not_written": []}
                             for item in outcome["not_written"]:
                                 incomplete.append({
                                     "path": relative,

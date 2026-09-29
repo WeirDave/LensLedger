@@ -12,9 +12,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Install the small Python dependency set on first launch. Existing healthy
-REM installations skip this step without contacting the network.
-python -c "import PIL" >nul 2>&1
+REM Install the small Python dependency set on first launch, and again whenever
+REM a required package is missing -- an install made before a package joined
+REM requirements.txt would otherwise never get it (HEIC photos need
+REM pillow_heif). Existing healthy installations skip this step without
+REM contacting the network.
+python -c "import PIL, pillow_heif" >nul 2>&1
 if errorlevel 1 (
     echo Preparing LensLedger for first use...
     python -m pip install -r requirements.txt

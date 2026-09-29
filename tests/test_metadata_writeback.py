@@ -486,6 +486,90 @@ class TestWriteTagsEndpoint(unittest.TestCase):
             ["-a", "-G1", "-s", "-MakerNotes:all", str(self.photo)]).stdout, maker_note_before,
             "the maker note should be carried over unchanged")
 
+    def _asset_id_for(self, path):
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        con = sqlite3.connect(self.database)
+        self.asset_id = int(con.execute(
+            "SELECT id FROM assets WHERE filename=?", (path.name,)).fetchone()[0])
+        con.close()
+
+    def test_write_all_tags_handles_names_outside_the_windows_code_page(self):
+        """A file name carrying U+F03A (what some tools put in place of ":")
+        reached ExifTool as a "?" wildcard and failed with "No matching
+        files"; keywords outside the code page were written as "?"."""
+        self._exiftool_or_skip()
+        renamed = self.library / "2026-08-09 clock 1234 PM (estimated).jpg"
+        self.photo.rename(renamed)
+        self.photo = renamed
+        self._asset_id_for(renamed)
+        con = sqlite3.connect(self.database)
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('Zoë ā 日本')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) VALUES (?, ?, 'manual', 1)",
+            (self.asset_id, tag_id),
+        )
+        con.execute(
+            "INSERT INTO asset_annotations(relative_path, subject, tags) VALUES (?, ?, '')",
+            (renamed.name, "Line one\nC:\\path $x @y"),
+        )
+        con.commit()
+        con.close()
+
+        job = self._run_write_all_tags("embedded")
+
+        self.assertEqual(job["failed"], [])
+        values = self.photo_search._exiftool_values(self.photo)
+        self.assertIn("Zoë ā 日本", self.photo_search.SearchHandler._metadata_values(
+            values.get("XMP-dc:Subject")))
+        self.assertEqual(values.get("XMP-dc:Title"), "Line one\nC:\\path $x @y")
+
+    def test_write_all_tags_writes_a_photo_whose_exif_block_has_a_broken_offset(self):
+        """An IFD0 image pointer past the end of the file stops ExifTool
+        rebuilding EXIF; everything else is still written."""
+        import struct
+        self._exiftool_or_skip()
+        entries = [(0x010F, 2, 4, 0x00414141), (0x0201, 4, 1, 900000), (0x0202, 4, 1, 4000)]
+        tiff = b"II*\0" + struct.pack("<IH", 8, len(entries))
+        tiff += b"".join(struct.pack("<HHII", *entry) for entry in entries) + struct.pack("<I", 0)
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(self.photo, quality=92, exif=b"Exif\0\0" + tiff)
+        self._asset_id_for(self.photo)
+        expected = self._seed_every_category()
+        pixels_before = Image.open(self.photo).tobytes()
+
+        job = self._run_write_all_tags("embedded")
+
+        self.assertEqual(job["failed"], [])
+        values = self.photo_search._exiftool_values(self.photo)
+        self.assertEqual(values.get("XMP-dc:Description"), expected["description"])
+        self.assertIn(expected["keywords"], self.photo_search.SearchHandler._metadata_values(
+            values.get("IPTC:Keywords")))
+        self.assertEqual(Image.open(self.photo).tobytes(), pixels_before)
+
+    def test_write_all_tags_falls_back_to_a_sidecar_for_a_jpeg_with_no_end_marker(self):
+        """Image data that never reaches an end marker, followed by a maker
+        trailer: ExifTool cannot rewrite the file, so a sidecar is written."""
+        import struct
+        self._exiftool_or_skip()
+        data = self.photo.read_bytes()
+        self.assertTrue(data.endswith(b"\xff\xd9"))
+        trailer = b"SEFH" + struct.pack("<III", 101, 0, 0)
+        self.photo.write_bytes(data[:-2] + trailer + struct.pack("<I", len(trailer)) + b"SEFT")
+        self._asset_id_for(self.photo)
+        self._seed_every_category()
+        before = self.photo.read_bytes()
+
+        job = self._run_write_all_tags("embedded")
+
+        self.assertEqual(job["failed"], [])
+        self.assertEqual([item["path"] for item in job["fell_back"]], [self.photo.name])
+        self.assertIn("sidecar", job["fell_back"][0]["error"])
+        self.assertEqual(self.photo.read_bytes(), before)
+        self.assertIn("sunset", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+        again = self._run_write_all_tags("embedded")
+        self.assertEqual([item["path"] for item in again["fell_back"]], [self.photo.name],
+                         "the next run tries again and still says so")
+
     def test_write_tags_embedded_keeps_a_restorable_backup(self):
         self._exiftool_or_skip()
         self._seed_every_category()
