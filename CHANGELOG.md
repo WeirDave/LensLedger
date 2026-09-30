@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.13.1 — 2026-09-29
+
+- A photo that has had tags written into it is now recognised when it is renamed or moved. Previously the library scan treated it as a deleted photo and a new one, and the photo lost its tags, people, faces and search data.
+
 ## 1.13.0 — 2026-09-29
 
 - Added a "Find duplicates" button to the People page. It lists pairs of people who may be the same person — names that differ only in punctuation, accents or an initial, one name contained in the other, a small misspelling, or learned faces that look alike — with a one-click choice of which name to keep.

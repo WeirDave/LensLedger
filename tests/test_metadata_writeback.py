@@ -809,6 +809,20 @@ class TestWriteTagsEndpoint(unittest.TestCase):
             self.post("/api/write-tags", {"id": gif_id})
         self.assertIn("Nothing is set to be written", json.loads(caught.exception.read())["error"])
 
+    def test_writing_tags_refreshes_the_fingerprint_a_rename_is_recognised_by(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        from photo_index import content_hash
+        before = content_hash(self.photo)
+
+        self.json_response(self.post("/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"}))
+
+        con = sqlite3.connect(self.database)
+        stored = con.execute("SELECT content_hash FROM assets WHERE id=?", (self.asset_id,)).fetchone()[0]
+        con.close()
+        self.assertNotEqual(content_hash(self.photo), before, "the write changed the start of the file")
+        self.assertEqual(stored, content_hash(self.photo))
+
     def test_write_tags_embedded_keeps_a_restorable_backup(self):
         self._exiftool_or_skip()
         self._seed_every_category()

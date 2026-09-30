@@ -940,50 +940,71 @@ def scan_library(
                 h = row["content_hash"] if row else ""
                 if h and h not in new_hashes:
                     new_hashes[h] = rel_text
+            pairs = [(orphans[0], new_hashes[h]) for h, orphans in orphan_hashes.items() if h in new_hashes]
+            # The fingerprint covers the start of the file, where embedded
+            # tags live, and older versions did not refresh it after writing
+            # tags -- so a moved photo can carry a stale one. A rename or move
+            # keeps the size and the modification time to the nanosecond, so
+            # a pair that is unique on both sides is the same photo.
+            matched_old = {old for old, _new in pairs}
+            matched_new = {new for _old, new in pairs}
+            by_stat_old: dict[tuple, list[str]] = {}
+            for rel_text in missing - matched_old:
+                row = known[rel_text]
+                by_stat_old.setdefault((row["size_bytes"], row["mtime_ns"]), []).append(rel_text)
+            by_stat_new: dict[tuple, list[str]] = {}
+            for rel_text in seen - set(known.keys()) - matched_new:
+                row = con.execute(
+                    "SELECT size_bytes, mtime_ns FROM assets WHERE relative_path=?", (rel_text,)
+                ).fetchone()
+                if row:
+                    by_stat_new.setdefault((row["size_bytes"], row["mtime_ns"]), []).append(rel_text)
+            for key, olds in by_stat_old.items():
+                news = by_stat_new.get(key, [])
+                if len(olds) == 1 and len(news) == 1:
+                    pairs.append((olds[0], news[0]))
             remapped = 0
-            for h, orphan_rels in orphan_hashes.items():
-                if h in new_hashes:
-                    new_rel = new_hashes[h]
-                    old_rel = orphan_rels[0]
-                    old_id = int(known[old_rel]["id"])
-                    new_row = con.execute(
-                        "SELECT id FROM assets WHERE relative_path=?", (new_rel,)
-                    ).fetchone()
-                    if new_row:
-                        new_id = int(new_row["id"])
-                        con.execute("DELETE FROM search_fts WHERE asset_id=?", (new_id,))
-                        con.execute("DELETE FROM assets WHERE id=?", (new_id,))
-                    new_path = str(root / new_rel)
-                    new_folder = str(Path(new_rel).parent.as_posix())
-                    new_filename = Path(new_rel).name
-                    con.execute(
-                        """UPDATE assets SET path=?, relative_path=?, folder=?, filename=?, extension=?,
-                           scan_error='', semantic_error='' WHERE id=?""",
-                        (new_path, new_rel, new_folder, new_filename, Path(new_rel).suffix.lower(), old_id),
-                    )
-                    # These are keyed by path, not by photo, so they would
-                    # otherwise stay behind at the old path: the subject would
-                    # be cleared, removed tags would return, and the last write
-                    # could no longer be restored.
-                    for table in ("asset_annotations", "asset_tag_exclusions"):
-                        con.execute(f"UPDATE OR IGNORE {table} SET relative_path=? WHERE relative_path=?",
-                                    (new_rel, old_rel))
-                    con.execute("UPDATE metadata_publications SET relative_path=? WHERE relative_path=?",
+            for old_rel, new_rel in pairs:
+                old_id = int(known[old_rel]["id"])
+                new_row = con.execute(
+                    "SELECT id, content_hash FROM assets WHERE relative_path=?", (new_rel,)
+                ).fetchone()
+                if new_row:
+                    con.execute("UPDATE assets SET content_hash=? WHERE id=?", (new_row["content_hash"], old_id))
+                    new_id = int(new_row["id"])
+                    con.execute("DELETE FROM search_fts WHERE asset_id=?", (new_id,))
+                    con.execute("DELETE FROM assets WHERE id=?", (new_id,))
+                new_path = str(root / new_rel)
+                new_folder = str(Path(new_rel).parent.as_posix())
+                new_filename = Path(new_rel).name
+                con.execute(
+                    """UPDATE assets SET path=?, relative_path=?, folder=?, filename=?, extension=?,
+                       scan_error='', semantic_error='' WHERE id=?""",
+                    (new_path, new_rel, new_folder, new_filename, Path(new_rel).suffix.lower(), old_id),
+                )
+                # These are keyed by path, not by photo, so they would
+                # otherwise stay behind at the old path: the subject would
+                # be cleared, removed tags would return, and the last write
+                # could no longer be restored.
+                for table in ("asset_annotations", "asset_tag_exclusions"):
+                    con.execute(f"UPDATE OR IGNORE {table} SET relative_path=? WHERE relative_path=?",
                                 (new_rel, old_rel))
-                    apply_asset_annotation(con, old_id, new_rel)
-                    folder_names = [r[0] for r in con.execute(
-                        "SELECT tag FROM folder_tags WHERE folder=?", (new_folder,)
-                    )]
-                    if not folder_names:
-                        inferred = infer_tags(new_folder)
-                        if inferred:
-                            for tag in inferred:
-                                con.execute("INSERT OR IGNORE INTO folder_tags(folder,tag) VALUES(?,?)", (new_folder, tag))
-                            folder_names = inferred
-                    set_source_tags(con, old_id, "folder_rule", folder_names)
-                    rebuild_search_row(con, old_id)
-                    missing.discard(old_rel)
-                    remapped += 1
+                con.execute("UPDATE metadata_publications SET relative_path=? WHERE relative_path=?",
+                            (new_rel, old_rel))
+                apply_asset_annotation(con, old_id, new_rel)
+                folder_names = [r[0] for r in con.execute(
+                    "SELECT tag FROM folder_tags WHERE folder=?", (new_folder,)
+                )]
+                if not folder_names:
+                    inferred = infer_tags(new_folder)
+                    if inferred:
+                        for tag in inferred:
+                            con.execute("INSERT OR IGNORE INTO folder_tags(folder,tag) VALUES(?,?)", (new_folder, tag))
+                        folder_names = inferred
+                set_source_tags(con, old_id, "folder_rule", folder_names)
+                rebuild_search_row(con, old_id)
+                missing.discard(old_rel)
+                remapped += 1
             if remapped:
                 counts["changed"] += remapped
         counts["removing_total"] = len(missing)

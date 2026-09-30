@@ -229,6 +229,51 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT relative_path FROM metadata_publications").fetchall(), [("diagram.png",)])
         con.close()
 
+    def test_a_renamed_photo_with_a_stale_fingerprint_is_still_recognised(self):
+        """Writing tags changes the start of the file, which the fingerprint
+        covers; versions before 1.12.5 did not refresh it. A rename must still
+        be recognised, or the photo loses its record and all it carries."""
+        from PIL import Image
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        old = library / "diagram.jpg"
+        Image.new("RGB", (16, 16), (200, 40, 40)).save(old, format="PNG")
+        twin_a, twin_b = library / "twin-a.jpg", library / "twin-b.jpg"
+        for twin in (twin_a, twin_b):
+            Image.new("RGB", (16, 16), (1, 2, 3)).save(twin)
+        os.utime(twin_b, ns=(os.stat(twin_a).st_atime_ns, os.stat(twin_a).st_mtime_ns))
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+        con = sqlite3.connect(database)
+        ids = dict(con.execute("SELECT relative_path, id FROM assets"))
+        con.execute("UPDATE assets SET content_hash='stale-after-a-tag-write'")
+        con.commit()
+        con.close()
+
+        old.rename(old.with_suffix(".png"))
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+
+        con = sqlite3.connect(database)
+        row = con.execute("SELECT id, extension, content_hash FROM assets WHERE relative_path='diagram.png'").fetchone()
+        self.assertEqual(row[:2], (ids["diagram.jpg"], ".png"), "the photo keeps its record")
+        self.assertNotEqual(row[2], "stale-after-a-tag-write", "and takes the file's current fingerprint")
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 3)
+        con.close()
+
+        twin_a.rename(library / "twin-c.jpg")
+        twin_b.rename(library / "twin-d.jpg")
+        con = sqlite3.connect(database)
+        con.execute("UPDATE assets SET content_hash='stale-after-a-tag-write' WHERE relative_path LIKE 'twin-%'")
+        con.commit()
+        con.close()
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+        con = sqlite3.connect(database)
+        kept = {ids["twin-a.jpg"], ids["twin-b.jpg"]} & {r[0] for r in con.execute("SELECT id FROM assets")}
+        con.close()
+        self.assertEqual(kept, set(), "two moved files with the same size and time are never guessed between")
+
     def test_cancelled_scan_is_resumable_and_does_not_remove_unseen_assets(self):
         from photo_index import scan_library
 

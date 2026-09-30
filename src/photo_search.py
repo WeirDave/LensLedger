@@ -59,7 +59,7 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
-    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect,
+    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
     extract_embedded_tags, is_cloud_placeholder, refresh_embedded_tags, store_embedded_tags, ocr_assets,
     pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
@@ -3621,8 +3621,8 @@ class SearchHandler(BaseHTTPRequestHandler):
              json.dumps(after), operation, review_action_id, now, now),
         )
         con.execute(
-            "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-            (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
+            "UPDATE assets SET size_bytes=?,mtime_ns=?,content_hash=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+            (stat.st_size, stat.st_mtime_ns, content_hash(path), utc_now(), asset_id),
         )
         store_embedded_tags(con, asset_id, keywords, people)
         rebuild_search_row(con, asset_id)
@@ -3745,8 +3745,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             (utc_now(), publication_id),
         )
         con.execute(
-            "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-            (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
+            "UPDATE assets SET size_bytes=?,mtime_ns=?,content_hash=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+            (stat.st_size, stat.st_mtime_ns, content_hash(path), utc_now(), asset_id),
         )
         store_embedded_tags(con, asset_id, keywords, people)
         rebuild_search_row(con, asset_id)
@@ -3866,8 +3866,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                  json.dumps(preview["after"]), utc_now(), utc_now()),
             )
             con.execute(
-                "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-                (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
+                "UPDATE assets SET size_bytes=?,mtime_ns=?,content_hash=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+                (stat.st_size, stat.st_mtime_ns, content_hash(path), utc_now(), asset_id),
             )
             store_embedded_tags(con, asset_id, after["keywords"], after["people"])
             rebuild_search_row(con, asset_id)
@@ -3912,8 +3912,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         stat = source.stat()
         con.execute("UPDATE metadata_publications SET restored_at=? WHERE id=?", (utc_now(), record["id"]))
         con.execute(
-            "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-            (stat.st_size, stat.st_mtime_ns, utc_now(), int(asset["id"])),
+            "UPDATE assets SET size_bytes=?,mtime_ns=?,content_hash=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+            (stat.st_size, stat.st_mtime_ns, content_hash(source), utc_now(), int(asset["id"])),
         )
         store_embedded_tags(con, int(asset["id"]), *extract_embedded_tags(source))
         rebuild_search_row(con, int(asset["id"]))
@@ -3992,8 +3992,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             ).fetchone()
             if row:
                 con.execute(
-                    "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-                    (stat.st_size, stat.st_mtime_ns, utc_now(), int(row["id"])),
+                    "UPDATE assets SET size_bytes=?,mtime_ns=?,content_hash=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+                    (stat.st_size, stat.st_mtime_ns, content_hash(path), utc_now(), int(row["id"])),
                 )
         console_log(f"Repair a photo: repaired {rel} — safety copy kept")
         self.send_json({"ok": True, "message": f"Repaired — backup saved", "backup": str(backup)})
@@ -4897,8 +4897,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 (utc_now(), publication["id"]),
             )
             con.execute(
-                "UPDATE assets SET size_bytes=?,mtime_ns=?,metadata_scanned=1,indexed_at=? WHERE id=?",
-                (stat.st_size, stat.st_mtime_ns, utc_now(), asset_id),
+                "UPDATE assets SET size_bytes=?,mtime_ns=?,content_hash=?,metadata_scanned=1,indexed_at=? WHERE id=?",
+                (stat.st_size, stat.st_mtime_ns, content_hash(source), utc_now(), asset_id),
             )
             store_embedded_tags(con, asset_id, *extract_embedded_tags(source))
         sync_person_tags(con, asset_id); rebuild_search_row(con, asset_id)
