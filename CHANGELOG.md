@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.12.4 — 2026-09-29
+
+- A photo that is renamed or moved to another folder now keeps its subject, its removed tags and its "Restore last publish" option. The library scan recognised the move but left these behind at the old path, so the subject was cleared and removed tags came back.
+- A photo renamed to a different extension, such as a PNG renamed from .jpg to .png, is now treated as its new file type.
+
 ## 1.12.3 — 2026-09-29
 
 - Tags can now be embedded in a file whose extension does not match its contents, such as a PNG saved with a .jpg name. These files previously failed with "Not a valid JPG (looks more like a PNG)".

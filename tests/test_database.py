@@ -191,6 +191,44 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(backup(database, destination), 0)
         self.assertEqual(verify(destination), 0)
 
+    def test_a_renamed_photo_keeps_everything_recorded_against_its_path(self):
+        """A rename is recognised by content; the subject, removed tags and
+        the last write's record are stored by path and must follow it."""
+        from PIL import Image
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        old = library / "diagram.jpg"
+        Image.new("RGB", (16, 16), (200, 40, 40)).save(old, format="PNG")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+        con = sqlite3.connect(database)
+        asset_id = con.execute("SELECT id FROM assets").fetchone()[0]
+        con.execute("INSERT INTO asset_annotations(relative_path, subject, tags) VALUES ('diagram.jpg', 'Wiring plan', '')")
+        con.execute("INSERT INTO asset_tag_exclusions(relative_path, tag) VALUES ('diagram.jpg', 'red')")
+        con.execute(
+            "INSERT INTO metadata_publications(asset_id, relative_path, backup_path, before_json, after_json, "
+            "published_at, completed_at) VALUES (?, 'diagram.jpg', 'copy', '{}', '{}', 'now', 'now')",
+            (asset_id,))
+        con.commit()
+        con.close()
+
+        old.rename(old.with_suffix(".png"))
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT id, relative_path, filename, extension FROM assets").fetchall(),
+                         [(asset_id, "diagram.png", "diagram.png", ".png")])
+        self.assertEqual(con.execute("SELECT relative_path, subject FROM asset_annotations").fetchall(),
+                         [("diagram.png", "Wiring plan")])
+        self.assertEqual(con.execute(
+            "SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.source='subject'").fetchall(),
+            [("Wiring plan",)], "the subject is not cleared by the rename")
+        self.assertEqual(con.execute("SELECT relative_path FROM asset_tag_exclusions").fetchall(), [("diagram.png",)])
+        self.assertEqual(con.execute("SELECT relative_path FROM metadata_publications").fetchall(), [("diagram.png",)])
+        con.close()
+
     def test_cancelled_scan_is_resumable_and_does_not_remove_unseen_assets(self):
         from photo_index import scan_library
 

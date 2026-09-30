@@ -950,10 +950,19 @@ def scan_library(
                     new_folder = str(Path(new_rel).parent.as_posix())
                     new_filename = Path(new_rel).name
                     con.execute(
-                        """UPDATE assets SET path=?, relative_path=?, folder=?, filename=?,
+                        """UPDATE assets SET path=?, relative_path=?, folder=?, filename=?, extension=?,
                            scan_error='', semantic_error='' WHERE id=?""",
-                        (new_path, new_rel, new_folder, new_filename, old_id),
+                        (new_path, new_rel, new_folder, new_filename, Path(new_rel).suffix.lower(), old_id),
                     )
+                    # These are keyed by path, not by photo, so they would
+                    # otherwise stay behind at the old path: the subject would
+                    # be cleared, removed tags would return, and the last write
+                    # could no longer be restored.
+                    for table in ("asset_annotations", "asset_tag_exclusions"):
+                        con.execute(f"UPDATE OR IGNORE {table} SET relative_path=? WHERE relative_path=?",
+                                    (new_rel, old_rel))
+                    con.execute("UPDATE metadata_publications SET relative_path=? WHERE relative_path=?",
+                                (new_rel, old_rel))
                     apply_asset_annotation(con, old_id, new_rel)
                     folder_names = [r[0] for r in con.execute(
                         "SELECT tag FROM folder_tags WHERE folder=?", (new_folder,)
