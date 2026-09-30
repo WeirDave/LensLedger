@@ -524,6 +524,46 @@ class TestWriteTagsEndpoint(unittest.TestCase):
             values.get("XMP-dc:Subject")))
         self.assertEqual(values.get("XMP-dc:Title"), "Line one\nC:\\path $x @y")
 
+    def _write_all_through(self, photo):
+        from metadata_reader import pixel_hash
+        self.photo.unlink()
+        self.photo = photo
+        self._asset_id_for(photo)
+        expected = self._seed_every_category()
+        before = pixel_hash(photo)
+
+        job = self._run_write_all_tags("embedded")
+
+        self.assertEqual((job["failed"], job["fell_back"]), ([], []))
+        values = self.photo_search._exiftool_values(photo)
+        self.assertEqual(values.get("XMP-dc:Description"), expected["description"])
+        self.assertIn(expected["keywords"], self.photo_search.SearchHandler._metadata_values(
+            values.get("XMP-dc:Subject")))
+        self.assertEqual(pixel_hash(photo), before)
+        self.assertEqual([p.name for p in self.library.iterdir()], [photo.name],
+                         "no working copy is left beside the photo")
+
+    def test_write_all_tags_writes_a_png_saved_with_a_jpg_extension(self):
+        """ExifTool refuses a file whose contents do not match its extension."""
+        self._exiftool_or_skip()
+        misnamed = self.library / "2026-08-15 screenshot.jpg"
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(misnamed, format="PNG")
+        self._write_all_through(misnamed)
+        with Image.open(misnamed) as image:
+            self.assertEqual(image.format, "PNG", "the file is still the same PNG")
+
+    def test_write_all_tags_writes_a_photo_whose_name_leaves_no_room_for_a_temporary_file(self):
+        """A name within 13 characters of the 255 limit cannot take ExifTool's
+        "_exiftool_tmp" suffix, so ExifTool cannot create its temporary file."""
+        self._exiftool_or_skip()
+        long_name = self.library / ("2026-08-16 " + "n" * 235 + ".jpg")
+        try:
+            Image.new("RGB", (32, 24), (24, 80, 140)).save(long_name, quality=92)
+        except OSError as exc:
+            self.skipTest(f"this system cannot create a {len(str(long_name))}-character path: {exc}")
+        self.assertEqual(len(long_name.name), 250)
+        self._write_all_through(long_name)
+
     def test_write_all_tags_writes_a_photo_whose_exif_block_has_a_broken_offset(self):
         """An IFD0 image pointer past the end of the file stops ExifTool
         rebuilding EXIF; everything else is still written."""

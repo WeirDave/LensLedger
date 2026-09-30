@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.12.3 — 2026-09-29
+
+- Tags can now be embedded in a file whose extension does not match its contents, such as a PNG saved with a .jpg name. These files previously failed with "Not a valid JPG (looks more like a PNG)".
+- Tags can now be embedded in a photo whose file name is 243 characters or longer. These photos previously failed with "Error creating file".
+
 ## 1.12.2 — 2026-09-29
 
 - LensLedger now answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]`. A web page on another site can no longer reach the local server by pointing its own domain name at this computer (DNS rebinding), so it cannot read pages, photos or the request token.

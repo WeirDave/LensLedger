@@ -524,7 +524,7 @@ def _run_exiftool(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def _run_exiftool_write(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+def _write_in_place(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     """Write, and if the EXIF block is unreadable, write everything else."""
     try:
         return _run_exiftool(arguments)
@@ -537,6 +537,46 @@ def _run_exiftool_write(arguments: list[str]) -> subprocess.CompletedProcess[str
         if kept == arguments:
             raise
         return _run_exiftool(kept)
+
+
+_MISNAMED_FILE = re.compile(r"Not a valid \w+ \(looks more like an? (\w+)\)")
+
+
+def _work_copy_suffix(message: str, target: Path) -> str | None:
+    """The extension a short-named working copy needs, when the photo itself
+    cannot be written where it is: ExifTool refuses a file whose extension
+    does not match its contents (a PNG saved as .jpg), and one whose name is
+    too long for its own temporary file (the name plus "_exiftool_tmp" past
+    the 255-character limit)."""
+    misnamed = _MISNAMED_FILE.search(message)
+    if misnamed:
+        return "." + misnamed.group(1).lower()
+    if "Error creating file" in message:
+        return target.suffix
+    return None
+
+
+def _run_exiftool_write(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """Write to the photo named by the last argument; if it cannot be written
+    where it is, write a short-named copy and put that back over it."""
+    try:
+        return _write_in_place(arguments)
+    except EmbeddingRefused:
+        raise
+    except ValueError as exc:
+        target = Path(arguments[-1])
+        suffix = _work_copy_suffix(str(exc), target)
+        if suffix is None:
+            raise
+    folder = Path(tempfile.mkdtemp(prefix="lensledger-write-"))
+    try:
+        work = folder / f"photo{suffix}"
+        shutil.copy2(target, work)
+        result = _write_in_place([*arguments[:-1], str(work)])
+        shutil.copy2(work, target)
+        return result
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def _exiftool_values(path: Path) -> dict[str, object]:
@@ -3552,9 +3592,9 @@ class SearchHandler(BaseHTTPRequestHandler):
             add_arguments.append(f"-XMP-iptcExt:PersonInImage+={person}")
         add_arguments.append(str(path))
         try:
-            _run_exiftool(clear_arguments)
+            _run_exiftool_write(clear_arguments)
             if keywords or people:
-                _run_exiftool(add_arguments)
+                _run_exiftool_write(add_arguments)
             if _pixel_hash(path) != before_pixels:
                 raise ValueError(f"Pixel verification failed for {asset['filename']}")
         except Exception:
@@ -3802,7 +3842,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             try:
                 _run_exiftool_write([*arguments, str(path)])
                 if after["keywords"] or after["people"]:
-                    _run_exiftool([*keyword_arguments, str(path)])
+                    _run_exiftool_write([*keyword_arguments, str(path)])
                 if _pixel_hash(path) != before_pixels:
                     raise ValueError("Pixel verification failed")
             except Exception:
