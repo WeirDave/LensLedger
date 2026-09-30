@@ -721,6 +721,33 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertIn("sunset", self.photo_search.SearchHandler._metadata_values(
             self.photo_search._exiftool_values(png).get("XMP-dc:Subject")))
 
+    def test_turning_sidecars_off_after_both_moves_them_without_rewriting_the_photos(self):
+        """A library written under "Both" and then switched to the defaults
+        must not be re-embedded -- that is a safety copy of every photo --
+        when the tags inside the photos are already current."""
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        self._save_publish(write_mode="both")
+        self._run_write_all_tags_from_settings()
+        settled = self._run_write_all_tags_from_settings()
+        self.assertEqual(settled["written"] + settled["up_to_date"], 1)
+        self.assertEqual(self._run_write_all_tags_from_settings()["up_to_date"], 1,
+                         "a library that has been written before is up to date")
+        self.assertTrue(self.photo.with_suffix(".xmp").exists())
+        photo_bytes = self.photo.read_bytes()
+        copies = lambda: list(self.photo_search.metadata_backup_root().rglob("*.before-write-tags-*"))
+        copies_before = copies()
+
+        self._save_publish(embed=True, sidecar_types={})
+        second = self._run_write_all_tags_from_settings()
+
+        self.assertEqual((second["written"], second["up_to_date"], second["sidecars_removed"]), (0, 1, 1))
+        self.assertFalse(self.photo.with_suffix(".xmp").exists())
+        self.assertEqual(self.photo.read_bytes(), photo_bytes, "the photo is not rewritten")
+        self.assertEqual(copies(), copies_before, "no new safety copy is taken")
+        third = self._run_write_all_tags_from_settings()
+        self.assertEqual((third["written"], third["up_to_date"], third["sidecars_removed"]), (0, 1, 0))
+
     def test_a_type_with_sidecars_off_and_no_embedding_is_skipped_and_said_so(self):
         gif = self.library / "2026-08-12 anim.gif"
         Image.new("RGB", (16, 16), (200, 40, 40)).save(gif)

@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.12.1 — 2026-09-29
+
+- Changing only which file types get sidecar files no longer rewrites every photo. When the tags inside a photo are already current, "Write all tags" now only writes or moves aside its sidecar, with no rewrite and no safety copy. Previously, turning sidecars off after using "Both" re-embedded every photo and took a safety copy of each one.
+
 ## 1.12.0 — 2026-09-29
 
 - Sidecar (.xmp) files are now chosen per file type. Settings → Metadata publishing replaces "Write mode" with an "Embed tags in photo files" switch (on by default) and a "Sidecar (.xmp) files for" checkbox for each file type. By default only GIF and BMP, which cannot carry embedded tags, get sidecars. Saved "Write mode" choices carry over until the settings are next saved.

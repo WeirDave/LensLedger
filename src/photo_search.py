@@ -4298,6 +4298,14 @@ class SearchHandler(BaseHTTPRequestHandler):
                         if self._tags_already_written(data["asset"], fingerprint, path):
                             up_to_date += 1
                             raise _AlreadyWritten
+                        # Only the sidecar choice changed since the last write:
+                        # the tags inside the photo are already these, so the
+                        # photo is not rewritten or copied -- its sidecar is
+                        # just written or moved aside.
+                        embedded_current = embed and any(
+                            self._tags_already_written(
+                                data["asset"], self._write_tags_fingerprint(data, earlier), path)
+                            for earlier in ("embedded", "both"))
                         if write_mode in ("embedded", "both") and not can_embed:
                             suffix = path.suffix or "this file type"
                             reason = (f"{suffix} files cannot carry embedded tags — "
@@ -4313,7 +4321,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                                 keywords=data["keywords"],
                                 people=data["people"],
                             )
-                        if embed:
+                        if embedded_current:
+                            if not sidecar and retire_sidecar(path, relative):
+                                sidecars_removed += 1
+                        elif embed:
                             try:
                                 outcome = self._write_embedded_metadata(con, int(asset_id), data)
                                 if not sidecar and retire_sidecar(path, relative):
@@ -4344,7 +4355,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                                          "mtime_ns": stat.st_mtime_ns, "at": utc_now()}),
                              int(asset_id)),
                         )
-                    written += 1
+                    if embedded_current:
+                        up_to_date += 1
+                    else:
+                        written += 1
                 except _AlreadyWritten:
                     pass
                 except Exception as exc:
