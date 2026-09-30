@@ -258,6 +258,7 @@ function renderWriteTagsJob(job) {
     fileReport('{n} photos could not be written', 'write-tags-failed', job.failed),
     fileReport('{n} photos got a sidecar file instead', 'write-tags-fallback', job.fell_back),
     fileReport('{n} photos could not carry everything', 'write-tags-partial', job.incomplete),
+    fileReport('{n} photos were skipped', 'write-tags-skipped', job.skipped),
   ].filter(Boolean);
 
   if (!groups.length) {

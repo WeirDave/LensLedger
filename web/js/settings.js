@@ -132,7 +132,10 @@ function collectSettings(){
   s.startup=s.startup||{};
   s.startup.show_library_picker=c('showLibraryPicker');
   s.publish=s.publish||{};
-  s.publish.write_mode=v('writeMode')||'embedded';
+  delete s.publish.write_mode;
+  s.publish.embed=c('embedTags');
+  s.publish.sidecar_types={};
+  document.querySelectorAll('[data-sidecar-type]').forEach(box=>{s.publish.sidecar_types[box.dataset.sidecarType]=box.checked});
   s.publish.auto_classify=c('autoClassify');
   s.publish.backup_keep_days=Math.max(0,n('backupKeepDays'));
   s.publish.backup_max_gb=Math.max(0,n('backupMaxGb'));

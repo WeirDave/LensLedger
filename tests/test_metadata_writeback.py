@@ -634,6 +634,114 @@ class TestWriteTagsEndpoint(unittest.TestCase):
             self.photo_search._exiftool_values(self.photo).get("XMP-dc:Subject"))
         self.assertEqual(sorted(keywords), ["Lighthouse", "sunset"])
 
+    def _save_publish(self, **values):
+        from settings_config import load_settings, save_settings
+        settings = load_settings()
+        settings["publish"] = {**settings.get("publish", {}), **values}
+        save_settings(settings)
+
+    def _run_write_all_tags_from_settings(self):
+        import time
+        self.json_response(self.post("/api/write-tags/batch", {"scope": "all"}))
+        deadline = time.monotonic() + 60
+        job = {}
+        while time.monotonic() < deadline:
+            job = dict(self.photo_search.SearchHandler.write_tags_job)
+            if job.get("state") in ("complete", "cancelled", "error"):
+                break
+            time.sleep(0.2)
+        self.assertEqual(job.get("state"), "complete", f"batch did not finish: {job}")
+        return job
+
+    def _tag_every_photo(self):
+        con = sqlite3.connect(self.database)
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('sunset')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) "
+            "SELECT id, ?, 'manual', 1 FROM assets", (tag_id,))
+        con.commit()
+        con.close()
+
+    def test_sidecars_default_to_off_for_embeddable_types_and_on_for_the_rest(self):
+        plan = self.photo_search.write_plan
+        for suffix in (".jpg", ".JPEG", ".heic", ".png", ".webp", ".tif", ".tiff"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(plan(suffix), (True, False))
+        for suffix in (".gif", ".bmp"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(plan(suffix), (False, True))
+
+    def test_the_older_write_mode_setting_is_read_as_the_choice_it_stood_for(self):
+        settings = self.photo_search.publish_write_settings
+        self._save_publish(write_mode="both")
+        self.assertEqual(settings()["embed"], True)
+        self.assertTrue(all(settings()["sidecar_types"].values()))
+        self._save_publish(write_mode="sidecar")
+        self.assertEqual(settings()["embed"], False)
+        self.assertTrue(all(settings()["sidecar_types"].values()))
+        self._save_publish(sidecar_types={"png": True, "gif": False}, embed=True)
+        chosen = settings()["sidecar_types"]
+        self.assertEqual((chosen["png"], chosen["gif"], chosen["jpeg"], chosen["bmp"]),
+                         (True, False, False, True), "unsaved types keep their defaults")
+
+    def test_write_all_tags_moves_lensledger_sidecars_aside_for_types_set_to_off(self):
+        self._exiftool_or_skip()
+        from xmp_sidecar import build_xmp
+        png = self.library / "2026-08-12 map.png"
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(png)
+        gif = self.library / "2026-08-12 anim.gif"
+        Image.new("RGB", (16, 16), (200, 40, 40)).save(gif)
+        shared = self.library / "2026-08-13 pair.png"
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(shared)
+        (self.library / "2026-08-13 pair.cr2").write_bytes(b"raw placeholder")
+        foreign = self.library / "2026-08-14 other.png"
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(foreign)
+        ours = build_xmp(keywords=["old"])
+        png.with_suffix(".xmp").write_text(ours, encoding="utf-8")
+        shared.with_suffix(".xmp").write_text(ours, encoding="utf-8")
+        lightroom = ('<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+                     '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0">\n</x:xmpmeta>')
+        foreign.with_suffix(".xmp").write_text(lightroom, encoding="utf-8")
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        self._tag_every_photo()
+
+        job = self._run_write_all_tags_from_settings()
+
+        self.assertEqual((job["failed"], job["fell_back"], job["skipped"]), ([], [], []))
+        self.assertEqual(job["sidecars_removed"], 1)
+        self.assertFalse(png.with_suffix(".xmp").exists(), "LensLedger's own sidecar is moved aside")
+        moved = list(self.photo_search.metadata_backup_root().rglob("*.before-sidecar-removal-*.xmp"))
+        self.assertEqual([path.read_text(encoding="utf-8") for path in moved], [ours])
+        self.assertEqual(shared.with_suffix(".xmp").read_text(encoding="utf-8"), ours,
+                         "a sidecar the .cr2 of the same name also answers to stays")
+        self.assertEqual(foreign.with_suffix(".xmp").read_text(encoding="utf-8"), lightroom,
+                         "another program's sidecar is never touched")
+        self.assertIn("sunset", gif.with_suffix(".xmp").read_text(encoding="utf-8"))
+        self.assertIn("sunset", self.photo_search.SearchHandler._metadata_values(
+            self.photo_search._exiftool_values(png).get("XMP-dc:Subject")))
+
+    def test_a_type_with_sidecars_off_and_no_embedding_is_skipped_and_said_so(self):
+        gif = self.library / "2026-08-12 anim.gif"
+        Image.new("RGB", (16, 16), (200, 40, 40)).save(gif)
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        self._tag_every_photo()
+        self._save_publish(embed=False, sidecar_types={"gif": False, "jpeg": True})
+
+        job = self._run_write_all_tags_from_settings()
+
+        self.assertEqual([item["path"] for item in job["skipped"]], [gif.name])
+        self.assertFalse(gif.with_suffix(".xmp").exists())
+        self.assertTrue(self.photo.with_suffix(".xmp").exists())
+        con = sqlite3.connect(self.database)
+        gif_id = int(con.execute("SELECT id FROM assets WHERE filename=?", (gif.name,)).fetchone()[0])
+        con.close()
+        import urllib.error
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/write-tags", {"id": gif_id})
+        self.assertIn("Nothing is set to be written", json.loads(caught.exception.read())["error"])
+
     def test_write_tags_embedded_keeps_a_restorable_backup(self):
         self._exiftool_or_skip()
         self._seed_every_category()

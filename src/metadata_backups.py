@@ -19,7 +19,8 @@ from pathlib import Path
 # pressing a button in LensLedger.
 FREE_SPACE_MARGIN_BYTES = 2 * 1024 ** 3
 
-BACKUP_SUFFIXES = (".before-", ".before-people-", ".before-write-tags-", ".before-repair-")
+BACKUP_SUFFIXES = (".before-", ".before-people-", ".before-write-tags-", ".before-repair-",
+                   ".before-sidecar-removal-")
 
 
 # NTFS and most other filesystems cap one path component at 255 characters.

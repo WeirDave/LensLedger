@@ -128,3 +128,14 @@ def write_sidecar(
 
 def sidecar_exists(photo_path: Path) -> bool:
     return photo_path.with_suffix(".xmp").is_file()
+
+
+def is_lensledger_sidecar(text: str) -> bool:
+    """True when a sidecar's opening block is exactly what write_sidecar writes.
+
+    Sidecars share a name with every file of the same stem, and Lightroom and
+    other programs write theirs under that same name; only LensLedger's own
+    may ever be moved aside.
+    """
+    opening = build_xmp().split("\n")[:8]
+    return text.lstrip("﻿").replace("\r\n", "\n").split("\n")[:8] == opening

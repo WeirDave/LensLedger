@@ -322,19 +322,18 @@ The **Publish photos** page has a **Write all tags** button that writes everythi
 
 Before it starts, LensLedger works out how much room the safety copies will need and refuses if there is not enough, telling you how short it is. The run shows progress and can be stopped with **Stop writing**; it stops between photos, so nothing is ever left half-written.
 
-Anything a particular file cannot carry is listed underneath with the reason. A file that cannot hold embedded tags at all — a PNG, for instance — gets a companion sidecar file next to it instead and is named as having done so.
+Anything a particular file cannot carry is listed underneath with the reason. A JPEG too damaged to rewrite gets a sidecar file instead and is named as having done so. A photo whose file type is set to get neither embedded tags nor a sidecar is listed as skipped.
 
 ### Sidecar files
 
-**Settings > Metadata publishing > Write mode** chooses where metadata goes:
+**Settings > Metadata publishing** chooses where metadata goes:
 
-| Mode | What it does |
-|------|--------------|
-| Embedded | Writes inside the photo files themselves |
-| Sidecar | Writes a small `.xmp` companion file next to each photo, leaving originals untouched |
-| Both | Does both |
+- **Embed tags in photo files** (on by default) writes inside JPEG, HEIC/HEIF, PNG, WebP and TIFF files themselves.
+- **Sidecar (.xmp) files for** has a checkbox per file type. Each ticked type gets a small `.xmp` companion file next to the photo. By default only GIF and BMP are ticked, since they cannot carry embedded tags.
 
-Sidecar mode carries exactly the same information and never modifies an original, which makes it the safer choice if you would rather not have your photos rewritten.
+A sidecar carries exactly the same information and never modifies an original. To leave your photos untouched, turn off embedding and tick every file type.
+
+When a file type's sidecar box is off, LensLedger's own sidecar for a photo of that type is moved to the safety copies the next time tags are embedded in that photo, and cleared with them. A sidecar written by another program, such as Lightroom, is never moved. Neither is one that another file with the same name in that folder also uses: `IMG_0001.jpg` and `IMG_0001.cr2` share `IMG_0001.xmp`.
 
 ### Safety features
 
@@ -441,7 +440,8 @@ Choose the CLIP model for meaning search. See [Meaning search](#meaning-search-o
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Write mode | Embedded | Whether metadata goes inside the photos, into sidecar files beside them, or both |
+| Embed tags in photo files | On | Write metadata inside JPEG, HEIC/HEIF, PNG, WebP and TIFF files |
+| Sidecar (.xmp) files for | GIF and BMP | The file types that get an `.xmp` companion file beside each photo |
 | Auto-classify photos after meaning search | Off | Tag photos with categories automatically once meaning search finishes |
 | Keep photo safety copies for (days) | 30 | Copies older than this are cleared automatically. 0 keeps them forever |
 | Total size limit for safety copies (GB) | 20 | When the copies exceed this, the oldest go first. 0 means no limit |

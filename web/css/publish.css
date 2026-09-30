@@ -37,5 +37,5 @@ main{padding:18px 20px 60px;max-width:1200px}
 .write-tags-group li strong{color:var(--text);font-weight:650}
 .write-tags-failed{border-color:var(--danger)}
 .write-tags-failed h4{color:var(--danger)}
-.write-tags-fallback h4,.write-tags-partial h4{color:var(--accent)}
+.write-tags-fallback h4,.write-tags-partial h4,.write-tags-skipped h4{color:var(--accent)}
 .write-tags-more{margin:8px 0 0;font-size:12px;color:var(--text-secondary)}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -70,13 +71,16 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 
 def load_settings() -> dict:
+    # A copy: the nested sections are otherwise DEFAULTS' own dicts, and a
+    # caller that edits what it loaded would change the defaults for the
+    # rest of the process.
     try:
         raw = json.loads(settings_file().read_text(encoding="utf-8"))
         if isinstance(raw, dict):
-            return _deep_merge(DEFAULTS, raw)
+            return copy.deepcopy(_deep_merge(DEFAULTS, raw))
     except (OSError, ValueError, json.JSONDecodeError):
         pass
-    return dict(DEFAULTS)
+    return copy.deepcopy(DEFAULTS)
 
 
 def save_settings(values: dict) -> None:

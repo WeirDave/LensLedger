@@ -58,7 +58,7 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
-    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect,
+    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, SQLITE_BUSY_TIMEOUT_MS, connect,
     extract_embedded_tags, is_cloud_placeholder, refresh_embedded_tags, store_embedded_tags, ocr_assets,
     pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
@@ -83,7 +83,7 @@ from semantic_index import (
     search as semantic_search,
     status as semantic_status,
 )
-from xmp_sidecar import write_sidecar
+from xmp_sidecar import is_lensledger_sidecar, write_sidecar
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -93,6 +93,95 @@ PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".
 _PUBLISHABLE_SQL = "a.extension IN ('.jpg','.jpeg','.heic','.heif','.png','.webp','.tif','.tiff')"
 # Repair re-saves the picture as JPEG, so it stays limited to these.
 REPAIRABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
+
+# Sidecar (.xmp) files are turned on or off per file type in Settings. A type
+# LensLedger can embed into defaults to off; any other defaults to on, since a
+# sidecar is the only place its tags can go.
+SIDECAR_FILE_TYPES = (
+    ("jpeg", "JPEG", (".jpg", ".jpeg")),
+    ("heic", "HEIC / HEIF", (".heic", ".heif")),
+    ("png", "PNG", (".png",)),
+    ("webp", "WebP", (".webp",)),
+    ("tiff", "TIFF", (".tif", ".tiff")),
+    ("gif", "GIF", (".gif",)),
+    ("bmp", "BMP", (".bmp",)),
+)
+
+
+def _sidecar_type(suffix: str) -> str | None:
+    suffix = suffix.lower()
+    return next((key for key, _label, extensions in SIDECAR_FILE_TYPES if suffix in extensions), None)
+
+
+def publish_write_settings() -> dict:
+    """Whether to embed, and which file types get a sidecar.
+
+    Settings saved before per-type sidecars carry only "write_mode"; that is
+    read as the choice it stood for until the settings are saved again.
+    """
+    publish = load_settings().get("publish", {})
+    defaults = {key: not any(ext in PUBLISHABLE_EXTENSIONS for ext in extensions)
+                for key, _label, extensions in SIDECAR_FILE_TYPES}
+    chosen = publish.get("sidecar_types")
+    if isinstance(chosen, dict):
+        return {"embed": bool(publish.get("embed", True)),
+                "sidecar_types": {key: bool(chosen.get(key, default)) for key, default in defaults.items()}}
+    legacy = str(publish.get("write_mode") or "embedded")
+    every = legacy in ("sidecar", "both")
+    return {"embed": legacy != "sidecar",
+            "sidecar_types": {key: every or default for key, default in defaults.items()}}
+
+
+def write_plan(suffix: str, write_mode: str = "", settings: dict | None = None) -> tuple[bool, bool]:
+    """(embed, sidecar) for one file. An explicit write_mode -- the older
+    request field -- overrides the settings: every file gets what that mode
+    names, and a file that cannot be embedded gets a sidecar instead."""
+    can_embed = suffix.lower() in PUBLISHABLE_EXTENSIONS
+    if write_mode:
+        return (can_embed and write_mode in ("embedded", "both"),
+                write_mode in ("sidecar", "both") or not can_embed)
+    settings = settings or publish_write_settings()
+    key = _sidecar_type(suffix)
+    sidecar = settings["sidecar_types"][key] if key else not can_embed
+    return can_embed and settings["embed"], sidecar
+
+
+def _plan_mode(embed: bool, sidecar: bool) -> str:
+    return "both" if embed and sidecar else "embedded" if embed else "sidecar" if sidecar else ""
+
+
+def describe_write_settings(settings: dict) -> str:
+    sidecars = [label for key, label, _extensions in SIDECAR_FILE_TYPES if settings["sidecar_types"][key]]
+    return ("embedded" if settings["embed"] else "not embedded") + ", sidecar files for " + (
+        ", ".join(sidecars) if sidecars else "no file types")
+
+
+def retire_sidecar(photo: Path, relative: str) -> bool:
+    """Move LensLedger's own sidecar for this photo to the safety copies.
+
+    Left alone: a sidecar another program wrote, and one whose name another
+    file of the same stem in that folder also answers to (IMG_1.jpg and
+    IMG_1.cr2 both use IMG_1.xmp).
+    """
+    sidecar = photo.with_suffix(".xmp")
+    try:
+        if not sidecar.is_file() or not is_lensledger_sidecar(sidecar.read_text(encoding="utf-8")):
+            return False
+        stem = photo.stem.casefold()
+        for sibling in photo.parent.iterdir():
+            if (sibling.name != photo.name and sibling.stem.casefold() == stem
+                    and sibling.suffix.lower() in MEDIA_EXTENSIONS):
+                return False
+    except (OSError, UnicodeDecodeError):
+        return False
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    parent = Path(relative).parent
+    destination = (metadata_backup_root() / parent /
+                   metadata_backups.backup_name(sidecar.stem, "before-sidecar-removal-", timestamp, ".xmp")).resolve()
+    destination.relative_to(metadata_backup_root().resolve())
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(sidecar), str(destination))
+    return True
 WEB_ROOT = Path(__file__).parent.parent / "web"
 WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)|img/[a-z][a-z0-9-]*\.(?:png|jpg|svg)")
 WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
@@ -738,8 +827,8 @@ def describe_action_scope(route: str, body: dict) -> str:
         scope = str(body.get("scope", "all"))
         parts.append({"all": "every photo with tags", "classified": "auto-classified photos only",
                       "people": "photos with confirmed people only"}.get(scope, scope))
-        mode = body.get("write_mode") or get_setting("publish", "write_mode", default="embedded")
-        parts.append(f"write mode: {mode}")
+        mode = body.get("write_mode")
+        parts.append(f"write mode: {mode}" if mode else describe_write_settings(publish_write_settings()))
     elif route == "/api/photo-backups/clear":
         parts.append("everything" if body.get("scope") == "all" else "past the retention limit")
     else:
@@ -1774,6 +1863,15 @@ class SearchHandler(BaseHTTPRequestHandler):
         watch = settings.get("watch", {})
         ingest = settings.get("ingest", {})
         publish = settings.get("publish", {})
+        write_settings = publish_write_settings()
+        sidecar_choices = "".join(
+            f'<label class="sidecar-type"><input type="checkbox" data-sidecar-type="{key}"'
+            f'{" checked" if write_settings["sidecar_types"][key] else ""}> {label}'
+            + ("" if any(ext in PUBLISHABLE_EXTENSIONS for ext in extensions)
+               else ' <span class="sidecar-type-note">(cannot embed)</span>')
+            + "</label>"
+            for key, label, extensions in SIDECAR_FILE_TYPES
+        )
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
@@ -1794,8 +1892,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card" id="folder-watching"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
-<section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos. Sidecar mode writes a separate .xmp file next to each photo instead of modifying the original.</p>
-<div class="field"><label for="writeMode">Write mode</label><select id="writeMode"><option value="embedded" {"selected" if publish.get("write_mode", "embedded") == "embedded" else ""}>Embedded (modify photo files)</option><option value="sidecar" {"selected" if publish.get("write_mode") == "sidecar" else ""}>Sidecar (.xmp files)</option><option value="both" {"selected" if publish.get("write_mode") == "both" else ""}>Both (embedded + sidecar)</option></select><span class="hint">Embedded writes metadata directly into JPEG, HEIC, PNG, WebP and TIFF files with safety backups. Sidecar creates .xmp files that Lightroom, Capture One, and other apps can read without changing originals.</span></div>
+<section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos: into the photo file itself, into a separate .xmp sidecar file next to it, or both, chosen per file type.</p>
+<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="embedTags" {"checked" if write_settings["embed"] else ""}><span class="slider"></span></label><label for="embedTags">Embed tags in photo files</label></div>
+<span class="hint hint-under-toggle">Writes into JPEG, HEIC, PNG, WebP and TIFF files themselves, keeping a safety copy of each photo first.</span>
+<div class="field sidecar-types"><span class="field-label">Sidecar (.xmp) files for</span><div class="sidecar-type-list">{sidecar_choices}</div><span class="hint">A sidecar is a separate file next to the photo that Lightroom, Capture One and other apps read. On by default only for file types that cannot carry embedded tags. When a type is off, LensLedger&rsquo;s own sidecar for a photo is moved to the safety copies the next time tags are embedded in it; sidecars written by other programs are never touched.</span></div>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoClassify" {"checked" if publish.get("auto_classify") else ""}><span class="slider"></span></label><label for="autoClassify">Auto-classify photos after meaning search</label></div>
 <span class="hint hint-under-toggle">Automatically tag photos with categories (landscape, portrait, food, etc.) using meaning search results.</span><div class="field"><label for="backupKeepDays">Keep photo safety copies for (days)</label><input type="number" id="backupKeepDays" min="0" max="3650" value="{int(publish.get('backup_keep_days', 30))}"><span class="hint">Embedded writes keep a full copy of each photo so the change can be undone. Once a copy is cleared that write can no longer be undone. 0 keeps them forever. Default: 30</span></div><div class="field"><label for="backupMaxGb">Total size limit for safety copies (GB)</label><input type="number" id="backupMaxGb" min="0" max="10000" step="1" value="{int(publish.get('backup_max_gb', 20))}"><span class="hint">When the copies exceed this, the oldest are cleared first, and those writes can no longer be undone. 0 means no limit. See current usage on the <a href="/scan-photos">Scan your photos</a> page. Default: 20</span></div></section>
 <section class="card" id="auto-import"><h2>Auto-import photos</h2><p>Automatically import new photos from a source folder and sort them into your library. <a href="/auto-import">Configure source, destination, and sorting rules →</a></p>
@@ -3939,19 +4039,23 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def write_tags_to_photo(self, body):
         asset_id = int(body["id"])
-        write_mode = str(body.get("write_mode", "") or get_setting("publish", "write_mode", default="embedded"))
+        write_mode = str(body.get("write_mode", "") or "")
         with self.db() as con:
             data = self._gather_write_tags_data(con, asset_id)
             path = data["path"]
-            if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS:
-                if write_mode == "embedded":
-                    raise ValueError(f"Embedded writing is not supported for {data['asset']['filename']}")
-                write_mode = "sidecar"
+            if path.suffix.lower() not in PUBLISHABLE_EXTENSIONS and write_mode == "embedded":
+                raise ValueError(f"Embedded writing is not supported for {data['asset']['filename']}")
+            embed, sidecar = write_plan(path.suffix, write_mode)
+            if not (embed or sidecar):
+                raise ValueError(
+                    f"Nothing is set to be written for {path.suffix or 'these'} files. Turn on sidecar "
+                    "files for them, or embedding, in Settings → Metadata publishing."
+                )
 
             result = {"ok": True, "wrote_embedded": False, "wrote_sidecar": False,
-                      "written": [], "not_written": []}
+                      "removed_sidecar": False, "written": [], "not_written": []}
 
-            if write_mode in ("sidecar", "both"):
+            if sidecar:
                 sidecar_path = write_sidecar(
                     path,
                     title=data["subject"],
@@ -3963,18 +4067,19 @@ class SearchHandler(BaseHTTPRequestHandler):
                 result["sidecar_path"] = str(sidecar_path)
                 console_log(f"Write tags to one photo: sidecar written for {data['asset']['relative_path']}")
 
-            if write_mode in ("embedded", "both"):
-                if path.suffix.lower() in PUBLISHABLE_EXTENSIONS:
-                    outcome = self._write_embedded_metadata(con, asset_id, data)
-                    result["wrote_embedded"] = True
-                    result["written"] = outcome["written"]
-                    result["not_written"] = outcome["not_written"]
-                    missed = ", ".join(item["category"] for item in outcome["not_written"])
-                    console_log(
-                        f"Write tags to one photo: {data['asset']['relative_path']} — "
-                        + (", ".join(outcome["written"]) or "nothing to write")
-                        + (f"; not carried: {missed}" if missed else "")
-                    )
+            if embed:
+                outcome = self._write_embedded_metadata(con, asset_id, data)
+                result["wrote_embedded"] = True
+                if not sidecar:
+                    result["removed_sidecar"] = retire_sidecar(path, data["asset"]["relative_path"])
+                result["written"] = outcome["written"]
+                result["not_written"] = outcome["not_written"]
+                missed = ", ".join(item["category"] for item in outcome["not_written"])
+                console_log(
+                    f"Write tags to one photo: {data['asset']['relative_path']} — "
+                    + (", ".join(outcome["written"]) or "nothing to write")
+                    + (f"; not carried: {missed}" if missed else "")
+                )
 
         self.send_json(result)
 
@@ -4073,7 +4178,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "state": "cancelling"}, 202)
 
     def write_tags_batch(self, body):
-        write_mode = str(body.get("write_mode", "") or get_setting("publish", "write_mode", default="embedded"))
+        write_mode = str(body.get("write_mode", "") or "")
+        settings = publish_write_settings()
         scope = str(body.get("scope", "all"))
         with SearchHandler.write_tags_lock:
             if SearchHandler.write_tags_job.get("state") == "running":
@@ -4114,7 +4220,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         # Embedded writes copy each photo before touching it, so a library-wide
         # run needs room for a second copy of everything it will write. Checking
         # once here beats discovering it photo by photo with a full disk.
-        if write_mode in ("embedded", "both"):
+        if write_mode in ("embedded", "both") or (not write_mode and settings["embed"]):
             # A whole library's ids overflow SQLite's bound-variable limit.
             photo_paths = []
             with self.db() as con:
@@ -4136,7 +4242,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     f"{metadata_backups.human_bytes(space['free_bytes'])} free — "
                     f"{metadata_backups.human_bytes(space['shortfall_bytes'])} short. "
                     "Clear old safety copies on the Scan your photos page, free up space, "
-                    "or switch to sidecar mode in Settings, which does not copy anything."
+                    "or write sidecar files instead, which does not copy anything: in Settings, "
+                    "turn off \"Embed tags in photo files\" and turn on sidecar files for your file types."
                 )
             console_log(
                 f"Write all tags: safety copies will need about "
@@ -4146,7 +4253,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         action = Action(
             "Write all tags",
-            f"{total:,} photos, write mode: {write_mode}",
+            f"{total:,} photos, " + (f"write mode: {write_mode}" if write_mode
+                                     else describe_write_settings(settings)),
         )
         started_at = utc_now()
         SearchHandler.write_tags_cancel.clear()
@@ -4154,15 +4262,18 @@ class SearchHandler(BaseHTTPRequestHandler):
             SearchHandler.write_tags_job = {
                 "state": "running", "message": f"Writing tags to {total:,} photos…",
                 "total": total, "done": 0, "written": 0, "up_to_date": 0,
-                "failed": [], "fell_back": [], "incomplete": [], "started_at": started_at,
+                "failed": [], "fell_back": [], "incomplete": [], "skipped": [],
+                "sidecars_removed": 0, "started_at": started_at,
             }
 
         def run():
             written = 0
             up_to_date = 0
+            sidecars_removed = 0
             failed: list[dict] = []
             fell_back: list[dict] = []
             incomplete: list[dict] = []
+            skipped: list[dict] = []
             cancelled = False
             index = 0
             for index, asset_id in enumerate(asset_ids, 1):
@@ -4176,7 +4287,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                         relative = data["asset"]["relative_path"]
                         path = data["path"]
                         can_embed = path.suffix.lower() in PUBLISHABLE_EXTENSIONS
-                        mode = write_mode if can_embed else "sidecar"
+                        embed, sidecar = write_plan(path.suffix, write_mode, settings)
+                        mode = _plan_mode(embed, sidecar)
+                        if not mode:
+                            skipped.append({"path": relative, "error": (
+                                f"{path.suffix or 'this file type'} files are set to get neither "
+                                "embedded tags nor a sidecar file in Settings")})
+                            raise _AlreadyWritten
                         fingerprint = self._write_tags_fingerprint(data, mode)
                         if self._tags_already_written(data["asset"], fingerprint, path):
                             up_to_date += 1
@@ -4188,7 +4305,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             fell_back.append({"path": relative, "error": reason})
                             action.note(f"{relative} — {reason}")
 
-                        if mode in ("sidecar", "both"):
+                        if sidecar:
                             write_sidecar(
                                 path,
                                 title=data["subject"],
@@ -4196,11 +4313,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                                 keywords=data["keywords"],
                                 people=data["people"],
                             )
-                        if mode in ("embedded", "both") and can_embed:
+                        if embed:
                             try:
                                 outcome = self._write_embedded_metadata(con, int(asset_id), data)
+                                if not sidecar and retire_sidecar(path, relative):
+                                    sidecars_removed += 1
                             except EmbeddingRefused as refused:
-                                if mode == "embedded":
+                                if not sidecar:
                                     write_sidecar(
                                         path,
                                         title=data["subject"],
@@ -4242,7 +4361,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                         "message": progress,
                         "total": total, "done": index, "written": written, "up_to_date": up_to_date,
                         "failed": list(failed), "fell_back": list(fell_back),
-                        "incomplete": list(incomplete), "started_at": started_at,
+                        "incomplete": list(incomplete), "skipped": list(skipped),
+                        "sidecars_removed": sidecars_removed, "started_at": started_at,
                     }
 
             summary_parts = [f"{written:,} of {total:,} photos written"]
@@ -4252,6 +4372,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 summary_parts.append(f"{len(fell_back):,} got a sidecar file instead")
             if incomplete:
                 summary_parts.append(f"{len(incomplete):,} could not carry everything")
+            if skipped:
+                summary_parts.append(f"{len(skipped):,} skipped by the sidecar settings")
+            if sidecars_removed:
+                summary_parts.append(f"{sidecars_removed:,} old sidecar files moved to the safety copies")
             if failed:
                 summary_parts.append(f"{len(failed):,} failed")
             summary = ", ".join(summary_parts)
@@ -4265,6 +4389,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                 message += (f" {up_to_date:,} already had these tags and were skipped."
                             if not cancelled else
                             f" {up_to_date:,} already had these tags.")
+            if sidecars_removed:
+                message += (f" Moved {sidecars_removed:,} old sidecar file"
+                            f"{'s' if sidecars_removed != 1 else ''} to the safety copies.")
             pruned = prune_metadata_backups()
             if pruned["removed"]:
                 console_log(
@@ -4277,7 +4404,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "message": message,
                     "total": total, "done": index if cancelled else total, "written": written,
                     "up_to_date": up_to_date, "failed": failed, "fell_back": fell_back, "incomplete": incomplete,
-                    "started_at": started_at,
+                    "skipped": skipped, "sidecars_removed": sidecars_removed, "started_at": started_at,
                 }
 
         threading.Thread(target=run, name="LensLedger-write-tags", daemon=True).start()
