@@ -1,0 +1,16 @@
+# Keeps the actions used by this repository's workflows current, and opens a
+# pull request when an advisory lands against one. Dependabot alerts for any
+# other dependency are on for the repository regardless of this file.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # One pull request at a time, so a security update is not closed unread
+    # with a wave of routine ones.
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
