@@ -20,10 +20,22 @@ MAX_PAIRS = 200
 GENERATIONAL_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v", "2nd", "3rd", "4th"}
 
 
-def normalize_name(name: str) -> tuple[str, ...]:
-    decomposed = unicodedata.normalize("NFKD", name)
+def _tokens(text: str) -> tuple[str, ...]:
+    decomposed = unicodedata.normalize("NFKD", text)
     plain = "".join(char for char in decomposed if not unicodedata.combining(char))
     return tuple(re.sub(r"[^\w\s]", " ", plain.casefold()).split())
+
+
+def normalize_name(name: str) -> tuple[str, ...]:
+    # Text after a comma describes the person ("Name, Band", "Name, Guide")
+    # rather than naming them; matching on it pairs everyone who shares it.
+    first, *rest = name.split(",")
+    tokens = _tokens(first)
+    for part in rest:
+        extra = _tokens(part)
+        if len(extra) == 1 and extra[0] in GENERATIONAL_SUFFIXES:
+            tokens += extra
+    return tokens
 
 
 def _suffix(tokens: tuple[str, ...]) -> str:
@@ -67,7 +79,7 @@ def name_reason(left_names: list[tuple[str, ...]], right_names: list[tuple[str, 
             if _suffix(left) and _suffix(right) and _suffix(left) != _suffix(right):
                 continue
             if left == right:
-                return "Same name apart from punctuation, accents or capitals"
+                return "Same name"
             if _initials_match(left, right):
                 best = best or "An initial matches the full name"
                 continue

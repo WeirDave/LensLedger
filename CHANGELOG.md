@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.13.3 — 2026-09-29
+
+- "Find duplicates" on the People page now leaves out text after a comma when comparing names, so people named in the form "Name, Band" or "Name, Role" are no longer paired just because they share the band or role. "Name, Band" and "Name" are now listed as the same name. A "Jr." or "Sr." after a comma still counts.
+
 ## 1.13.2 — 2026-09-29
 
 - When a tag write has to go through a working copy (a file whose extension does not match its contents, or a very long file name), the photo that copy is written back over is now always the one being tagged. It was previously taken from the end of the ExifTool command; every existing caller put the photo there, so no file was ever written to the wrong place.

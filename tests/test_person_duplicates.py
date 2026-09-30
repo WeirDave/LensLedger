@@ -14,6 +14,12 @@ class NameMatchTests(unittest.TestCase):
     def test_punctuation_accents_and_capitals_are_ignored(self):
         self.assertIn("Same name", self.reason("Zoë O'Hara", "zoe o hara"))
 
+    def test_text_after_a_comma_describes_rather_than_names(self):
+        self.assertEqual(self.reason("Aldo Brennick, The Lanterns", "The Lanterns"), "")
+        self.assertEqual(self.reason("Aldo Brennick, Tour Guide", "Mira Castellan, Tour Guide"), "")
+        self.assertIn("Same name", self.reason("Aldo Brennick, The Lanterns", "Aldo Brennick"))
+        self.assertEqual(self.reason("Aldo Brennick, Jr.", "Aldo Brennick Sr"), "")
+
     def test_an_initial_matches_the_full_name(self):
         self.assertIn("initial", self.reason("J. Robert Thornton III", "James Robert Thornton III"))
 

@@ -2220,7 +2220,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Edit name</strong> &mdash; change a person&rsquo;s primary name (propagates to all JPEG metadata)</li>
 <li><strong>Aliases</strong> &mdash; add alternate names (nicknames, maiden names) that also match in search</li>
 <li><strong>Merge</strong> &mdash; combine duplicate person records, preserving aliases and updating metadata</li>
-<li><strong>Find duplicates</strong> &mdash; lists pairs of people who may be the same person: names that match apart from punctuation or accents, an initial that matches a full name, one name contained in the other, a small misspelling, or learned faces that look alike. Choose which name to keep, or mark the pair <strong>Not the same person</strong> so it stops appearing. People confirmed together in one photo are never listed.</li>
+<li><strong>Find duplicates</strong> &mdash; lists pairs of people who may be the same person: names that match apart from punctuation or accents, an initial that matches a full name, one name contained in the other, a small misspelling, or learned faces that look alike. Text after a comma, such as a band or a role in &ldquo;Name, Band&rdquo;, is left out of name matching. Choose which name to keep, or mark the pair <strong>Not the same person</strong> so it stops appearing. People confirmed together in one photo are never listed.</li>
 </ul>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
