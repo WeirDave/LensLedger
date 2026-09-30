@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.13.2 — 2026-09-29
+
+- When a tag write has to go through a working copy (a file whose extension does not match its contents, or a very long file name), the photo that copy is written back over is now always the one being tagged. It was previously taken from the end of the ExifTool command; every existing caller put the photo there, so no file was ever written to the wrong place.
+
 ## 1.13.1 — 2026-09-29
 
 - A photo that has had tags written into it is now recognised when it is renamed or moved. Previously the library scan treated it as a deleted photo and a new one, and the photo lost its tags, people, faces and search data.

@@ -557,15 +557,19 @@ def _work_copy_suffix(message: str, target: Path) -> str | None:
     return None
 
 
-def _run_exiftool_write(arguments: list[str]) -> subprocess.CompletedProcess[str]:
-    """Write to the photo named by the last argument; if it cannot be written
-    where it is, write a short-named copy and put that back over it."""
+def _run_exiftool_write(options: list[str], target: Path) -> subprocess.CompletedProcess[str]:
+    """Write `options` to the photo at `target`; if it cannot be written where
+    it is, write a short-named copy and put that back over it.
+
+    The photo is a parameter of its own rather than read back off the end of
+    the argument list, because the copy below overwrites it: a caller that
+    appended one more option after the path would otherwise have that value
+    treated as the file to replace."""
     try:
-        return _write_in_place(arguments)
+        return _write_in_place([*options, str(target)])
     except EmbeddingRefused:
         raise
     except ValueError as exc:
-        target = Path(arguments[-1])
         suffix = _work_copy_suffix(str(exc), target)
         if suffix is None:
             raise
@@ -573,7 +577,7 @@ def _run_exiftool_write(arguments: list[str]) -> subprocess.CompletedProcess[str
     try:
         work = folder / f"photo{suffix}"
         shutil.copy2(target, work)
-        result = _write_in_place([*arguments[:-1], str(work)])
+        result = _write_in_place([*options, str(work)])
         shutil.copy2(work, target)
         return result
     finally:
@@ -3589,7 +3593,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         clear_arguments = [
             *EXIFTOOL_WRITE_OPTIONS,
             "-XMP-dc:Subject=", "-IPTC:Keywords=", "-XMP-microsoft:LastKeywordXMP=",
-            "-XMP-iptcExt:PersonInImage=", str(path),
+            "-XMP-iptcExt:PersonInImage=",
         ]
         add_arguments = [*EXIFTOOL_WRITE_OPTIONS]
         for keyword in keywords:
@@ -3599,11 +3603,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             ])
         for person in people:
             add_arguments.append(f"-XMP-iptcExt:PersonInImage+={person}")
-        add_arguments.append(str(path))
         try:
-            _run_exiftool_write(clear_arguments)
+            _run_exiftool_write(clear_arguments, path)
             if keywords or people:
-                _run_exiftool_write(add_arguments)
+                _run_exiftool_write(add_arguments, path)
             if _pixel_hash(path) != before_pixels:
                 raise ValueError(f"Pixel verification failed for {asset['filename']}")
         except Exception:
@@ -3725,10 +3728,9 @@ class SearchHandler(BaseHTTPRequestHandler):
             arguments.append(f"-{field}={description}")
         for field in self.EMBEDDED_CATEGORY_FIELDS["subject"]:
             arguments.append(f"-{field}={subject}")
-        arguments.append(str(path))
 
         try:
-            _run_exiftool_write(arguments)
+            _run_exiftool_write(arguments, path)
             if _pixel_hash(path) != before_pixels:
                 raise ValueError(f"Pixel verification failed for {asset['filename']}")
         except Exception:
@@ -3849,9 +3851,9 @@ class SearchHandler(BaseHTTPRequestHandler):
             for person in after["people"]:
                 keyword_arguments.append(f"-XMP-iptcExt:PersonInImage+={person}")
             try:
-                _run_exiftool_write([*arguments, str(path)])
+                _run_exiftool_write(arguments, path)
                 if after["keywords"] or after["people"]:
-                    _run_exiftool_write([*keyword_arguments, str(path)])
+                    _run_exiftool_write(keyword_arguments, path)
                 if _pixel_hash(path) != before_pixels:
                     raise ValueError("Pixel verification failed")
             except Exception:
