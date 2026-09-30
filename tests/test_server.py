@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import array
 import html
+import http.client
 import json
 import os
 import sqlite3
@@ -98,6 +99,42 @@ class ServerWorkflowTests(unittest.TestCase):
     def json_response(self, response):
         with response:
             return json.loads(response.read())
+
+    def raw_request(self, method: str, path: str, *, headers=None, body=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            response.read()
+            return response
+        finally:
+            connection.close()
+
+    def test_requests_naming_another_host_are_refused(self):
+        port = self.server.server_port
+        rebound = {"Host": f"rebound.example:{port}", "Content-Type": "application/json"}
+        self.assertEqual(self.raw_request("GET", "/", headers=rebound).status, 403)
+        self.assertEqual(self.raw_request("GET", f"/media?id={self.asset_id}", headers=rebound).status, 403)
+        body = json.dumps({"csrf": "test-csrf", "path": "../data/outside.jpg"}).encode("utf-8")
+        self.assertEqual(self.raw_request("POST", "/api/reveal-path", headers=rebound, body=body).status, 403)
+        for host in (f"localhost:{port}", f"127.0.0.1:{port}", f"[::1]:{port}", "LOCALHOST"):
+            self.assertEqual(self.raw_request("GET", "/", headers={"Host": host}).status, 200, host)
+
+    def test_old_people_review_address_forwards_only_the_person(self):
+        response = self.raw_request("GET", "/people-review?person=12&next=%0d%0aSet-Cookie:x")
+        self.assertEqual(response.status, 301)
+        self.assertEqual(response.getheader("Location"), "/people/review?person=12")
+        response = self.raw_request("GET", "/people-review?person=abc")
+        self.assertEqual(response.getheader("Location"), "/people/review")
+
+    def test_paths_from_requests_must_stay_inside_the_library(self):
+        from photo_search import resolve_inside
+        self.assertEqual(resolve_inside(self.library, self.photo.name), Path(os.path.realpath(self.photo)))
+        for relative in ("../data/outside.jpg", str(self.data / "outside.jpg"), "", "."):
+            with self.assertRaises(ValueError, msg=relative):
+                resolve_inside(self.library, relative)
+        with self.assertRaises(urllib.error.HTTPError):
+            self.post("/api/reveal-path", {"path": "../data/outside.jpg"})
 
     def test_viewer_map_and_asset_endpoints(self):
         with self.get("/") as response:

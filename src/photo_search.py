@@ -796,6 +796,32 @@ SEMANTIC_MODE_LABELS = {
 }
 
 
+LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
+
+
+def is_local_host_header(value: str | None) -> bool:
+    """Binding to localhost does not stop a web page on another site from
+    reaching the server: a domain that re-resolves to 127.0.0.1 (DNS
+    rebinding) makes the browser treat LensLedger as that site's own origin,
+    so it could read pages -- including the request token -- and photos.
+    The Host header still carries the other site's name, so refuse it."""
+    if not value:
+        return False
+    try:
+        hostname = urllib.parse.urlsplit(f"//{value.strip()}").hostname
+    except ValueError:
+        return False
+    return hostname in LOCAL_HOSTNAMES
+
+
+def resolve_inside(root: Path, relative) -> Path:
+    base = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(base, os.fspath(relative)))
+    if not full.startswith(base.rstrip(os.sep) + os.sep):
+        raise ValueError("Path is outside the library")
+    return Path(full)
+
+
 def refine_action_label(route: str, body: dict, label: str, current_root) -> str:
     """Name the action the way the button the user pressed names it.
 
@@ -1428,6 +1454,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_bytes(json.dumps(value).encode("utf-8"), "application/json; charset=utf-8", status)
 
     def do_GET(self):
+        if not is_local_host_header(self.headers.get("Host")):
+            return self.send_error(403)
         url = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(url.query)
         if url.path.startswith("/web/"):
@@ -1504,7 +1532,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if url.path == "/people-review":
-            qs = f"?{url.query}" if url.query else ""
+            person = params.get("person", [""])[0]
+            qs = f"?person={int(person)}" if person.isdigit() else ""
             self.send_response(301)
             self.send_header("Location", f"/people/review{qs}")
             self.end_headers()
@@ -1555,6 +1584,8 @@ class SearchHandler(BaseHTTPRequestHandler):
         return self.viewer_page(params)
 
     def do_POST(self):
+        if not is_local_host_header(self.headers.get("Host")):
+            return self.send_error(403)
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > 100_000:
@@ -3877,16 +3908,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         rel = body.get("path", "")
         if not rel:
             raise ValueError("Missing path")
-        path = (self.library_root / Path(rel)).resolve()
-        path.relative_to(self.library_root)
+        path = resolve_inside(self.library_root, rel)
         if not path.is_file():
             raise ValueError("File not found on disk")
         if path.suffix.lower() not in REPAIRABLE_EXTENSIONS:
             raise ValueError("Only publishable file types can be repaired")
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(rel)
-        backup = (metadata_backup_root() / relative.parent / metadata_backups.backup_name(relative.stem, "before-repair-", timestamp, relative.suffix)).resolve()
-        backup.relative_to(metadata_backup_root().resolve())
+        backup = resolve_inside(metadata_backup_root(), relative.parent / metadata_backups.backup_name(relative.stem, "before-repair-", timestamp, relative.suffix))
         backup.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, backup)
         if backup.stat().st_size != path.stat().st_size:
@@ -6456,9 +6485,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         rel = body.get("path", "")
         if not rel:
             raise ValueError("Missing path")
-        source_path = self.library_root / Path(rel)
-        if not source_path.resolve().is_relative_to(self.library_root.resolve()):
-            raise ValueError("Path is outside the library")
+        source_path = resolve_inside(self.library_root, rel)
         folder = source_path.parent
         if not folder.exists():
             raise ValueError("Folder not found on disk")

@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.12.2 — 2026-09-29
+
+- LensLedger now answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]`. A web page on another site can no longer reach the local server by pointing its own domain name at this computer (DNS rebinding), so it cannot read pages, photos or the request token.
+- "Repair" and the open-folder links on the Publish photos and Scan photos pages check that the path they are given stays inside the current library, using the fully resolved path including links and junctions.
+- The old `/people-review` address redirects to `/people/review` carrying only the person number.
+
 ## 1.12.1 — 2026-09-29
 
 - Changing only which file types get sidecar files no longer rewrites every photo. When the tags inside a photo are already current, "Write all tags" now only writes or moves aside its sidecar, with no rewrite and no safety copy. Previously, turning sidecars off after using "Both" re-embedded every photo and took a safety copy of each one.
