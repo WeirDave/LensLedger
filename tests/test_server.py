@@ -853,6 +853,27 @@ class ServerWorkflowTests(unittest.TestCase):
         finally:
             con.close()
 
+    def test_possible_duplicate_people_can_be_listed_and_dismissed(self):
+        con = sqlite3.connect(self.database)
+        left = int(con.execute("INSERT INTO people(name) VALUES ('Katherine Vollmer')").lastrowid)
+        right = int(con.execute("INSERT INTO people(name) VALUES ('Kathrine Vollmer')").lastrowid)
+        con.execute("INSERT INTO people(name) VALUES ('Tobias Wren')")
+        con.commit()
+        con.close()
+
+        pairs = self.json_response(self.get("/api/people/duplicates"))["pairs"]
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual({person["id"] for person in pairs[0]["people"]}, {left, right})
+        self.assertIn("Find duplicates", self.get("/?scope=people").read().decode("utf-8"))
+
+        self.assertTrue(self.json_response(self.post(
+            "/api/people/duplicates/dismiss", {"person_ids": [left, right]},
+        ))["ok"])
+        self.assertEqual(self.json_response(self.get("/api/people/duplicates"))["pairs"], [])
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.post("/api/people/duplicates/dismiss", {"person_ids": [left, 99999]})
+        self.assertEqual(refused.exception.code, 400)
+
     def test_merge_people_reports_a_safe_conflict_when_catalog_is_busy(self):
         import photo_index
 

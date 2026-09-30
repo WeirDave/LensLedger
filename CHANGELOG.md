@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.13.0 — 2026-09-29
+
+- Added a "Find duplicates" button to the People page. It lists pairs of people who may be the same person — names that differ only in punctuation, accents or an initial, one name contained in the other, a small misspelling, or learned faces that look alike — with a one-click choice of which name to keep.
+- A pair marked "Not the same person" no longer appears in the list. People confirmed together in the same photo are never suggested as duplicates.
+
 ## 1.12.4 — 2026-09-29
 
 - A photo that is renamed or moved to another folder now keeps its subject, its removed tags and its "Restore last publish" option. The library scan recognised the move but left these behind at the old path, so the subject was cleared and removed tags came back.

@@ -1,6 +1,6 @@
 """Single source of truth for LensLedger product identity."""
 
 APP_NAME = "LensLedger"
-APP_VERSION = "1.12.4"
+APP_VERSION = "1.13.0"
 APP_RELEASE_DATE = "2026-09-29"
 APP_TAGLINE = "Your photos, understood."

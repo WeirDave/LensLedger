@@ -43,7 +43,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -252,6 +252,13 @@ CREATE TABLE IF NOT EXISTS person_review_deferrals (
     person_id INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
     deferred_at TEXT NOT NULL,
     deferred_until TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS person_duplicate_dismissals (
+    person_low INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    person_high INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (person_low, person_high)
 );
 
 CREATE TABLE IF NOT EXISTS runs (

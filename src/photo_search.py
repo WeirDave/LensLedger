@@ -40,6 +40,7 @@ from app_paths import (
 )
 from face_learning import SUGGESTION_THRESHOLD, centroid, decode_vector, dot, learn as learn_faces
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
+from person_duplicates import dismiss_pair as dismiss_duplicate_pair, find_possible_duplicates
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
     associate_db_path, choose_file, choose_library_folder, library_db_path, library_db_path_appdata,
@@ -803,6 +804,7 @@ ACTION_LABELS = {
     "/api/person/groups": "Change a person's groups",
     "/api/person/names": "Rename a person",
     "/api/person/merge": "Merge two people",
+    "/api/people/duplicates/dismiss": "Mark two people as not the same person",
     "/api/person/card-photo": "Change a person's photo",
     "/api/people/learn": "Learn from confirmed people",
     "/api/people/review/decision": "People review decision",
@@ -1556,6 +1558,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.list_groups()
         if url.path == "/api/people/all-with-groups":
             return self.all_people_with_groups()
+        if url.path == "/api/people/duplicates":
+            return self.possible_duplicate_people()
         if url.path == "/api/people/review/queue":
             return self.people_review_queue(params)
         if url.path == "/api/faces/unidentified":
@@ -1685,6 +1689,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.set_person_card_photo(body)
             if route == "/api/person/merge":
                 return self.merge_people(body)
+            if route == "/api/people/duplicates/dismiss":
+                return self.dismiss_duplicate_people(body)
             if route == "/api/people/review/decision":
                 return self.people_review_decision(body)
             if route == "/api/people/review/batch":
@@ -2210,6 +2216,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Edit name</strong> &mdash; change a person&rsquo;s primary name (propagates to all JPEG metadata)</li>
 <li><strong>Aliases</strong> &mdash; add alternate names (nicknames, maiden names) that also match in search</li>
 <li><strong>Merge</strong> &mdash; combine duplicate person records, preserving aliases and updating metadata</li>
+<li><strong>Find duplicates</strong> &mdash; lists pairs of people who may be the same person: names that match apart from punctuation or accents, an initial that matches a full name, one name contained in the other, a small misspelling, or learned faces that look alike. Choose which name to keep, or mark the pair <strong>Not the same person</strong> so it stops appearing. People confirmed together in one photo are never listed.</li>
 </ul>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
@@ -3085,6 +3092,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'<a href="/people/groups" class="button secondary gm-back-link">Manage groups</a>'
             f'<button type="button" class="secondary" id="mergePeopleGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
+            f'<button type="button" class="secondary" id="findDuplicatesGallery"'
+            f'{" disabled" if len(people_directory) < 2 else ""}>Find duplicates</button>'
             f'<button type="button" id="reviewPeopleGallery">Tag faces ({review_count:,})</button>'
             f'</div></nav>'
         )
@@ -5921,6 +5930,21 @@ class SearchHandler(BaseHTTPRequestHandler):
             with lock:
                 if str(job.get("state", "")).casefold() in active_states:
                     raise ValueError(f"wait for {label} to finish before merging people")
+
+    def possible_duplicate_people(self):
+        with self.db() as con:
+            pairs = find_possible_duplicates(con)
+        self.send_json({"pairs": pairs})
+
+    def dismiss_duplicate_people(self, body):
+        try:
+            left, right = (int(value) for value in body["person_ids"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("choose two people") from exc
+        with self.db() as con:
+            dismiss_duplicate_pair(con, left, right)
+            con.commit()
+        self.send_json({"ok": True})
 
     def merge_people(self, body):
         if not type(self).people_merge_lock.acquire(blocking=False):
