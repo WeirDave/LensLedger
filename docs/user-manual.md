@@ -359,7 +359,7 @@ The review bin is a safe staging area for photos you want to remove. Photos are 
 
 - Click the trash icon on any photo
 - Use batch selection (Ctrl+click or Shift+click thumbnails) and click **Trash selected**
-- An undo toast appears for 12 seconds after trashing
+- An **Undo** toast appears after trashing: 12 seconds for one photo, 30 seconds for a batch. **Undo** on a batch puts every photo back at once; any that cannot be put back (something now sits at its old location, or the file is gone) are named, and stay in **Trash & restore**.
 
 ### Managing the review bin
 

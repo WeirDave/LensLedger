@@ -273,6 +273,9 @@ async function removeTag(tag){try{await api('/api/tag/remove',{id:selectedId,tag
 async function restoreTag(name){try{await api('/api/tag/restore',{id:selectedId,tag:name});await selectAsset(selectedId);setStatus('Tag restored')}catch(e){setStatus(e.message,true)}}
 async function moveToBin(){if(!currentDetail||!confirm('Move “'+currentDetail.filename+'” to Trash?\n\nIt will leave the photo library and disappear from search. You can undo immediately or restore it later from ☰ → Trash & restore.'))return;const oldId=selectedId;const name=currentDetail.filename;const i=items.findIndex(x=>Number(x.id)===oldId);items.splice(i,1);document.querySelector('.thumb[data-id="'+oldId+'"]')?.remove();if(items.length)selectAsset(items[Math.min(i,items.length-1)].id);setStatus('Moving '+name+' to Trash…');try{const result=await api('/api/review-bin',{id:oldId});setStatus('');showUndo(result.review_id,name);if(!items.length)location.reload()}catch(e){alert('Could not move '+name+' to Trash: '+e.message);location.reload()}}
 function showUndo(reviewId,name){const t=$('toast');t.replaceChildren(document.createTextNode('Moved '+name+' to Trash. '));const b=document.createElement('button');b.textContent='Undo';b.onclick=async()=>{try{await api('/api/review-bin/restore',{review_id:reviewId});location.reload()}catch(e){setStatus(e.message,true)}};t.append(b);t.classList.add('visible');setTimeout(()=>t.classList.remove('visible'),12000)}
+let undoBatchTimer=null;
+async function undoBatchTrash(reviewIds,button){button.disabled=true;try{const r=await api('/api/review-bin/restore-batch',{review_ids:reviewIds});if(r.failed&&r.failed.length){const names=r.failed.slice(0,3).map(f=>f.path).join(', ');alert(r.restored+' photo(s) put back. '+r.failed.length+' could not be restored ('+names+(r.failed.length>3?', …':'')+'): '+r.failed[0].error+'\n\nThey are still in ☰ → Trash & restore.')}location.reload()}catch(e){button.disabled=false;setStatus(e.message,true)}}
+function showBatchUndo(reviewIds){const t=$('toast');t.replaceChildren(document.createTextNode('Moved '+reviewIds.length+' photo(s) to Trash. '));const b=document.createElement('button');b.textContent='Undo';b.onclick=()=>undoBatchTrash(reviewIds,b);t.append(b);t.classList.add('visible');clearTimeout(undoBatchTimer);undoBatchTimer=setTimeout(()=>t.classList.remove('visible'),30000)}
 function closeHelp(){document.querySelectorAll('.help-popover.open').forEach(x=>x.classList.remove('open'))}
 let _modalTrigger=null;
 function openModal(title,content){_modalTrigger=document.activeElement;document.querySelector('.modal').classList.remove('publish-modal');$('modalTitle').textContent=title;$('modalBody').replaceChildren(content);$('modalBackdrop').classList.add('open');const first=$('modalBody').querySelector('input,button,select,textarea,[tabindex]');if(first)setTimeout(()=>first.focus(),50);else $('modalClose').focus()}
@@ -437,8 +440,9 @@ async function batchTrash(){
   setStatus('Moving '+ids.length+' photo(s) to Trash…');
   try{
     const result=await api('/api/review-bin/batch',{ids});
-    setStatus(result.moved+' photo(s) moved to Trash');
-    if(!items.length)location.reload();
+    setStatus('');
+    if(result.review_ids&&result.review_ids.length)showBatchUndo(result.review_ids);else setStatus(result.moved+' photo(s) moved to Trash');
+    if(!items.length&&!(result.review_ids&&result.review_ids.length))location.reload();
   }catch(e){alert('Could not move the selected photos to Trash: '+e.message);location.reload()}
 }
 function buildThumb(item){const b=document.createElement('button');b.className='thumb';b.dataset.id=item.id;b.title=item.filename;b.onclick=e=>{
