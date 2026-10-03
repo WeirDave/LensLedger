@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Callable
 
 from PIL import ExifTags, Image, ImageOps
+
+from media_dates import raw_date, video_dates
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
@@ -68,7 +70,7 @@ COMPACT_DATE_RE = re.compile(r"(?<!\d)(?P<year>19\d{2}|20\d{2})(?P<month>\d{2})(
 EXIF_DATE_RE = re.compile(r"^\s*(?P<year>\d{4})[:-](?P<month>\d{2})[:-](?P<day>\d{2})")
 # Raised whenever capture_date learns another source, so the next scan
 # re-reads the date of unchanged files once.
-CAPTURE_DATE_VERSION = 1
+CAPTURE_DATE_VERSION = 2
 # Raised whenever the visual hash changes, so unchanged photos are re-hashed once.
 VISUAL_HASH_VERSION = 1
 
@@ -663,8 +665,16 @@ def capture_date_for(path: Path) -> str | None:
 
     Reading the name alone left every camera and phone file (IMG_1234.jpg)
     with no date, so date filtering, day stepping and newest-first did
-    nothing for most libraries.
+    nothing for most libraries. Videos and RAW files read their own header
+    the same way; a video's UTC header date ranks below the file name, since
+    it can be a day away from the day it was shot.
     """
+    kind = media_type(path)
+    if kind == "video":
+        local, utc = video_dates(path)
+        return local or capture_date_from_path(path) or utc
+    if kind == "raw":
+        return raw_date(path) or capture_date_from_path(path)
     taken, modified = extract_exif_dates(path)
     return taken or capture_date_from_path(path) or modified
 
