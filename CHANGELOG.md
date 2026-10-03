@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.19.0 — 2026-10-03
+
+- Added star ratings. Rate a photo from one to five stars with the stars under its file name or the 1–5 keys; 0, or the same number again, clears it. With several photos selected, the number keys and a new "Rate selected…" menu rate them all. Rated photos show their stars on the filmstrip, and ratings follow a photo that is renamed or moved.
+- Added a Rating filter beside Sort that shows only photos with at least the chosen number of stars. It works with search, dates and People.
+- Pressing ? on the main page now lists the keyboard and mouse shortcuts.
+- On macOS and Linux, text recognition (OCR) is now shown as Windows only. Folder watching and "Run all scans" no longer try it every pass and record an error for every photo, and those errors are cleared on upgrade.
+
 ## 1.18.0 — 2026-10-03
 
 - Videos and camera RAW files are now dated by when they were made, read from the file itself, instead of only from a date in the file or folder name. Video dates cover MP4, MOV, M4V and 3GP; an iPhone video is dated by the local day it was shot rather than the UTC day. RAW dates cover DNG, CR2, CR3, NEF, ARW, ORF, RW2 and RAF. Libraries indexed by an earlier version are re-dated on their next scan.

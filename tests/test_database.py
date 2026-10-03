@@ -207,6 +207,7 @@ class DatabaseTests(unittest.TestCase):
         asset_id = con.execute("SELECT id FROM assets").fetchone()[0]
         con.execute("INSERT INTO asset_annotations(relative_path, subject, tags) VALUES ('diagram.jpg', 'Wiring plan', '')")
         con.execute("INSERT INTO asset_tag_exclusions(relative_path, tag) VALUES ('diagram.jpg', 'red')")
+        con.execute("INSERT INTO asset_ratings(relative_path, rating, updated_at) VALUES ('diagram.jpg', 4, 'now')")
         con.execute(
             "INSERT INTO metadata_publications(asset_id, relative_path, backup_path, before_json, after_json, "
             "published_at, completed_at) VALUES (?, 'diagram.jpg', 'copy', '{}', '{}', 'now', 'now')",
@@ -227,6 +228,43 @@ class DatabaseTests(unittest.TestCase):
             [("Wiring plan",)], "the subject is not cleared by the rename")
         self.assertEqual(con.execute("SELECT relative_path FROM asset_tag_exclusions").fetchall(), [("diagram.png",)])
         self.assertEqual(con.execute("SELECT relative_path FROM metadata_publications").fetchall(), [("diagram.png",)])
+        self.assertEqual(con.execute("SELECT relative_path, rating FROM asset_ratings").fetchall(), [("diagram.png", 4)])
+        con.close()
+
+    def test_ocr_counts_as_nothing_pending_where_it_cannot_run(self):
+        from unittest.mock import patch
+        from PIL import Image
+        import photo_index
+        from photo_index import pending_scan_counts, scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        Image.new("RGB", (16, 16), (20, 40, 200)).save(library / "sign.jpg")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+        with patch.object(photo_index, "ocr_is_available", return_value=True):
+            self.assertEqual(pending_scan_counts(database)["ocr"], 1)
+        with patch.object(photo_index, "ocr_is_available", return_value=False):
+            self.assertEqual(pending_scan_counts(database)["ocr"], 0)
+
+    def test_upgrading_clears_ocr_errors_left_by_running_it_without_windows(self):
+        from PIL import Image
+        from photo_index import connect, scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        Image.new("RGB", (16, 16), (20, 40, 200)).save(library / "sign.jpg")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+        con = sqlite3.connect(database)
+        con.execute("UPDATE text_data SET ocr_error=?",
+                    ("[Errno 2] No such file or directory: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'",))
+        con.execute("PRAGMA user_version=23")
+        con.commit()
+        con.close()
+        connect(database).close()
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT ocr_error FROM text_data").fetchall(), [("",)])
         con.close()
 
     def test_a_renamed_photo_with_a_stale_fingerprint_is_still_recognised(self):
