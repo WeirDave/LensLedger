@@ -166,6 +166,7 @@ Use the scope selector next to the search box to choose what to search:
 - **People** — browse and filter by recognized people (shows a card grid)
 - **Meaning** — semantic search with natural language queries (requires meaning search setup)
 - **Exact duplicates** — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, with the likely original first (names marked as a copy, such as `IMG_0001 (copy).jpg`, go last). A bar separates one set from the next, and each photo is labelled with its place in its set, such as "1 of 2". Type part of a folder or file name to narrow the sets. Ctrl+click the extra copies and choose **Trash selected** to move them to the review bin. Also reachable from the menu as **Duplicate photos**.
+- **Similar photos** — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Sets are shown like exact duplicates, with the largest file first. Matching compares the pattern of light and dark in each picture, so a colour and a black-and-white version of the same shot also match, and so can two plain pictures with the same layout. Look through each set before trashing anything; similar is not identical. Videos and RAW files are not compared. A library indexed by an earlier version is fingerprinted on its next scan, which takes a while the first time.
 
 ### Sorting
 

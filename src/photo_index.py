@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from PIL import ExifTags, Image
+from PIL import ExifTags, Image, ImageOps
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
@@ -43,7 +43,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -69,6 +69,8 @@ EXIF_DATE_RE = re.compile(r"^\s*(?P<year>\d{4})[:-](?P<month>\d{2})[:-](?P<day>\
 # Raised whenever capture_date learns another source, so the next scan
 # re-reads the date of unchanged files once.
 CAPTURE_DATE_VERSION = 1
+# Raised whenever the visual hash changes, so unchanged photos are re-hashed once.
+VISUAL_HASH_VERSION = 1
 
 
 SCHEMA = """
@@ -436,6 +438,10 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE assets ADD COLUMN tags_scanned INTEGER NOT NULL DEFAULT 0")
     if "date_scanned" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN date_scanned INTEGER NOT NULL DEFAULT 0")
+    if "visual_hash" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN visual_hash TEXT NOT NULL DEFAULT ''")
+    if "visual_scanned" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN visual_scanned INTEGER NOT NULL DEFAULT 0")
     publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
     if "completed_at" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN completed_at TEXT")
@@ -620,6 +626,36 @@ def extract_exif_dates(path: Path) -> tuple[str | None, str | None]:
             return taken, modified
     except (KeyError, OSError, TypeError, ValueError, SyntaxError):
         return None, None
+
+
+def visual_hash(path: Path) -> str:
+    """64-bit difference hash of how the picture looks, as 16 hex digits.
+
+    Scales the photo to 9x8 greyscale and records, for each pixel, whether
+    the one to its right is darker. A resized, recompressed or lightly
+    edited copy keeps nearly all of those bits; a different photo does not.
+    Returns "" for anything that is not a decodable still image (videos,
+    RAW files, damaged files), which simply takes no part in similar-photo
+    matching.
+    """
+    if media_type(path) != "image":
+        return ""
+    try:
+        with Image.open(path) as image:
+            if image.format == "JPEG":
+                # Lets the decoder return a small version directly, which is
+                # most of the cost of hashing a large JPEG.
+                image.draft("L", (128, 128))
+            image = ImageOps.exif_transpose(image)
+            small = image.convert("L").resize((9, 8), Image.LANCZOS)
+            pixels = list(small.getdata())
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return ""
+    bits = 0
+    for row in range(8):
+        for column in range(8):
+            bits = (bits << 1) | (1 if pixels[row * 9 + column] > pixels[row * 9 + column + 1] else 0)
+    return f"{bits:016x}"
 
 
 def capture_date_for(path: Path) -> str | None:
@@ -878,7 +914,7 @@ def scan_library(
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
     known = {row["relative_path"]: row for row in con.execute(
         "SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, "
-        "location_scanned, tags_scanned, date_scanned, in_review_bin FROM assets"
+        "location_scanned, tags_scanned, date_scanned, visual_scanned, in_review_bin FROM assets"
     )}
     seen: set[str] = set()
     counts: dict[str, int | bool | list] = {
@@ -918,6 +954,13 @@ def scan_library(
                     )
                     if counts["unchanged"] % 500 == 0:
                         con.commit()
+                if not placeholder and old["visual_scanned"] < VISUAL_HASH_VERSION:
+                    con.execute(
+                        "UPDATE assets SET visual_hash=?, visual_scanned=? WHERE id=?",
+                        (visual_hash(path), VISUAL_HASH_VERSION, int(old["id"])),
+                    )
+                    if counts["unchanged"] % 500 == 0:
+                        con.commit()
                 if (not placeholder and old["tags_scanned"] < EMBEDDED_TAGS_VERSION
                         and path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS):
                     refresh_embedded_tags(con, int(old["id"]), path)
@@ -933,8 +976,8 @@ def scan_library(
                 INSERT INTO assets(path, relative_path, folder, filename, extension, media_type,
                                    size_bytes, mtime_ns, metadata_scanned, location_scanned,
                                    gps_latitude, gps_longitude, capture_date, date_scanned,
-                                   content_hash, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   visual_hash, visual_scanned, content_hash, indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(relative_path) DO UPDATE SET
                     path=excluded.path, folder=excluded.folder, filename=excluded.filename,
                     extension=excluded.extension, media_type=excluded.media_type,
@@ -946,6 +989,7 @@ def scan_library(
                     gps_longitude=excluded.gps_longitude,
                     capture_date=excluded.capture_date,
                     date_scanned=excluded.date_scanned,
+                    visual_hash=excluded.visual_hash, visual_scanned=excluded.visual_scanned,
                     content_hash=excluded.content_hash, indexed_at=excluded.indexed_at,
                     scan_error=''
                 """,
@@ -953,7 +997,9 @@ def scan_library(
                  stat.st_size, stat.st_mtime_ns, 0 if placeholder else 1, 0 if placeholder else 1,
                  latitude, longitude,
                  capture_date_from_path(path) if placeholder else capture_date_for(path),
-                 0 if placeholder else CAPTURE_DATE_VERSION, file_hash, utc_now()),
+                 0 if placeholder else CAPTURE_DATE_VERSION,
+                 "" if placeholder else visual_hash(path), 0 if placeholder else VISUAL_HASH_VERSION,
+                 file_hash, utc_now()),
             )
             asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path = ?", (rel_text,)).fetchone()[0])
             if not placeholder:

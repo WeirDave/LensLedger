@@ -43,21 +43,7 @@ jobs:
           ZIPNAME="LensLedger-${TAG}.zip"
 
           zip -r "$ZIPNAME" \
-            src/app_paths.py \
-            src/database_tools.py \
-            src/face_learning.py \
-            src/face_locations.py \
-            src/face_scan.py \
-            src/generate_face_suggestions.py \
-            src/generate_historical_folder_tags.py \
-            src/lensledger_updater.py \
-            src/library_config.py \
-            src/metadata_reader.py \
-            src/photo_index.py \
-            src/photo_search.py \
-            src/semantic_index.py \
-            src/product.py \
-            src/windows_ocr.ps1 \
+            src/ \
             "Install LensLedger.cmd" \
             "Start LensLedger.cmd" \
             requirements.txt \

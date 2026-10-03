@@ -179,6 +179,30 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn('<option value="duplicates" selected>Exact duplicates</option>', page)
         self.assertIn("Exact duplicates • 1–2 of 2", page)
 
+    def test_similar_scope_groups_a_resized_copy_and_leaves_exact_copies_to_the_other_view(self):
+        import random
+        from photo_index import scan_library
+
+        def blocks(seed):
+            rng = random.Random(seed)
+            image = Image.new("L", (16, 12))
+            image.putdata([rng.randrange(256) for _ in range(16 * 12)])
+            return image.resize((640, 480), Image.BICUBIC).convert("RGB")
+
+        blocks(5).save(self.library / "view.jpg", quality=92)
+        blocks(5).resize((320, 240)).save(self.library / "view-small.jpg", quality=60)
+        blocks(6).save(self.library / "other.jpg", quality=92)
+        (self.library / "copy of other.jpg").write_bytes((self.library / "other.jpg").read_bytes())
+        self.assertEqual(scan_library(self.library, self.database), 0)
+
+        listed = self.json_response(self.get("/api/library/items?scope=similar"))
+        page = self.get("/?scope=similar").read().decode("utf-8")
+
+        self.assertEqual([(item["filename"], item["set"], item["set_pos"], item["set_size"]) for item in listed["items"]],
+                         [("view.jpg", 1, 1, 2), ("view-small.jpg", 1, 2, 2)])
+        self.assertIn('<option value="similar" selected>Similar photos</option>', page)
+        self.assertIn("Similar photos • 1–2 of 2", page)
+
     def bin_two_photos(self):
         from photo_index import scan_library
 

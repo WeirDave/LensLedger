@@ -41,6 +41,7 @@ from app_paths import (
 from face_learning import SUGGESTION_THRESHOLD, centroid, decode_vector, dot, learn as learn_faces
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
 from photo_duplicates import find_exact_duplicate_groups
+from photo_similar import find_similar_groups
 from person_duplicates import dismiss_pair as dismiss_duplicate_pair, find_possible_duplicates
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
@@ -2159,6 +2160,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Day/event context</strong> &mdash; folder-derived tags</li>
 <li><strong>People</strong> &mdash; browse and filter by recognized people (shows a card grid)</li>
 <li><strong>Meaning</strong> &mdash; semantic search with natural language (requires meaning search)</li>
+<li><strong>Similar photos</strong> &mdash; photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Sets are shown like exact duplicates, with the largest file first. Matching compares the pattern of light and dark in each picture, so a colour and a black-and-white version of the same shot also match, and so can two plain pictures with the same layout. Look through each set before trashing anything; similar is not identical. Videos and RAW files are not compared. A library indexed by an earlier version is fingerprinted on its next scan, which takes a while the first time.</li>
 <li><strong>Exact duplicates</strong> &mdash; photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, likely original first; a bar separates the sets and each photo is labelled with its place in its set, such as "1 of 2". Ctrl+click the extra copies and choose <strong>Trash selected</strong> to move them to the review bin. Also in the menu as <strong>Duplicate photos</strong>.</li>
 </ul>
 <h3>Sorting</h3>
@@ -2730,7 +2732,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         scope = params.get("scope", ["all"])[0]
         requested_person = params.get("person", [""])[0]
         person_id = int(requested_person) if requested_person.isdigit() else None
-        if scope not in {"image", "context", "people", "semantic", "duplicates", "all"}:
+        if scope not in {"image", "context", "people", "semantic", "duplicates", "similar", "all"}:
             scope = "image"
         default_sort = "relevance" if (query and scope == "all") else ("oldest" if selected_date else "newest")
         sort = params.get("sort", [default_sort])[0]
@@ -2788,7 +2790,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         # stay as only the base filters (review-bin state, selected date)
         # for that case, and search_everything_scope builds its own
         # MATCH/EXISTS queries independently.
-        if tokens and scope not in {"all", "people", "semantic", "duplicates"}:
+        if tokens and scope not in {"all", "people", "semantic", "duplicates", "similar"}:
             sources = "('subject','asset_rule','embedded_xmp','embedded_people','person')" if scope == "image" else "('folder_rule')"
             for token in tokens:
                 pattern = like_pattern(token)
@@ -2833,11 +2835,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                 items = [by_id[asset_id] for asset_id in ranked_ids if asset_id in by_id]
             return items, total, selected_date
 
-        if scope == "duplicates":
+        if scope in {"duplicates", "similar"}:
             # Grouped, not sorted: each set of copies sits together in the
             # filmstrip so the extras can be selected and binned.
+            finder = find_exact_duplicate_groups if scope == "duplicates" else find_similar_groups
             flat = []
-            for number, group in enumerate(find_exact_duplicate_groups(con, base_where, values, tokens), 1):
+            for number, group in enumerate(finder(con, base_where, values, tokens), 1):
                 for position, item in enumerate(group, 1):
                     # The filmstrip draws a divider where "set" changes. The
                     # number runs over the whole list, not the page, so a set
@@ -3040,6 +3043,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             view_label = f'Meaning: “{query}”' if query else "Meaning search"
         elif scope == "duplicates":
             view_label = f'Exact duplicates: “{query}”' if query else "Exact duplicates"
+        elif scope == "similar":
+            view_label = f'Similar photos: “{query}”' if query else "Similar photos"
         elif query:
             view_label = f'Search: “{query}”'
         elif selected_date:
@@ -3061,7 +3066,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         scope_options = "".join(
             f'<option value="{value}"{" selected" if scope == value else ""}>{label}</option>'
-            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("duplicates", "Exact duplicates"), ("all", "Everything"))
+            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("duplicates", "Exact duplicates"), ("similar", "Similar photos"), ("all", "Everything"))
         )
         sort_options = "".join(
             f'<option value="{value}"{" selected" if sort == value else ""}>{label}</option>'
@@ -3075,6 +3080,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         stage_empty_text = (
             "Choose a photo from the filmstrip" if items else
             "No photo in this library is stored more than once" if scope == "duplicates" and not query else
+            "No photos in this library look alike" if scope == "similar" and not query else
             "No photos match this search"
         )
         gallery_cards = []
@@ -3179,7 +3185,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         search_placeholder = (
             "Filter people by name, alias, or group" if gallery_mode else
             "Try: sunset over water, dog playing in snow" if scope == "semantic" else
-            "Folder or file name (optional)" if scope == "duplicates" else
+            "Folder or file name (optional)" if scope in {"duplicates", "similar"} else
             "Try: birthday, beach, John, cake" if scope == "everything" else
             "Subject, person, object, or visible text"
         )
@@ -3198,7 +3204,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         })}>
 <a href="#stage" class="skip-nav">Skip to photos</a>
 <header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
-<form class="toolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
+<form class="toolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button class="stage-nav" id="nextPhoto"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details">ⓘ</button></div><aside class="sidebar" id="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
