@@ -2172,6 +2172,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Date filtering</h3>
 <p>Click the date filter button to open a calendar picker. Use <strong>Previous day</strong> / <strong>Next day</strong> buttons to navigate between days with photos.</p>
 <p>A photo&rsquo;s date is the date it was taken, read from the camera&rsquo;s EXIF data. When a photo has none, LensLedger uses a date in the file or folder name (<code>2024-07-04 Party</code>, <code>IMG_20240704_120000.jpg</code>) and, failing that, the date an editor last saved it. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.</p>
+<p>Videos and camera RAW files are dated the same way, from the date recorded inside the file, then a date in the name. MP4, MOV, M4V and 3GP videos use the day they were shot (an iPhone records the local day; other cameras record the UTC day, which can be the next day for a late-evening video, so a date in the file name is preferred over it). RAW files covered are DNG, CR2, CR3, NEF, ARW, ORF, RW2 and RAF; AVI, WMV, MPG and MKV videos are dated from their names only.</p>
 <h3>Filmstrip</h3>
 <p>Scroll horizontally or drag to browse thumbnails. More photos load automatically as you scroll. Click a thumbnail to view the full photo.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>

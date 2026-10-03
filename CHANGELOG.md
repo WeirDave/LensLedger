@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.18.0 — 2026-10-03
+
+- Videos and camera RAW files are now dated by when they were made, read from the file itself, instead of only from a date in the file or folder name. Video dates cover MP4, MOV, M4V and 3GP; an iPhone video is dated by the local day it was shot rather than the UTC day. RAW dates cover DNG, CR2, CR3, NEF, ARW, ORF, RW2 and RAF. Libraries indexed by an earlier version are re-dated on their next scan.
+
 ## 1.17.0 — 2026-10-03
 
 - Added a "Similar photos" search scope. It lists photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Each set is shown together with the largest file first, separated like the sets in "Exact duplicates". A set made only of byte-identical files is left to "Exact duplicates".

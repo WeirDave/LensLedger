@@ -101,9 +101,11 @@ class CaptureDateTests(unittest.TestCase):
 
         scan_library(self.library, self.database)
 
+        from photo_index import CAPTURE_DATE_VERSION
+
         self.assertEqual(self.dates(), {"IMG_5555.jpg": "2020-02-29"})
         con = sqlite3.connect(self.database)
-        self.assertEqual(con.execute("SELECT date_scanned FROM assets").fetchone()[0], 1)
+        self.assertEqual(con.execute("SELECT date_scanned FROM assets").fetchone()[0], CAPTURE_DATE_VERSION)
         con.close()
 
 

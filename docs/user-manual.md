@@ -179,7 +179,9 @@ Use the scope selector next to the search box to choose what to search:
 
 Click the date filter button to open a calendar picker. Select a specific date to show only photos from that day. Use the **Previous day** / **Next day** buttons to navigate between days with photos.
 
-A photo's date is the date it was taken, read from the camera's EXIF data. When a photo has none, LensLedger uses a date in the file or folder name — `2024-07-04 Party`, `IMG_20240704_120000.jpg`, `PXL_20240704_…` — and, failing that, the date the file was last saved by an editor. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.
+A photo's date is the date it was taken, read from the camera's EXIF data. When a photo has none, LensLedger uses a date in the file or folder name — `2024-07-04 Party`, `IMG_20240704_120000.jpg`, `PXL_20240704_…` — and, failing that, the date the file was last saved by an editor.
+
+Videos and camera RAW files are dated the same way, from the date recorded inside the file, then a date in the name. MP4, MOV, M4V and 3GP videos use the day they were shot (an iPhone records the local day; other cameras record the UTC day, which can be the next day for a late-evening video, so a date in the file name is preferred over it). RAW files covered are DNG, CR2, CR3, NEF, ARW, ORF, RW2 and RAF; AVI, WMV, MPG and MKV videos are dated from their names only. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.
 
 ### Filmstrip
 
