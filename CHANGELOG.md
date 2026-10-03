@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.16.0 — 2026-10-03
+
+- In the "Exact duplicates" view, a bar now separates one set of copies from the next in the filmstrip, and each photo is labelled with its place in its set, such as "1 of 2". Previously the sets ran together and there was no way to tell where one ended.
+
 ## 1.15.0 — 2026-10-03
 
 - "Trash selected" now shows an "Undo" button for 30 seconds, as trashing a single photo already did. It puts every photo of the batch back in one step. A photo that cannot be put back, because something now sits at its old location or the file is gone, is named in a message and stays in "Trash & restore"; the rest are restored.
