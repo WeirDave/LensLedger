@@ -319,7 +319,7 @@ async function refresh() {
     ]);
     const scanAllRunning = scanAll.state === 'running';
     const STEP_LABELS = { location: 'photo locations', ocr: 'OCR', semantic: 'meaning search', face: 'face detection' };
-    const scanAllSteps = ['location', 'ocr', ...(semantic.installed ? ['semantic'] : []), ...(faceScan.installed ? ['face'] : [])];
+    const scanAllSteps = ['location', ...(ocr.available === false ? [] : ['ocr']), ...(semantic.installed ? ['semantic'] : []), ...(faceScan.installed ? ['face'] : [])];
     const scanAllStepIndex = scanAllSteps.indexOf(scanAll.step) + 1;
     $('scanAllMessage').textContent = scanAllRunning
       ? `Step ${scanAllStepIndex} of ${scanAllSteps.length}: running ${STEP_LABELS[scanAll.step] || '…'}…`
@@ -377,7 +377,12 @@ async function refresh() {
     else { $('locationBarWrap').classList.toggle('indeterminate', locationScanning); $('locationBarWrap').hidden = !locationScanning; }
 
     // OCR
-    $('ocrMessage').textContent = ocr.message || 'OCR has not run in this session.';
+    const ocrUnavailable = ocr.available === false;
+    $('ocrMetrics').hidden = ocrUnavailable;
+    $('ocrActions').hidden = ocrUnavailable;
+    $('ocrMessage').textContent = ocrUnavailable
+      ? 'Text recognition uses the built-in Windows OCR engine, so it is only available on Windows. Everything else on this page works here, and Run all scans skips this step.'
+      : ocr.message || 'OCR has not run in this session.';
     const ocrErrorCount = Math.max(c.ocr_errors || 0, ocr.errors || 0);
     $('ocrMetrics').replaceChildren(
       metric('Remaining', c.ocr_pending), metric('This pass', ocr.attempted),

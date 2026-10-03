@@ -52,6 +52,7 @@ Windows, as it uses the built-in Windows OCR engine.
 - Camera RAW inventory with an explicit preview-unavailable state
 - Full-text search across paths, dates, subjects, tags, people, and OCR
 - Optional local meaning search across image content using an opt-in OpenCLIP model
+- One-to-five star ratings from the keyboard, with a rating filter to show only your best shots
 - Staged edits that remain in LensLedger until explicitly published
 - Field-by-field metadata preview before JPEG writes
 - Timestamped safety copies and decoded-pixel verification after publication

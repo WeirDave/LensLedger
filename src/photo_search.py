@@ -63,7 +63,7 @@ import metadata_backups
 from photo_index import (
     EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
     extract_embedded_tags, is_cloud_placeholder, refresh_embedded_tags, store_embedded_tags, ocr_assets,
-    pending_scan_counts, rebuild_search_row, scan_library,
+    ocr_is_available, pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
@@ -361,6 +361,26 @@ def like_pattern(value: str) -> str:
     """
     escaped = LIKE_ESCAPE_RE.sub(r"\\\1", value)
     return f"%{escaped}%"
+
+
+def asset_rating(con: sqlite3.Connection, relative_path: str) -> int:
+    row = con.execute("SELECT rating FROM asset_ratings WHERE relative_path=?", (relative_path,)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def attach_ratings(con: sqlite3.Connection, items: list[dict]) -> list[dict]:
+    """Add each photo's star rating (0 when unrated) for the filmstrip."""
+    if not items:
+        return items
+    ids = [int(item["id"]) for item in items]
+    placeholders = ",".join("?" for _ in ids)
+    ratings = {int(row[0]): int(row[1]) for row in con.execute(
+        f"""SELECT a.id, r.rating FROM assets a JOIN asset_ratings r ON r.relative_path=a.relative_path
+            WHERE a.id IN ({placeholders})""", ids,
+    )}
+    for item in items:
+        item["rating"] = ratings.get(int(item["id"]), 0)
+    return items
 
 
 def search_everything_scope(
@@ -801,6 +821,7 @@ ACTION_LABELS = {
     "/api/review-bin/delete": "Delete from the Review Bin",
     "/api/review-bin/empty": "Empty the Review Bin",
     "/api/subject": "Set a photo's subject",
+    "/api/rating": "Rate photos",
     "/api/tag/add": "Add a tag",
     "/api/tag/add-batch": "Add tags in bulk",
     "/api/tag/remove": "Remove a tag",
@@ -1258,16 +1279,17 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         check_step(handler_class.library_job, "the location scan failed")
         ran.append("photo locations")
 
-        set_step("ocr")
-        with handler_class.ocr_lock:
-            handler_class.ocr_job = {
-                "state": "running", "message": "Preparing local text recognition…",
-                "total": 0, "attempted": 0, "with_text": 0, "errors": 0, "started_at": utc_now(),
-            }
-            handler_class.ocr_cancel.clear()
-        _run_ocr_job(handler_class, database, None, 4, handler_class.ocr_job["started_at"])
-        check_step(handler_class.ocr_job, "OCR failed")
-        ran.append("OCR")
+        if ocr_is_available():
+            set_step("ocr")
+            with handler_class.ocr_lock:
+                handler_class.ocr_job = {
+                    "state": "running", "message": "Preparing local text recognition…",
+                    "total": 0, "attempted": 0, "with_text": 0, "errors": 0, "started_at": utc_now(),
+                }
+                handler_class.ocr_cancel.clear()
+            _run_ocr_job(handler_class, database, None, 4, handler_class.ocr_job["started_at"])
+            check_step(handler_class.ocr_job, "OCR failed")
+            ran.append("OCR")
 
         if semantic_is_available():
             set_step("semantic")
@@ -1656,6 +1678,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             self.log_action_request(route, body)
             if route == "/api/subject":
                 return self.update_subject(body)
+            if route == "/api/rating":
+                return self.set_rating(body)
             if route == "/api/tag/add":
                 return self.add_tag(body)
             if route == "/api/folder-tag/add":
@@ -1933,7 +1957,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card"><h2>Overview</h2><div class="health-summary" id="healthSummary"></div><p class="cloud-scope" id="cloudScope"></p><details class="scan-details"><summary>Database &amp; folder details</summary><div class="health-paths" id="healthPaths"></div><p class="data-location">Your photos stay exactly where they are. The searchable index, backups, and everything else LensLedger creates live separately at <code>{html.escape(str(data_root()))}</code> — never inside your photo folders.</p></details></section>
 <section class="card job-card"><div class="section-title"><h2>Run all scans</h2><button type="button" class="info-button" data-help="scanAllHelp" aria-label="About Run all scans">i</button></div><div class="help-popover" id="scanAllHelp">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</div><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="progress-bar" id="locationBarWrap" hidden><span id="locationBar"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions" id="ocrActions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div><h3 class="backup-subhead">Photo safety copies</h3><p class="backup-note">Before LensLedger writes tags into a photo it keeps a complete copy of the original, so any write can be undone. These build up as you publish. How long they are kept is set under "Metadata publishing" in <a href="/settings#metadata-publishing">Settings</a>.</p><div class="health-summary ocr-summary" id="photoBackupMetrics"></div><div class="interrupted-writes" id="interruptedWrites" hidden></div><div class="backup-row"><button type="button" class="secondary" id="prunePhotoBackups">Clear copies past the limit</button><button type="button" class="secondary" id="clearPhotoBackups">Clear all safety copies</button><span id="photoBackupStatus"></span></div></section>
@@ -2116,7 +2140,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Photo locations (GPS)</h3>
 <p>An incremental library scan that discovers new and changed files and extracts embedded GPS coordinates. These coordinates power the <a href="/map">Photo map</a>. Safe to run any time.</p>
 <h3>Local text recognition (OCR)</h3>
-<p>Reads visible text in your photos &mdash; signs, screenshots, receipts, documents &mdash; and makes it searchable.</p>
+<p>Reads visible text in your photos &mdash; signs, screenshots, receipts, documents &mdash; and makes it searchable. It uses the built-in Windows OCR engine, so it is only available on Windows; on macOS and Linux the section says so, and <strong>Run all scans</strong> and folder watching skip it.</p>
 <table>
 <tr><th>Setting</th><th>Range</th><th>Default</th><th>Description</th></tr>
 <tr><td>OCR workers</td><td>1&ndash;16</td><td>4</td><td>More workers scan faster but use more CPU</td></tr>
@@ -2169,6 +2193,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Newest first</strong> / <strong>Oldest first</strong> &mdash; by capture date</li>
 <li><strong>Filename A&ndash;Z</strong> &mdash; alphabetical</li>
 </ul>
+<h3>Rating filter</h3>
+<p>Use the <strong>Rating</strong> menu next to Sort to show only photos with at least one to five stars, or <strong>★★★★★ only</strong>. It combines with search, the date filter and People. It does not apply to Meaning search.</p>
 <h3>Date filtering</h3>
 <p>Click the date filter button to open a calendar picker. Use <strong>Previous day</strong> / <strong>Next day</strong> buttons to navigate between days with photos.</p>
 <p>A photo&rsquo;s date is the date it was taken, read from the camera&rsquo;s EXIF data. When a photo has none, LensLedger uses a date in the file or folder name (<code>2024-07-04 Party</code>, <code>IMG_20240704_120000.jpg</code>) and, failing that, the date an editor last saved it. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.</p>
@@ -2181,6 +2207,9 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="manual-section" id="viewing">
 <h2>5. Viewing and Editing Photo Metadata</h2>
 <p>Click a photo in the filmstrip to view it. The sidebar shows editable metadata.</p>
+<h3>Star ratings</h3>
+<p>Rate the photo from one to five stars with the stars under its file name, or press <strong>1</strong>&ndash;<strong>5</strong>. Press <strong>0</strong>, or the same number again, to clear the rating. With several photos selected, the number keys and the <strong>Rate selected&hellip;</strong> menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.</p>
+<p>Ratings are kept in LensLedger and are not written into the photo files.</p>
 <h3>Primary subject</h3>
 <p>A short phrase describing the main thing in the photo (e.g. &ldquo;Golden Gate Bridge at sunset&rdquo;). Stored as IPTC/XMP Title and Headline when published.</p>
 <h3>Photo tags</h3>
@@ -2344,6 +2373,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Batch actions</h3>
 <ul>
 <li><strong>Add tags</strong> &mdash; add the same tags to all selected photos</li>
+<li><strong>Rate selected&hellip;</strong> &mdash; give all selected photos the same star rating, or clear it</li>
 <li><strong>Trash</strong> &mdash; move all selected photos to the review bin</li>
 <li><strong>Clear selection</strong> &mdash; deselect all</li>
 </ul>
@@ -2410,6 +2440,9 @@ class SearchHandler(BaseHTTPRequestHandler):
 <table>
 <tr><th>Action</th><th>Shortcut</th></tr>
 <tr><td>Next / previous photo</td><td>Left / Right arrow keys</td></tr>
+<tr><td>Rate the photo (or every selected photo)</td><td>1 &ndash; 5</td></tr>
+<tr><td>Clear the rating</td><td>0, or the same number again</td></tr>
+<tr><td>Show the keyboard shortcuts</td><td>?</td></tr>
 <tr><td>Open photo in file explorer</td><td>Double-click the main image</td></tr>
 <tr><td>Toggle 3x zoom</td><td>Triple-click the main image</td></tr>
 <tr><td>Zoom in / out</td><td>Scroll wheel on the main image</td></tr>
@@ -2749,9 +2782,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             near_point = (round(float(near_lat_str), 1), round(float(near_lon_str), 1))
         except ValueError:
             near_point = None
-        return query, selected_date, scope, person_id, sort, page_number, near_point
+        requested_rating = params.get("rating", [""])[0]
+        min_rating = int(requested_rating) if requested_rating in {"1", "2", "3", "4", "5"} else 0
+        return query, selected_date, scope, person_id, sort, page_number, near_point, min_rating
 
-    def fetch_matching_photos(self, con, query, selected_date, scope, person_id, sort, page_number, near_point=None):
+    def fetch_matching_photos(self, con, query, selected_date, scope, person_id, sort, page_number, near_point=None,
+                              min_rating=0):
         """Fetch one page of matching photos for the image/context/all/
         semantic scopes, or a specific person's confirmed photos.
 
@@ -2766,6 +2802,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         """
         clauses = ["a.in_review_bin=0"]
         values: list[object] = []
+        if min_rating:
+            clauses.append("""EXISTS (
+                SELECT 1 FROM asset_ratings r WHERE r.relative_path=a.relative_path AND r.rating>=?
+            )""")
+            values.append(min_rating)
         if near_point:
             clauses.append("ROUND(a.gps_latitude,1)=? AND ROUND(a.gps_longitude,1)=?")
             values.extend(near_point)
@@ -2834,7 +2875,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 ).fetchall()
                 by_id = {int(row["id"]): dict(row) for row in found}
                 items = [by_id[asset_id] for asset_id in ranked_ids if asset_id in by_id]
-            return items, total, selected_date
+            return attach_ratings(con, items), total, selected_date
 
         if scope in {"duplicates", "similar"}:
             # Grouped, not sorted: each set of copies sits together in the
@@ -2848,11 +2889,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                     # split across a page boundary keeps one number.
                     flat.append({**item, "set": number, "set_pos": position, "set_size": len(group)})
             start = (page_number - 1) * PAGE_SIZE
-            return flat[start:start + PAGE_SIZE], len(flat), selected_date
+            return attach_ratings(con, flat[start:start + PAGE_SIZE]), len(flat), selected_date
 
         if scope == "all" and tokens:
             items, total = search_everything_scope(con, base_where, values, tokens, query, sort, order, page_number)
-            return items, total, selected_date
+            return attach_ratings(con, items), total, selected_date
 
         total = int(con.execute(
             f"SELECT COUNT(*) FROM search_fts JOIN assets a ON a.id=search_fts.asset_id {where}", values
@@ -2863,13 +2904,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                 {where} ORDER BY {order} LIMIT ? OFFSET ?""",
             values + [PAGE_SIZE, (page_number - 1) * PAGE_SIZE],
         ).fetchall()
-        return [dict(row) for row in rows], total, selected_date
+        return attach_ratings(con, [dict(row) for row in rows]), total, selected_date
 
     def library_items_api(self, params):
         """JSON pagination endpoint: the filmstrip calls this while
         scrolling to fetch additional pages after the first, which is
         rendered directly into the full page."""
-        query, selected_date, scope, person_id, sort, page_number, near_point = self.parse_photo_query(params)
+        query, selected_date, scope, person_id, sort, page_number, near_point, min_rating = self.parse_photo_query(params)
         if scope == "people" and not person_id:
             return self.send_json({"error": "this scope has no photo pages to fetch"}, 400)
         try:
@@ -2879,7 +2920,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     if not exists:
                         raise ValueError("That person is no longer available")
                 items, total, selected_date = self.fetch_matching_photos(
-                    con, query, selected_date, scope, person_id, sort, page_number, near_point,
+                    con, query, selected_date, scope, person_id, sort, page_number, near_point, min_rating,
                 )
         except (sqlite3.Error, RuntimeError, ValueError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -2908,13 +2949,13 @@ class SearchHandler(BaseHTTPRequestHandler):
             if known:
                 return self.reconnection_page()
             return self.onboarding_page()
-        has_params = any(params.get(k) for k in ("q", "scope", "sort", "person", "date"))
+        has_params = any(params.get(k) for k in ("q", "scope", "sort", "person", "date", "rating"))
         if not has_params and get_setting("startup", "show_library_picker", default=False):
             known = load_all_known_libraries()
             accessible = [lib for lib in known if lib["accessible"]]
             if len(accessible) > 1:
                 return self.library_picker_page()
-        query, selected_date, scope, person_id, sort, page_number, near_point = self.parse_photo_query(params)
+        query, selected_date, scope, person_id, sort, page_number, near_point, min_rating = self.parse_photo_query(params)
 
         error = ""
         rows: list[dict] = []
@@ -3026,7 +3067,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                             )
                         }
                     rows, total, selected_date = self.fetch_matching_photos(
-                        con, query, selected_date, scope, person_id, sort, page_number, near_point,
+                        con, query, selected_date, scope, person_id, sort, page_number, near_point, min_rating,
                     )
         except (sqlite3.Error, RuntimeError, ValueError) as exc:
             error = str(exc)
@@ -3058,6 +3099,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "oldest": "Oldest photos",
                 "name": "Filename order",
             }.get(sort, "Photos")
+        if min_rating and not (scope == "people" and not person_id) and scope != "semantic":
+            view_label += f" rated {'★' * min_rating}{'+' if min_rating < 5 else ''}"
         summary = (
             f"{view_label} • {total:,}" if scope == "people" and not person_id
             else f"{view_label} • No matches" if not total
@@ -3076,6 +3119,18 @@ class SearchHandler(BaseHTTPRequestHandler):
                 ("newest", "Newest first"), ("name", "Filename A–Z"),
             )
             if value != "relevance" or (query and scope == "all")
+        )
+        rating_options = "".join(
+            f'<option value="{value}"{" selected" if min_rating == value else ""}>{label}</option>'
+            for value, label in (
+                (0, "Any rating"), (1, "★ 1+"), (2, "★★ 2+"), (3, "★★★ 3+"),
+                (4, "★★★★ 4+"), (5, "★★★★★ only"),
+            )
+        )
+        star_buttons = "".join(
+            f'<button type="button" class="star" role="radio" aria-checked="false" data-rating="{n}" '
+            f'aria-label="{n} star{"s" if n > 1 else ""}" title="{n} star{"s" if n > 1 else ""} (press {n})">★</button>'
+            for n in range(1, 6)
         )
         gallery_mode = scope == "people" and not person_id
         stage_empty_text = (
@@ -3200,15 +3255,17 @@ class SearchHandler(BaseHTTPRequestHandler):
             "query": {
                 "q": query, "date": selected_date, "scope": scope, "sort": sort, "person": person_id,
                 "near": f"{near_point[0]},{near_point[1]}" if near_point else "",
+                "rating": min_rating,
             },
             "page": page_number, "hasMore": has_more,
         })}>
 <a href="#stage" class="skip-nav">Skip to photos</a>
 <header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
-<form class="toolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><button>View</button></form></header>
+<form class="toolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><label class="rating-field optional">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label><button>View</button></form></header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button class="stage-nav" id="previousPhoto"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button class="stage-nav" id="nextPhoto"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details">ⓘ</button></div><aside class="sidebar" id="sidebar">
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
+<div class="rating-row"><div class="star-rating" id="starRating" role="radiogroup" aria-label="Rating">{star_buttons}</div><button type="button" class="shortcut-hint" id="shortcutHint" title="Keyboard shortcuts">Keys: 1–5 rate · 0 clears · ?</button></div>
 <div class="editor-compact"><strong>Metadata for this photo</strong><button type="button" class="info-button" data-help="editorHelp" aria-label="About metadata editing">i</button><div class="help-popover" id="editorHelp">Your edits stay in LensLedger until you use Publish to this photo. Nothing is written automatically.</div></div>
 <div class="section"><div class="section-title"><h2>1. Primary subject</h2><button type="button" class="info-button" data-help="subjectHelp" aria-label="About primary subjects">i</button></div><div class="help-popover" id="subjectHelp">One short phrase naming the main thing in this photo. Stored as IPTC/XMP Title/Headline metadata.</div><div class="chips" id="subjectChip"></div><div class="row subject-editor"><input id="subjectInput" placeholder="Example: Formula 1 race cars"><button id="saveSubject">Save subject</button></div></div>
 <div class="section"><div class="section-title"><h2>2. Photo tags</h2><button type="button" class="info-button" data-help="photoTagHelp" aria-label="About photo tags">i</button></div><div class="help-popover" id="photoTagHelp">Searchable people, objects, places, or activities visible in this photo. Use lowercase for ordinary things and activities; capitalize people, places, brands, and acronyms normally. Search ignores capitalization. These are stored as IPTC/XMP Keywords. Enter one or several separated by commas.</div><div class="chips" id="imageTags"></div><div class="row row-spaced"><input id="newTag" placeholder="Formula 1, race car, Honda, McLaren"><button id="addTag">Add tags</button></div></div>
@@ -3218,7 +3275,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="section trash-section"><button type="button" class="danger" id="moveToTrash">🗑 Trash this photo</button></div>
 <details class="metadata-details" id="embeddedMetadata"><summary>Capture details</summary><p class="metadata-note">Read directly from the photo. Nothing here changes the file.</p><div class="metadata-readout" id="metadataReadout"></div></details>
 <div class="section" id="hiddenSection"><div class="section-title"><h2>Hidden tags</h2><button type="button" class="info-button" data-help="hiddenTagHelp" aria-label="About hidden tags">i</button></div><div class="help-popover" id="hiddenTagHelp">These tags are ignored only for this photo. Click one to restore it.</div><div class="chips" id="hiddenTags"></div></div><div class="status" id="status"></div>
-</aside></section><div class="sidebar-backdrop" id="sidebarBackdrop"></div><section class="filmstrip" id="filmstrip"></section></main><div class="batch-bar" id="batchBar"><span class="batch-count" id="batchCount">0 selected</span><input id="batchTagInput" placeholder="Add tags to selected"><button type="button" id="batchAddTags">Add tags</button><button type="button" class="danger" id="batchTrash">Trash selected</button><button type="button" class="secondary" id="batchClear">Clear</button></div><div class="toast" id="toast"></div>
+</aside></section><div class="sidebar-backdrop" id="sidebarBackdrop"></div><section class="filmstrip" id="filmstrip"></section></main><div class="batch-bar" id="batchBar"><span class="batch-count" id="batchCount">0 selected</span><input id="batchTagInput" placeholder="Add tags to selected"><button type="button" id="batchAddTags">Add tags</button><select id="batchRating" aria-label="Rate selected"><option value="">Rate selected…</option><option value="5">★★★★★</option><option value="4">★★★★</option><option value="3">★★★</option><option value="2">★★</option><option value="1">★</option><option value="0">Clear rating</option></select><button type="button" class="danger" id="batchTrash">Trash selected</button><button type="button" class="secondary" id="batchClear">Clear</button></div><div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="modalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h2 id="modalTitle"></h2><button type="button" class="modal-close" id="modalClose">Close</button></div><div id="modalBody"></div></section></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/viewer.js')}" defer></script></body></html>"""
@@ -3492,6 +3549,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     # a button that can only fail.
                     "can_restore_publish": self._safety_copy_available(
                         con, asset["relative_path"]),
+                    "rating": asset_rating(con, asset["relative_path"]),
                     "hidden_tags": [row[0] for row in con.execute(
                         "SELECT tag FROM asset_tag_exclusions WHERE relative_path=? ORDER BY tag", (asset["relative_path"],)
                     )],
@@ -6624,6 +6682,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     def ocr_status(self):
         with type(self).ocr_lock:
             job = dict(type(self).ocr_job)
+        job["available"] = ocr_is_available()
         self.send_json(job)
 
     def ocr_errors(self):
@@ -6635,7 +6694,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"errors": [{"path": row["relative_path"], "full_path": row["path"], "error": row["ocr_error"]} for row in rows]})
 
     def start_ocr(self, body):
-        if sys.platform != "win32":
+        if not ocr_is_available():
             raise ValueError("Text recognition (OCR) requires Windows — it uses the built-in Windows OCR engine")
         workers = max(1, min(8, int(body.get("workers", 4))))
         since = str(body.get("since", "")).strip() or None
@@ -7171,6 +7230,28 @@ class SearchHandler(BaseHTTPRequestHandler):
                 con.execute("DELETE FROM asset_tag_exclusions WHERE relative_path=? AND tag=? COLLATE NOCASE", (asset["relative_path"], tag))
             set_source_tags(con, asset_id, "asset_rule", names); rebuild_search_row(con, asset_id)
         self.send_json({"ok": True, "added": len(incoming)})
+
+    def set_rating(self, body):
+        ids = body.get("ids", [])
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("select at least one photo")
+        if len(ids) > 500:
+            raise ValueError("too many photos selected (max 500)")
+        rating = int(body.get("rating", -1))
+        if rating not in range(0, 6):
+            raise ValueError("a rating is 0 to 5 stars")
+        with self.db() as con:
+            for asset_id in ids:
+                asset = self.get_active_asset(con, int(asset_id))
+                if rating:
+                    con.execute(
+                        """INSERT INTO asset_ratings(relative_path,rating,updated_at) VALUES (?,?,?)
+                           ON CONFLICT(relative_path) DO UPDATE SET rating=excluded.rating,updated_at=excluded.updated_at""",
+                        (asset["relative_path"], rating, utc_now()),
+                    )
+                else:
+                    con.execute("DELETE FROM asset_ratings WHERE relative_path=?", (asset["relative_path"],))
+        self.send_json({"ok": True, "rating": rating, "photos_rated": len(ids)})
 
     def add_tag_batch(self, body):
         ids = body.get("ids", [])

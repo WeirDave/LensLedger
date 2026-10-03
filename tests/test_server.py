@@ -567,7 +567,7 @@ class ServerWorkflowTests(unittest.TestCase):
         with patch(
             "photo_index.run_windows_ocr",
             return_value=(str(self.photo), "sample recognized text", None),
-        ):
+        ), patch.object(self.photo_search, "ocr_is_available", return_value=True):
             started = self.json_response(self.post("/api/ocr/start", {"workers": 1}))
             self.assertEqual(started["state"], "running")
             for _ in range(100):
@@ -1211,6 +1211,7 @@ class ServerWorkflowTests(unittest.TestCase):
     def test_scan_all_chains_location_then_ocr_when_optional_scans_not_set_up(self):
         with patch.object(self.photo_search, "semantic_is_available", return_value=False), \
              patch.object(self.photo_search, "face_is_available", return_value=False), \
+             patch.object(self.photo_search, "ocr_is_available", return_value=True), \
              patch("photo_index.run_windows_ocr", return_value=(str(self.photo), "sample recognized text", None)):
             started = self.json_response(self.post("/api/scan-all/start", {}))
             self.assertEqual(started["state"], "running")
@@ -1245,6 +1246,7 @@ class ServerWorkflowTests(unittest.TestCase):
         fake_cache = {"ViT-B-32/openai": {"downloaded": True, "size_bytes": 100}}
         with patch.object(self.photo_search, "semantic_is_available", return_value=True), \
              patch.object(self.photo_search, "face_is_available", return_value=True), \
+             patch.object(self.photo_search, "ocr_is_available", return_value=True), \
              patch.object(self.photo_search, "build_semantic_index", side_effect=fake_semantic), \
              patch.object(self.photo_search, "semantic_encoder_for", return_value=mock_encoder), \
              patch.object(self.photo_search, "semantic_model_cache_info", return_value=fake_cache), \
@@ -1264,6 +1266,61 @@ class ServerWorkflowTests(unittest.TestCase):
         face_job = self.json_response(self.get("/api/faces/status"))
         self.assertEqual(face_job["state"], "complete")
         self.assertEqual(face_job["faces_found"], 2)
+
+    def test_scan_all_skips_text_recognition_where_it_cannot_run(self):
+        with patch.object(self.photo_search, "semantic_is_available", return_value=False), \
+             patch.object(self.photo_search, "face_is_available", return_value=False), \
+             patch.object(self.photo_search, "ocr_is_available", return_value=False), \
+             patch("photo_index.run_windows_ocr") as ocr:
+            self.json_response(self.post("/api/scan-all/start", {}))
+            for _ in range(200):
+                job = self.json_response(self.get("/api/scan-all/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+            status = self.json_response(self.get("/api/ocr/status"))
+        self.assertEqual(job["state"], "complete")
+        ocr.assert_not_called()
+        self.assertEqual(status["state"], "idle")
+        self.assertFalse(status["available"])
+
+    def test_ratings_are_set_cleared_and_filter_the_photos(self):
+        from photo_index import scan_library
+        Image.new("RGB", (32, 24), (140, 80, 24)).save(self.library / "2026-08-10 other.jpg", quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        other_id = int(con.execute("SELECT id FROM assets WHERE id<>?", (self.asset_id,)).fetchone()[0])
+        con.close()
+
+        self.json_response(self.post("/api/rating", {"ids": [self.asset_id], "rating": 4}))
+        self.assertEqual(self.json_response(self.get(f"/api/asset?id={self.asset_id}"))["rating"], 4)
+        self.assertEqual(self.json_response(self.get(f"/api/asset?id={other_id}"))["rating"], 0)
+
+        listing = self.json_response(self.get("/api/library/items?page=1"))
+        self.assertEqual({item["id"]: item["rating"] for item in listing["items"]}, {self.asset_id: 4, other_id: 0})
+        for rating, expected in ((4, [self.asset_id]), (5, []), (0, [other_id, self.asset_id])):
+            listing = self.json_response(self.get(f"/api/library/items?page=1&sort=newest&rating={rating}"))
+            self.assertEqual(sorted(item["id"] for item in listing["items"]), sorted(expected), rating)
+        listing = self.json_response(self.get("/api/library/items?page=1&q=sample&scope=all&rating=3"))
+        self.assertEqual([item["id"] for item in listing["items"]], [self.asset_id])
+
+        with self.get("/?rating=4") as response:
+            page = response.read().decode("utf-8")
+        self.assertIn('<option value="4" selected>', page)
+        self.assertIn("rated ★★★★+ • 1–1 of 1", page)
+
+        self.json_response(self.post("/api/rating", {"ids": [self.asset_id, other_id], "rating": 2}))
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute("SELECT rating FROM asset_ratings").fetchall(), [(2,), (2,)])
+        con.close()
+        self.json_response(self.post("/api/rating", {"ids": [self.asset_id], "rating": 0}))
+        self.assertEqual(self.json_response(self.get(f"/api/asset?id={self.asset_id}"))["rating"], 0)
+
+        for bad in ({"ids": [self.asset_id], "rating": 6}, {"ids": [], "rating": 3}):
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.post("/api/rating", bad)
+            self.assertEqual(rejected.exception.code, 400)
+            rejected.exception.close()
 
     def test_scan_all_can_be_stopped_after_the_current_step(self):
         def slow_scan_library(_root, _database, **kwargs):

@@ -100,7 +100,7 @@ An incremental library scan that discovers new and changed files and extracts em
 
 ### Local text recognition (OCR)
 
-Reads visible text in your photos — signs, screenshots, receipts, documents — and makes it searchable. You can configure:
+Reads visible text in your photos — signs, screenshots, receipts, documents — and makes it searchable. It uses the built-in Windows OCR engine, so it is only available on Windows; on macOS and Linux the section says so, and **Run all scans** and folder watching skip it. You can configure:
 
 - **OCR worker threads** (1–16, default 4) — more workers scan faster but use more CPU
 - **OCR batch size** (10–500, default 50) — photos processed per commit
@@ -175,6 +175,10 @@ Use the scope selector next to the search box to choose what to search:
 - **Oldest first** — by capture date, oldest on the left
 - **Filename A–Z** — alphabetical by filename
 
+### Rating filter
+
+Use the **Rating** menu next to Sort to show only photos with at least one to five stars, or **★★★★★ only**. It combines with search, the date filter and People. It does not apply to Meaning search.
+
 ### Date filtering
 
 Click the date filter button to open a calendar picker. Select a specific date to show only photos from that day. Use the **Previous day** / **Next day** buttons to navigate between days with photos.
@@ -192,6 +196,12 @@ The filmstrip at the bottom shows photo thumbnails. Scroll horizontally or drag 
 ## Viewing and Editing Photo Metadata
 
 Click a photo in the filmstrip to see it in the main viewer area. The sidebar on the right shows editable metadata.
+
+### Star ratings
+
+Rate the photo from one to five stars with the stars under its file name, or press **1**–**5**. Press **0**, or the same number again, to clear the rating. With several photos selected, the number keys and the **Rate selected…** menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.
+
+Ratings are kept in LensLedger and are not written into the photo files.
 
 ### Primary subject
 
@@ -388,6 +398,7 @@ A batch bar appears at the bottom showing the selection count.
 ### Batch actions
 
 - **Add tags** — add the same tags to all selected photos
+- **Rate selected…** — give all selected photos the same star rating, or clear it
 - **Trash** — move all selected photos to the review bin
 - **Clear selection** — deselect all
 
@@ -482,6 +493,9 @@ Ctrl+Break always closes LensLedger immediately, whatever is running.
 | Action | Shortcut |
 |--------|----------|
 | Next / previous photo | Left / Right arrow keys |
+| Rate the photo (or every selected photo) | 1 – 5 |
+| Clear the rating | 0, or the same number again |
+| Show the keyboard shortcuts | ? |
 | Open photo in file explorer | Double-click the main image |
 | Toggle 3x zoom | Triple-click the main image |
 | Zoom in / out | Scroll wheel on the main image |

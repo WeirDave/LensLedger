@@ -45,7 +45,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -141,6 +141,12 @@ CREATE TABLE IF NOT EXISTS asset_tag_exclusions (
     relative_path TEXT NOT NULL,
     tag TEXT NOT NULL COLLATE NOCASE,
     PRIMARY KEY (relative_path, tag)
+);
+
+CREATE TABLE IF NOT EXISTS asset_ratings (
+    relative_path TEXT PRIMARY KEY,
+    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS review_bin (
@@ -459,6 +465,13 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute(
             "UPDATE metadata_publications SET completed_at=published_at "
             "WHERE completed_at IS NULL AND operation <> 'write_tags'"
+        )
+    if int(con.execute("PRAGMA user_version").fetchone()[0]) < 24:
+        # Before OCR was limited to Windows, the folder watcher ran it on
+        # macOS and Linux too, and every photo was left with this error.
+        con.execute(
+            "UPDATE text_data SET ocr_error='' "
+            "WHERE ocr_error LIKE '%WindowsPowerShell%powershell.exe%'"
         )
     if not con.execute("SELECT 1 FROM library_metadata WHERE key='library_id'").fetchone():
         import uuid
@@ -1108,7 +1121,7 @@ def scan_library(
                 # otherwise stay behind at the old path: the subject would
                 # be cleared, removed tags would return, and the last write
                 # could no longer be restored.
-                for table in ("asset_annotations", "asset_tag_exclusions"):
+                for table in ("asset_annotations", "asset_tag_exclusions", "asset_ratings"):
                     con.execute(f"UPDATE OR IGNORE {table} SET relative_path=? WHERE relative_path=?",
                                 (new_rel, old_rel))
                 con.execute("UPDATE metadata_publications SET relative_path=? WHERE relative_path=?",
@@ -1154,11 +1167,20 @@ def scan_library(
     return 0 if counts["errors"] == 0 else 2
 
 
+def ocr_is_available() -> bool:
+    """Text recognition drives the built-in Windows OCR engine."""
+    return sys.platform == "win32"
+
+
 def pending_scan_counts(db_path: Path) -> dict[str, int]:
-    """Return counts of photos still needing each scan type."""
+    """Return counts of photos still needing each scan type.
+
+    OCR counts as nothing pending where it cannot run, so the folder watcher
+    and the startup summary do not retry or report it every pass.
+    """
     con = connect(db_path)
     try:
-        ocr = int(con.execute(
+        ocr = 0 if not ocr_is_available() else int(con.execute(
             """SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
                WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0
                  AND x.ocr_scanned=0"""
