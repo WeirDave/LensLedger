@@ -165,6 +165,7 @@ Use the scope selector next to the search box to choose what to search:
 - **Day/event context** — matches folder-derived tags
 - **People** — browse and filter by recognized people (shows a card grid)
 - **Meaning** — semantic search with natural language queries (requires meaning search setup)
+- **Exact duplicates** — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, with the likely original first (names marked as a copy, such as `IMG_0001 (copy).jpg`, go last). Type part of a folder or file name to narrow the sets. Ctrl+click the extra copies and choose **Trash selected** to move them to the review bin. Also reachable from the menu as **Duplicate photos**.
 
 ### Sorting
 
@@ -176,6 +177,8 @@ Use the scope selector next to the search box to choose what to search:
 ### Date filtering
 
 Click the date filter button to open a calendar picker. Select a specific date to show only photos from that day. Use the **Previous day** / **Next day** buttons to navigate between days with photos.
+
+A photo's date is the date it was taken, read from the camera's EXIF data. When a photo has none, LensLedger uses a date in the file or folder name — `2024-07-04 Party`, `IMG_20240704_120000.jpg`, `PXL_20240704_…` — and, failing that, the date the file was last saved by an editor. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.
 
 ### Filmstrip
 
@@ -454,8 +457,10 @@ Automatically detect new and changed photos without manually running a scan.
 
 | Setting | Range | Default | Description |
 |---------|-------|---------|-------------|
-| Enable watching | On/Off | Off | Toggle automatic folder watching |
-| Check interval | 5–1440 minutes | 30 | How often to check for new files |
+| Enable watching | On/Off | On | Toggle automatic folder watching |
+| Check interval | 5–1440 minutes | 5 | How often to check for new files |
+
+Watching starts only once a library has been chosen; before then nothing is scanned.
 
 ---
 

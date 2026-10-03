@@ -160,6 +160,23 @@ class ServerWorkflowTests(unittest.TestCase):
             viewer_script = response.read().decode("utf-8")
         self.assertIn("separate each name with a comma", viewer_script)
 
+    def test_exact_duplicates_scope_lists_each_set_of_copies_together(self):
+        from photo_index import scan_library
+
+        (self.library / "Backup").mkdir()
+        (self.library / "Backup" / "copy of sample.jpg").write_bytes(self.photo.read_bytes())
+        Image.new("RGB", (32, 24), (200, 10, 10)).save(self.library / "unique.jpg", quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+
+        listed = self.json_response(self.get("/api/library/items?scope=duplicates"))
+        page = self.get("/?scope=duplicates").read().decode("utf-8")
+
+        self.assertEqual([item["filename"] for item in listed["items"]],
+                         ["2026-08-09 sample.jpg", "copy of sample.jpg"])
+        self.assertEqual(listed["total"], 2)
+        self.assertIn('<option value="duplicates" selected>Exact duplicates</option>', page)
+        self.assertIn("Exact duplicates • 1–2 of 2", page)
+
     def test_custom_date_picker_renders_hidden_field_and_trigger_label(self):
         # The toolbar's date filter used to be a native <input type="date">,
         # which renders a different picker UI per browser. It's now a hand
@@ -1317,6 +1334,58 @@ class ServerWorkflowTests(unittest.TestCase):
             self.assertEqual(exc.code, 400)
 
         self.photo_search.SearchHandler.dev_override = ""
+
+
+class FirstRunTests(unittest.TestCase):
+    """Before a library is chosen, the startup root is only a guess."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.data = self.root / "data"
+        self.pictures = self.root / "Pictures"
+        self.pictures.mkdir()
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(self.pictures / "IMG_0001.jpg", quality=92)
+        self.environment = patch.dict(os.environ, {"LENSLEDGER_DATA_DIR": str(self.data)})
+        self.environment.start()
+        import photo_search
+
+        self.handler = photo_search.SearchHandler
+        self.saved = (getattr(self.handler, "current_library", None), self.handler.root_given_at_launch)
+        self.handler.current_library = (self.pictures.resolve(), self.pictures / ".LensLedger" / "guess.sqlite3")
+        self.handler.root_given_at_launch = False
+        self.handler.csrf_token = "test-csrf"
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        current_library, self.handler.root_given_at_launch = self.saved
+        if current_library is None:
+            del self.handler.current_library
+        else:
+            self.handler.current_library = current_library
+        self.environment.stop()
+        self.temporary.cleanup()
+
+    def test_opening_the_app_shows_setup_and_writes_nothing_into_the_guessed_folder(self):
+        url = f"http://127.0.0.1:{self.server.server_port}/"
+        for _ in range(2):
+            with urllib.request.urlopen(url, timeout=10) as response:
+                self.assertIn("<title>Set up LensLedger</title>", response.read().decode("utf-8"))
+
+        self.assertEqual(sorted(path.name for path in self.pictures.iterdir()), ["IMG_0001.jpg"])
+        self.assertFalse(self.handler.library_is_chosen())
+
+    def test_a_library_counts_as_chosen_once_it_is_recorded(self):
+        from library_config import save_library_state
+
+        save_library_state(self.pictures)
+
+        self.assertTrue(self.handler.library_is_chosen())
 
 
 if __name__ == "__main__":

@@ -129,6 +129,25 @@ def load_all_known_libraries() -> list[dict[str, object]]:
     return []
 
 
+def has_chosen_library() -> bool:
+    """Whether anyone has picked a library yet, reachable or not.
+
+    Until they have, the startup root is only a guess (the Pictures folder,
+    or the home folder when there is none), and nothing may scan it or put
+    a `.LensLedger` folder in it.
+    """
+    try:
+        value = json.loads(library_state_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    if not isinstance(value, dict):
+        return False
+    if str(value.get("current_root") or value.get("root") or "").strip():
+        return True
+    libraries = value.get("libraries", [])
+    return isinstance(libraries, list) and any(isinstance(item, str) and item.strip() for item in libraries)
+
+
 def load_library_config() -> dict[str, object]:
     try:
         value = json.loads(library_state_file().read_text(encoding="utf-8"))
