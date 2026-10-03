@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.19.1 — 2026-10-03
+
+- The automated checks now compile every program file before a release is built. They had listed only 14 of the 25 modules by name, so a syntax error in any of the other 11 would have gone unnoticed until someone launched the app.
+
 ## 1.19.0 — 2026-10-03
 
 - Added star ratings. Rate a photo from one to five stars with the stars under its file name or the 1–5 keys; 0, or the same number again, clears it. With several photos selected, the number keys and a new "Rate selected…" menu rate them all. Rated photos show their stars on the filmstrip, and ratings follow a photo that is renamed or moved.
