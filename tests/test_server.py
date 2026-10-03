@@ -177,6 +177,45 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn('<option value="duplicates" selected>Exact duplicates</option>', page)
         self.assertIn("Exact duplicates • 1–2 of 2", page)
 
+    def bin_two_photos(self):
+        from photo_index import scan_library
+
+        second = self.library / "second.jpg"
+        Image.new("RGB", (32, 24), (200, 10, 10)).save(second, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        ids = [int(row[0]) for row in con.execute("SELECT id FROM assets ORDER BY filename")]
+        con.close()
+        moved = self.json_response(self.post("/api/review-bin/batch", {"ids": ids}))
+        self.assertEqual(moved["moved"], 2)
+        self.assertFalse(self.photo.exists() or second.exists())
+        return second, moved["review_ids"]
+
+    def test_a_bulk_trash_can_be_undone_in_one_step(self):
+        second, review_ids = self.bin_two_photos()
+
+        undone = self.json_response(self.post("/api/review-bin/restore-batch", {"review_ids": review_ids}))
+
+        self.assertEqual((undone["ok"], undone["restored"], undone["failed"]), (True, 2, []))
+        self.assertTrue(self.photo.is_file() and second.is_file())
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=1").fetchone()[0], 0)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0], 0)
+        con.close()
+
+    def test_one_photo_that_cannot_be_put_back_does_not_strand_the_others(self):
+        second, review_ids = self.bin_two_photos()
+        Image.new("RGB", (8, 8)).save(second)  # something now sits where it was
+
+        undone = self.json_response(self.post("/api/review-bin/restore-batch", {"review_ids": review_ids}))
+
+        self.assertEqual((undone["ok"], undone["restored"]), (False, 1))
+        self.assertEqual([item["path"] for item in undone["failed"]], ["second.jpg"])
+        self.assertTrue(self.photo.is_file())
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=1").fetchone()[0], 1)
+        con.close()
+
     def test_custom_date_picker_renders_hidden_field_and_trigger_label(self):
         # The toolbar's date filter used to be a native <input type="date">,
         # which renders a different picker UI per browser. It's now a hand

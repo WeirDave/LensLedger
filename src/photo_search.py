@@ -796,6 +796,7 @@ ACTION_LABELS = {
     "/api/review-bin": "Move a photo to the Review Bin",
     "/api/review-bin/batch": "Move photos to the Review Bin",
     "/api/review-bin/restore": "Restore from the Review Bin",
+    "/api/review-bin/restore-batch": "Restore photos from the Review Bin",
     "/api/review-bin/delete": "Delete from the Review Bin",
     "/api/review-bin/empty": "Empty the Review Bin",
     "/api/subject": "Set a photo's subject",
@@ -1724,6 +1725,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.move_to_review_bin_batch(body)
             if route == "/api/review-bin/restore":
                 return self.restore_from_review_bin(body)
+            if route == "/api/review-bin/restore-batch":
+                return self.restore_review_bin_batch(body)
             if route == "/api/review-bin/delete":
                 return self.delete_from_review_bin(body)
             if route == "/api/review-bin/empty":
@@ -2315,7 +2318,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <ul>
 <li>Click the trash icon on any photo</li>
 <li>Use batch selection and click <strong>Trash selected</strong></li>
-<li>An undo toast appears for 12 seconds after trashing</li>
+<li>An <strong>Undo</strong> toast appears after trashing: 12 seconds for one photo, 30 seconds for a batch. <strong>Undo</strong> on a batch puts every photo back at once; any that cannot be put back (something now sits at its old location, or the file is gone) are named, and stay in <strong>Trash &amp; restore</strong>.</li>
 </ul>
 <h3>Managing the review bin</h3>
 <p>Open from the hamburger menu (<strong>Trash &amp; restore</strong>):</p>
@@ -7298,20 +7301,46 @@ class SearchHandler(BaseHTTPRequestHandler):
         action.finish(summary)
         self.send_json({"ok": True, "moved": len(review_ids), "review_ids": review_ids})
 
+    def _restore_review_item(self, con, review_id):
+        row = con.execute("SELECT * FROM review_bin WHERE id=? AND restored_at IS NULL", (review_id,)).fetchone()
+        if not row: raise ValueError("review item is no longer available")
+        source = Path(row["review_path"]).resolve(); destination = Path(row["original_path"]).resolve()
+        destination.relative_to(self.library_root)
+        if not source.is_file() or destination.exists(): raise ValueError("cannot restore because the source is missing or destination exists")
+        destination.parent.mkdir(parents=True, exist_ok=True); shutil.move(str(source), str(destination))
+        con.execute("UPDATE assets SET path=?,in_review_bin=0 WHERE id=?", (str(destination), row["asset_id"]))
+        con.execute("UPDATE review_bin SET restored_at=? WHERE id=?", (utc_now(), review_id))
+        console_log("Restore from the Review Bin: put back — "
+                    f"{row['original_relative_path']}")
+
     def restore_from_review_bin(self, body):
         review_id = int(body["review_id"])
         with self.db() as con:
-            row = con.execute("SELECT * FROM review_bin WHERE id=? AND restored_at IS NULL", (review_id,)).fetchone()
-            if not row: raise ValueError("review item is no longer available")
-            source = Path(row["review_path"]).resolve(); destination = Path(row["original_path"]).resolve()
-            destination.relative_to(self.library_root)
-            if not source.is_file() or destination.exists(): raise ValueError("cannot restore because the source is missing or destination exists")
-            destination.parent.mkdir(parents=True, exist_ok=True); shutil.move(str(source), str(destination))
-            con.execute("UPDATE assets SET path=?,in_review_bin=0 WHERE id=?", (str(destination), row["asset_id"]))
-            con.execute("UPDATE review_bin SET restored_at=? WHERE id=?", (utc_now(), review_id))
-            console_log("Restore from the Review Bin: put back — "
-                        f"{row['original_relative_path']}")
+            self._restore_review_item(con, review_id)
         self.send_json({"ok": True})
+
+    def restore_review_bin_batch(self, body):
+        """Put back everything a bulk Trash moved. One photo that cannot be
+        restored (its old spot is taken, its file is gone) must not strand the
+        rest, so each is attempted and the failures are reported by name."""
+        review_ids = body.get("review_ids", [])
+        if not isinstance(review_ids, list) or not review_ids:
+            raise ValueError("choose at least one photo to restore")
+        if len(review_ids) > 500:
+            raise ValueError("too many photos selected (max 500)")
+        restored = 0
+        failed = []
+        with self.db() as con:
+            for review_id in review_ids:
+                review_id = int(review_id)
+                row = con.execute("SELECT original_relative_path FROM review_bin WHERE id=?", (review_id,)).fetchone()
+                name = row["original_relative_path"] if row else str(review_id)
+                try:
+                    self._restore_review_item(con, review_id)
+                    restored += 1
+                except (ValueError, OSError) as exc:
+                    failed.append({"review_id": review_id, "path": name, "error": str(exc)})
+        self.send_json({"ok": not failed, "restored": restored, "failed": failed})
 
     def delete_from_review_bin(self, body):
         review_id = int(body["review_id"])

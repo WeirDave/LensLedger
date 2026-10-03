@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.15.0 — 2026-10-03
+
+- "Trash selected" now shows an "Undo" button for 30 seconds, as trashing a single photo already did. It puts every photo of the batch back in one step. A photo that cannot be put back, because something now sits at its old location or the file is gone, is named in a message and stays in "Trash & restore"; the rest are restored.
+
 ## 1.14.0 — 2026-10-03
 
 - Photos are now dated by when they were taken, read from the camera's EXIF data. Files named by a camera or phone, such as `IMG_1234.jpg`, previously had no date at all, so the date filter, the day buttons and Newest/Oldest first did nothing for them. Names such as `IMG_20240704_120000.jpg` and `PXL_20240704_…` are also recognised. Existing libraries pick up the dates on their next scan.
