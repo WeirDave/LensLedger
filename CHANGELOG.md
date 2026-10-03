@@ -9,6 +9,7 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 ## 1.17.0 — 2026-10-03
 
 - Added a "Similar photos" search scope. It lists photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Each set is shown together with the largest file first, separated like the sets in "Exact duplicates". A set made only of byte-identical files is left to "Exact duplicates".
+- The downloadable ZIP now contains every program file. The ZIPs for 1.13.3 and 1.14.0 held only 14 of the program's 23 modules, so a copy installed from them stopped at startup with "No module named 'console_log'". The in-app updater now refuses a download that lacks any of them.
 - Every photo is now given a small visual fingerprint during the library scan. Libraries indexed by an earlier version are fingerprinted on their next scan, which decodes each photo once (about 0.05 seconds for a 12-megapixel JPEG), so a large library takes a while the first time.
 
 ## 1.16.0 — 2026-10-03
