@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.17.0 — 2026-10-03
+
+- Added a "Similar photos" search scope. It lists photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Each set is shown together with the largest file first, separated like the sets in "Exact duplicates". A set made only of byte-identical files is left to "Exact duplicates".
+- Every photo is now given a small visual fingerprint during the library scan. Libraries indexed by an earlier version are fingerprinted on their next scan, which decodes each photo once (about 0.05 seconds for a 12-megapixel JPEG), so a large library takes a while the first time.
+
 ## 1.16.0 — 2026-10-03
 
 - In the "Exact duplicates" view, a bar now separates one set of copies from the next in the filmstrip, and each photo is labelled with its place in its set, such as "1 of 2". Previously the sets ran together and there was no way to tell where one ended.
