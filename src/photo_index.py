@@ -43,7 +43,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -62,6 +62,13 @@ EMBEDDED_TAG_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", "
 EMBEDDED_TAGS_VERSION = 3
 RDF_ITEM_RE = re.compile(rb"<rdf:li\b[^>]*>(.*?)</rdf:li>", re.IGNORECASE | re.DOTALL)
 DATE_RE = re.compile(r"(?P<year>19\d{2}|20\d{2})[-_](?P<month>\d{2})[-_](?P<day>\d{2})")
+# Phones and cameras name files IMG_20240101_123456, PXL_20240101_..., or
+# 20240101_123456. The digit guards stop it matching inside a longer number.
+COMPACT_DATE_RE = re.compile(r"(?<!\d)(?P<year>19\d{2}|20\d{2})(?P<month>\d{2})(?P<day>\d{2})(?!\d)")
+EXIF_DATE_RE = re.compile(r"^\s*(?P<year>\d{4})[:-](?P<month>\d{2})[:-](?P<day>\d{2})")
+# Raised whenever capture_date learns another source, so the next scan
+# re-reads the date of unchanged files once.
+CAPTURE_DATE_VERSION = 1
 
 
 SCHEMA = """
@@ -427,6 +434,8 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE assets ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
     if "tags_scanned" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN tags_scanned INTEGER NOT NULL DEFAULT 0")
+    if "date_scanned" not in columns:
+        con.execute("ALTER TABLE assets ADD COLUMN date_scanned INTEGER NOT NULL DEFAULT 0")
     publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
     if "completed_at" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN completed_at TEXT")
@@ -567,14 +576,61 @@ def is_cloud_placeholder(stat_result, path: Path | None = None) -> bool:
     return allocation < stat_result.st_size
 
 
-def capture_date_from_path(path: Path) -> str | None:
-    match = DATE_RE.search(path.name) or DATE_RE.search(path.parent.name)
+def _date_from_match(match) -> str | None:
     if not match:
         return None
     try:
-        return dt.date(int(match["year"]), int(match["month"]), int(match["day"])).isoformat()
+        value = dt.date(int(match["year"]), int(match["month"]), int(match["day"]))
     except ValueError:
         return None
+    # Cameras with an unset clock write 0000:00:00 or 1970/1980 defaults;
+    # neither is a date anyone took the photo on.
+    if value.year < 1900 or value > dt.date.today() + dt.timedelta(days=2):
+        return None
+    return value.isoformat()
+
+
+def capture_date_from_path(path: Path) -> str | None:
+    for name in (path.name, path.parent.name):
+        found = _date_from_match(DATE_RE.search(name)) or _date_from_match(COMPACT_DATE_RE.search(name))
+        if found:
+            return found
+    return None
+
+
+def extract_exif_dates(path: Path) -> tuple[str | None, str | None]:
+    """(taken, modified) from EXIF, without changing or hydrating the file.
+
+    "Taken" is DateTimeOriginal, else DateTimeDigitized. "Modified" is the
+    main-image DateTime, which editors rewrite on save, so it only beats
+    nothing at all.
+    """
+    if media_type(path) != "image":
+        return None, None
+    try:
+        with Image.open(path) as image:
+            exif = image.getexif()
+            details = exif.get_ifd(ExifTags.IFD.Exif)
+            taken = None
+            for tag in (0x9003, 0x9004):  # DateTimeOriginal, DateTimeDigitized
+                taken = _date_from_match(EXIF_DATE_RE.match(str(details.get(tag) or "")))
+                if taken:
+                    break
+            modified = _date_from_match(EXIF_DATE_RE.match(str(exif.get(0x0132) or "")))
+            return taken, modified
+    except (KeyError, OSError, TypeError, ValueError, SyntaxError):
+        return None, None
+
+
+def capture_date_for(path: Path) -> str | None:
+    """When the photo was taken: EXIF first, then a date in the file or folder name.
+
+    Reading the name alone left every camera and phone file (IMG_1234.jpg)
+    with no date, so date filtering, day stepping and newest-first did
+    nothing for most libraries.
+    """
+    taken, modified = extract_exif_dates(path)
+    return taken or capture_date_from_path(path) or modified
 
 
 def _unique(values) -> list[str]:
@@ -822,7 +878,7 @@ def scan_library(
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
     known = {row["relative_path"]: row for row in con.execute(
         "SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, "
-        "location_scanned, tags_scanned, in_review_bin FROM assets"
+        "location_scanned, tags_scanned, date_scanned, in_review_bin FROM assets"
     )}
     seen: set[str] = set()
     counts: dict[str, int | bool | list] = {
@@ -855,6 +911,13 @@ def scan_library(
                     and (old["metadata_scanned"] or placeholder)
                     and (old["location_scanned"] or placeholder)):
                 counts["unchanged"] += 1
+                if not placeholder and old["date_scanned"] < CAPTURE_DATE_VERSION:
+                    con.execute(
+                        "UPDATE assets SET capture_date=?, date_scanned=? WHERE id=?",
+                        (capture_date_for(path), CAPTURE_DATE_VERSION, int(old["id"])),
+                    )
+                    if counts["unchanged"] % 500 == 0:
+                        con.commit()
                 if (not placeholder and old["tags_scanned"] < EMBEDDED_TAGS_VERSION
                         and path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS):
                     refresh_embedded_tags(con, int(old["id"]), path)
@@ -869,8 +932,9 @@ def scan_library(
                 """
                 INSERT INTO assets(path, relative_path, folder, filename, extension, media_type,
                                    size_bytes, mtime_ns, metadata_scanned, location_scanned,
-                                   gps_latitude, gps_longitude, capture_date, content_hash, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   gps_latitude, gps_longitude, capture_date, date_scanned,
+                                   content_hash, indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(relative_path) DO UPDATE SET
                     path=excluded.path, folder=excluded.folder, filename=excluded.filename,
                     extension=excluded.extension, media_type=excluded.media_type,
@@ -881,13 +945,15 @@ def scan_library(
                     gps_latitude=excluded.gps_latitude,
                     gps_longitude=excluded.gps_longitude,
                     capture_date=excluded.capture_date,
+                    date_scanned=excluded.date_scanned,
                     content_hash=excluded.content_hash, indexed_at=excluded.indexed_at,
                     scan_error=''
                 """,
                 (str(path), rel_text, folder, path.name, path.suffix.lower(), media_type(path),
                  stat.st_size, stat.st_mtime_ns, 0 if placeholder else 1, 0 if placeholder else 1,
                  latitude, longitude,
-                 capture_date_from_path(path), file_hash, utc_now()),
+                 capture_date_from_path(path) if placeholder else capture_date_for(path),
+                 0 if placeholder else CAPTURE_DATE_VERSION, file_hash, utc_now()),
             )
             asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path = ?", (rel_text,)).fetchone()[0])
             if not placeholder:

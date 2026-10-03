@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.14.0 — 2026-10-03
+
+- Photos are now dated by when they were taken, read from the camera's EXIF data. Files named by a camera or phone, such as `IMG_1234.jpg`, previously had no date at all, so the date filter, the day buttons and Newest/Oldest first did nothing for them. Names such as `IMG_20240704_120000.jpg` and `PXL_20240704_…` are also recognised. Existing libraries pick up the dates on their next scan.
+- Added an "Exact duplicates" search scope, also in the menu as "Duplicate photos". It lists photos stored more than once, byte for byte, with each set of copies together and the likely original first, so the extra copies can be selected and moved to the review bin.
+- On a new installation, nothing is scanned until a library has been chosen. The automatic folder check previously indexed the Pictures folder (or the home folder) about 30 seconds after the first launch and left a `.LensLedger` folder there, after which the app greeted a new user with "Welcome back" for a library they never picked.
+- The user manual now gives the real defaults for folder watching: on, every 5 minutes.
+
 ## 1.13.3 — 2026-09-29
 
 - "Find duplicates" on the People page now leaves out text after a comma when comparing names, so people named in the form "Name, Band" or "Name, Role" are no longer paired just because they share the band or role. "Name, Band" and "Name" are now listed as the same name. A "Jr." or "Sr." after a comma still counts.
