@@ -165,7 +165,7 @@ Use the scope selector next to the search box to choose what to search:
 - **Day/event context** — matches folder-derived tags
 - **People** — browse and filter by recognized people (shows a card grid)
 - **Meaning** — semantic search with natural language queries (requires meaning search setup)
-- **Exact duplicates** — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, with the likely original first (names marked as a copy, such as `IMG_0001 (copy).jpg`, go last). Type part of a folder or file name to narrow the sets. Ctrl+click the extra copies and choose **Trash selected** to move them to the review bin. Also reachable from the menu as **Duplicate photos**.
+- **Exact duplicates** — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, with the likely original first (names marked as a copy, such as `IMG_0001 (copy).jpg`, go last). A bar separates one set from the next, and each photo is labelled with its place in its set, such as "1 of 2". Type part of a folder or file name to narrow the sets. Ctrl+click the extra copies and choose **Trash selected** to move them to the review bin. Also reachable from the menu as **Duplicate photos**.
 
 ### Sorting
 

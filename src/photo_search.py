@@ -2159,7 +2159,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Day/event context</strong> &mdash; folder-derived tags</li>
 <li><strong>People</strong> &mdash; browse and filter by recognized people (shows a card grid)</li>
 <li><strong>Meaning</strong> &mdash; semantic search with natural language (requires meaning search)</li>
-<li><strong>Exact duplicates</strong> &mdash; photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, likely original first. Ctrl+click the extra copies and choose <strong>Trash selected</strong> to move them to the review bin. Also in the menu as <strong>Duplicate photos</strong>.</li>
+<li><strong>Exact duplicates</strong> &mdash; photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, likely original first; a bar separates the sets and each photo is labelled with its place in its set, such as "1 of 2". Ctrl+click the extra copies and choose <strong>Trash selected</strong> to move them to the review bin. Also in the menu as <strong>Duplicate photos</strong>.</li>
 </ul>
 <h3>Sorting</h3>
 <ul>
@@ -2836,8 +2836,13 @@ class SearchHandler(BaseHTTPRequestHandler):
         if scope == "duplicates":
             # Grouped, not sorted: each set of copies sits together in the
             # filmstrip so the extras can be selected and binned.
-            flat = [item for group in find_exact_duplicate_groups(con, base_where, values, tokens)
-                    for item in group]
+            flat = []
+            for number, group in enumerate(find_exact_duplicate_groups(con, base_where, values, tokens), 1):
+                for position, item in enumerate(group, 1):
+                    # The filmstrip draws a divider where "set" changes. The
+                    # number runs over the whole list, not the page, so a set
+                    # split across a page boundary keeps one number.
+                    flat.append({**item, "set": number, "set_pos": position, "set_size": len(group)})
             start = (page_number - 1) * PAGE_SIZE
             return flat[start:start + PAGE_SIZE], len(flat), selected_date
 

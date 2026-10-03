@@ -173,6 +173,8 @@ class ServerWorkflowTests(unittest.TestCase):
 
         self.assertEqual([item["filename"] for item in listed["items"]],
                          ["2026-08-09 sample.jpg", "copy of sample.jpg"])
+        self.assertEqual([(item["set"], item["set_pos"], item["set_size"]) for item in listed["items"]],
+                         [(1, 1, 2), (1, 2, 2)])
         self.assertEqual(listed["total"], 2)
         self.assertIn('<option value="duplicates" selected>Exact duplicates</option>', page)
         self.assertIn("Exact duplicates • 1–2 of 2", page)
