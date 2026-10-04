@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.19.2 — 2026-10-04
+
+- The meaning-search test no longer assumes which photo is numbered first, so it passes on macOS and Linux as well as Windows. The program itself is unchanged.
+
 ## 1.19.1 — 2026-10-03
 
 - The automated checks now compile every program file before a release is built. They had listed only 14 of the 25 modules by name, so a syntax error in any of the other 11 would have gone unnoticed until someone launched the app.
