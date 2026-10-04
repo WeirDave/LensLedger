@@ -63,8 +63,9 @@ class SemanticIndexTests(unittest.TestCase):
 
             ocean = search(database, "ocean vacation", encoder=FakeEncoder())
             receipt = search(database, "paper receipt", encoder=FakeEncoder())
-            with sqlite3.connect(database) as con:
-                ids = dict(con.execute("SELECT filename, id FROM assets"))
+            con = sqlite3.connect(database)
+            ids = dict(con.execute("SELECT filename, id FROM assets"))
+            con.close()
             self.assertEqual(ocean[0][0], ids["beach.jpg"])
             self.assertEqual(receipt[0][0], ids["document.jpg"])
             self.assertGreater(ocean[0][1], ocean[1][1])
