@@ -201,7 +201,7 @@ Click a photo in the filmstrip to see it in the main viewer area. The sidebar on
 
 Rate the photo from one to five stars with the stars under its file name, or press **1**–**5**. Press **0**, or the same number again, to clear the rating. With several photos selected, the number keys and the **Rate selected…** menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.
 
-Ratings are kept in LensLedger and are not written into the photo files.
+Ratings are kept in LensLedger. **Write all tags** also writes them into the photo as an XMP star rating (`XMP:Rating`), so other programs can see them. A photo you have not rated is never given a rating, and a rating another program already put in the file is left alone. If you have rated a photo, **Write all tags** replaces a different rating in the file with yours; the safety copy keeps the old file.
 
 ### Primary subject
 
@@ -334,7 +334,7 @@ Publishing writes your subjects, people, tags, and descriptions back into the ph
 
 ### Write all tags
 
-The **Publish photos** page has a **Write all tags** button that writes everything LensLedger holds — auto-classified tags, confirmed people, the subject, and any text found in the picture — into every photo that has something to write.
+The **Publish photos** page has a **Write all tags** button that writes everything LensLedger holds — auto-classified tags, confirmed people, the subject, any text found in the picture, and star ratings — into every photo that has something to write.
 
 Before it starts, LensLedger works out how much room the safety copies will need and refuses if there is not enough, telling you how short it is. The run shows progress and can be stopped with **Stop writing**; it stops between photos, so nothing is ever left half-written.
 

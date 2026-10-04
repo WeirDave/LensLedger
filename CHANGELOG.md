@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.20.0 — 2026-10-04
+
+- **Write all tags** now writes a photo's star rating into the file as an XMP star rating (`XMP:Rating`), so other programs can see it. The `.xmp` sidecar carries it too.
+- A photo you have not rated never gets a rating written, so a rating another program put in the file is left alone.
+- If you have rated a photo and the file holds a different rating, the file takes yours. The safety copy keeps the old file.
+- A photo with a star rating and nothing else is now included when you write all tags.
+- Changing a photo's rating makes it get written again on the next **Write all tags**. Unrated photos already written are not rewritten.
+- The user manual says ratings are written, and that an unrated photo leaves the file's rating alone.
+
 ## 1.19.2 — 2026-10-04
 
 - The meaning-search test no longer assumes which photo is numbered first, so it passes on macOS and Linux as well as Windows. The program itself is unchanged.

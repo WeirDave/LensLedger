@@ -81,6 +81,28 @@ class TestXmpSidecar(unittest.TestCase):
         self.assertIn("new", content)
         self.assertNotIn("old", content)
 
+    def test_sidecar_carries_a_rating_and_is_still_recognised_as_ours(self):
+        import xml.etree.ElementTree as ET
+        from xmp_sidecar import write_sidecar, is_lensledger_sidecar
+
+        path = write_sidecar(self.photo, title="Test Photo", keywords=["forest"], rating=4)
+        content = path.read_text(encoding="utf-8")
+        namespace = {"xmp": "http://ns.adobe.com/xap/1.0/"}
+        ratings = ET.fromstring(content[content.index("<x:xmpmeta"):content.index("<?xpacket end")]).findall(
+            ".//xmp:Rating", namespace)
+        self.assertEqual([element.text for element in ratings], ["4"])
+        self.assertTrue(is_lensledger_sidecar(content),
+                        "a sidecar with a rating must still be recognised as LensLedger's own")
+
+    def test_sidecar_writes_no_rating_element_for_an_unrated_photo(self):
+        from xmp_sidecar import build_xmp
+
+        unrated = build_xmp(title="Test Photo", keywords=["forest"])
+        for rating in (0, 6, -1):
+            with self.subTest(rating=rating):
+                self.assertEqual(build_xmp(title="Test Photo", keywords=["forest"], rating=rating), unrated)
+        self.assertNotIn("Rating", unrated)
+
 
 class TestSemanticClassify(unittest.TestCase):
     def setUp(self):
@@ -946,6 +968,12 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertIn("Not enough disk space", message)
         self.assertEqual(estimated, [1201])
 
+    def _run_write_all_tags_raw(self, write_mode):
+        self.json_response(self.post(
+            "/api/write-tags/batch", {"scope": "all", "write_mode": write_mode},
+        ))
+        return dict(self.photo_search.SearchHandler.write_tags_job)
+
     def _run_write_all_tags(self, write_mode):
         import time
         self.json_response(self.post(
@@ -988,6 +1016,120 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         switched = self._run_write_all_tags("both")
         self.assertEqual(switched["up_to_date"], 0,
                          "a different write mode is a different write")
+
+    def _rate(self, rating):
+        con = sqlite3.connect(self.database)
+        relative = con.execute("SELECT relative_path FROM assets WHERE id=?", (self.asset_id,)).fetchone()[0]
+        con.execute("DELETE FROM asset_ratings WHERE relative_path=?", (relative,))
+        if rating:
+            con.execute("INSERT INTO asset_ratings(relative_path,rating,updated_at) VALUES (?,?,?)",
+                        (relative, rating, "2026-01-01T00:00:00Z"))
+        con.commit()
+        con.close()
+
+    def _file_rating(self):
+        values = self.photo_search._exiftool_values(self.photo)
+        return values.get("XMP-xmp:Rating")
+
+    def test_write_all_tags_writes_the_star_rating_and_replaces_a_different_one(self):
+        self._exiftool_or_skip()
+        self.photo_search._run_exiftool(["-overwrite_original", "-XMP-xmp:Rating=2", str(self.photo)])
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        self._seed_every_category()
+        self._rate(5)
+
+        result = self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"}))
+        self.assertTrue(result["ok"])
+        self.assertIn("rating", result["written"])
+        self.assertEqual(str(self._file_rating()), "5")
+
+        con = sqlite3.connect(self.database)
+        before, after = con.execute(
+            "SELECT before_json, after_json FROM metadata_publications WHERE operation='write_tags'"
+        ).fetchone()
+        con.close()
+        self.assertEqual(str(json.loads(before).get("XMP-xmp:Rating")), "2",
+                         "the rating being replaced must be kept in the undo record")
+        self.assertEqual(str(json.loads(after).get("XMP-xmp:Rating")), "5")
+
+    def test_write_all_tags_leaves_the_rating_in_the_file_when_the_photo_is_unrated_here(self):
+        self._exiftool_or_skip()
+        self.photo_search._run_exiftool(["-overwrite_original", "-XMP-xmp:Rating=3", str(self.photo)])
+        from photo_index import scan_library
+        scan_library(self.library, self.database, quiet=True)
+        self._seed_every_category()
+
+        result = self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"}))
+        self.assertTrue(result["ok"])
+        self.assertNotIn("rating", result["written"])
+        self.assertEqual(str(self._file_rating()), "3",
+                         "no rating in LensLedger must leave the file's rating alone, not clear it or set 0")
+
+    def test_write_all_tags_does_not_add_a_rating_to_an_unrated_photo_with_none_in_the_file(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        self.json_response(self.post("/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"}))
+        self.assertIsNone(self._file_rating())
+
+    def test_a_photo_with_only_a_rating_is_picked_up_by_write_all_tags(self):
+        con = sqlite3.connect(self.database)
+        con.execute("DELETE FROM asset_tags WHERE asset_id=?", (self.asset_id,))
+        con.commit()
+        con.close()
+        unrated = self._run_write_all_tags_raw("sidecar")
+        self.assertEqual(unrated["total"], 0, "with nothing to write the photo must not qualify")
+        self._rate(4)
+        job = self._run_write_all_tags("sidecar")
+        self.assertEqual(job["written"], 1)
+        sidecar = self.photo.with_suffix(".xmp").read_text(encoding="utf-8")
+        self.assertIn(">4</xmp:Rating>", sidecar)
+
+    def test_writing_one_photo_to_a_sidecar_carries_its_rating(self):
+        self._seed_every_category()
+        self._rate(2)
+        result = self.json_response(self.post(
+            "/api/write-tags", {"id": self.asset_id, "write_mode": "sidecar"}))
+        self.assertTrue(result["wrote_sidecar"])
+        self.assertIn(">2</xmp:Rating>", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def test_the_sidecar_written_when_a_jpeg_cannot_be_embedded_carries_its_rating(self):
+        import struct
+        self._exiftool_or_skip()
+        data = self.photo.read_bytes()
+        trailer = b"SEFH" + struct.pack("<III", 101, 0, 0)
+        self.photo.write_bytes(data[:-2] + trailer + struct.pack("<I", len(trailer)) + b"SEFT")
+        self._asset_id_for(self.photo)
+        self._seed_every_category()
+        self._rate(5)
+        job = self._run_write_all_tags("embedded")
+        self.assertEqual([item["path"] for item in job["fell_back"]], [self.photo.name])
+        self.assertIn(">5</xmp:Rating>", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def test_changing_a_rating_makes_a_written_photo_stale_again(self):
+        self._seed_every_category()
+        self._rate(3)
+        self.assertEqual(self._run_write_all_tags("sidecar")["written"], 1)
+        self.assertEqual(self._run_write_all_tags("sidecar")["up_to_date"], 1)
+        self._rate(4)
+        again = self._run_write_all_tags("sidecar")
+        self.assertEqual((again["written"], again["up_to_date"]), (1, 0))
+        self.assertIn(">4</xmp:Rating>", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def test_unrated_photos_keep_the_fingerprint_they_were_written_with_before_ratings_travelled(self):
+        import hashlib
+        fingerprint = self.photo_search.SearchHandler._write_tags_fingerprint
+        data = {"subject": "Station steps", "description": "PLATFORM 4", "keywords": ["sunset"], "people": []}
+        earlier = hashlib.sha1(json.dumps(
+            ["embedded", "Station steps", "PLATFORM 4", ["sunset"], []], ensure_ascii=False,
+        ).encode("utf-8")).hexdigest()
+        self.assertEqual(fingerprint(data, "embedded"), earlier)
+        self.assertEqual(fingerprint({**data, "rating": 0}, "embedded"), earlier)
+        self.assertNotEqual(fingerprint({**data, "rating": 4}, "embedded"), earlier)
+        self.assertNotEqual(fingerprint({**data, "rating": 4}, "embedded"),
+                            fingerprint({**data, "rating": 5}, "embedded"))
 
     def test_write_records_completion_so_an_interrupted_write_is_visible(self):
         self._exiftool_or_skip()
