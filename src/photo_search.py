@@ -612,7 +612,8 @@ def _exiftool_values(path: Path) -> dict[str, object]:
         "-j", "-G1", "-struct", "-EXIF:ImageDescription", "-XMP-dc:Description",
         "-IPTC:Caption-Abstract", "-XMP-dc:Title", "-IPTC:ObjectName",
         "-XMP-photoshop:Headline", "-XMP-dc:Subject", "-IPTC:Keywords",
-        "-XMP-microsoft:LastKeywordXMP", "-XMP-iptcExt:PersonInImage", str(path),
+        "-XMP-microsoft:LastKeywordXMP", "-XMP-iptcExt:PersonInImage",
+        "-XMP-xmp:Rating", str(path),
     ])
     rows = json.loads(result.stdout)
     return rows[0] if rows else {}
@@ -2209,7 +2210,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Click a photo in the filmstrip to view it. The sidebar shows editable metadata.</p>
 <h3>Star ratings</h3>
 <p>Rate the photo from one to five stars with the stars under its file name, or press <strong>1</strong>&ndash;<strong>5</strong>. Press <strong>0</strong>, or the same number again, to clear the rating. With several photos selected, the number keys and the <strong>Rate selected&hellip;</strong> menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.</p>
-<p>Ratings are kept in LensLedger and are not written into the photo files.</p>
+<p>Ratings are kept in LensLedger. <strong>Write all tags</strong> also writes them into the photo as an XMP star rating (<code>XMP:Rating</code>), so other programs can see them. A photo you have not rated is never given a rating, and a rating another program already put in the file is left alone. If you have rated a photo, <strong>Write all tags</strong> replaces a different rating in the file with yours; the safety copy keeps the old file.</p>
 <h3>Primary subject</h3>
 <p>A short phrase describing the main thing in the photo (e.g. &ldquo;Golden Gate Bridge at sunset&rdquo;). Stored as IPTC/XMP Title and Headline when published.</p>
 <h3>Photo tags</h3>
@@ -2327,7 +2328,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li>Click <strong>Publish</strong> to write the metadata</li>
 </ol>
 <h3>Write all tags</h3>
-<p>The <a href="/publish">Publish photos</a> page has a <strong>Write all tags</strong> button that writes everything LensLedger holds &mdash; auto-classified tags, confirmed people, the subject, and any text found in the picture &mdash; into every photo with something to write.</p>
+<p>The <a href="/publish">Publish photos</a> page has a <strong>Write all tags</strong> button that writes everything LensLedger holds &mdash; auto-classified tags, confirmed people, the subject, any text found in the picture, and star ratings &mdash; into every photo with something to write.</p>
 <p>Before starting it works out how much room the safety copies need and refuses if there is not enough, saying how short it is. The run shows progress and <strong>Stop writing</strong> stops it between photos, so nothing is left half-written. Anything a file cannot carry is listed underneath with the reason; a file that cannot hold embedded tags at all gets a sidecar file beside it instead and is named as having done so.</p>
 <h3>Sidecar files</h3>
 <p><a href="/settings#metadata-publishing">Settings &gt; Metadata publishing &gt; Write mode</a> chooses where metadata goes: inside the photos, into <code>.xmp</code> companion files beside them, or both. Sidecar mode carries the same information and never modifies an original, which makes it the safer choice if you would rather your photos were not rewritten.</p>
@@ -3749,6 +3750,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         "people": ("XMP-iptcExt:PersonInImage",),
         "description": ("IFD0:ImageDescription", "XMP-dc:Description", "IPTC:Caption-Abstract"),
         "subject": ("XMP-dc:Title", "IPTC:ObjectName", "XMP-photoshop:Headline"),
+        "rating": ("XMP-xmp:Rating",),
     }
 
     def _write_embedded_metadata(self, con: sqlite3.Connection, asset_id: int, data: dict) -> dict:
@@ -3775,6 +3777,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         people = list(data["people"])
         description = data["description"]
         subject = data["subject"]
+        rating = int(data.get("rating") or 0)
         after = {
             "XMP-dc:Subject": keywords,
             "IPTC:Keywords": keywords,
@@ -3787,6 +3790,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             "IPTC:ObjectName": subject,
             "XMP-photoshop:Headline": subject,
         }
+        if rating:
+            after["XMP-xmp:Rating"] = rating
 
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(asset["relative_path"])
@@ -3833,6 +3838,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             arguments.append(f"-{field}={description}")
         for field in self.EMBEDDED_CATEGORY_FIELDS["subject"]:
             arguments.append(f"-{field}={subject}")
+        # An unrated photo passes no rating argument: a rating another program
+        # wrote into the file is left as it is, never cleared or set to 0.
+        if rating:
+            for field in self.EMBEDDED_CATEGORY_FIELDS["rating"]:
+                arguments.append(f"-{field}={rating}")
 
         try:
             _run_exiftool_write(arguments, path)
@@ -3844,7 +3854,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             con.commit()
             raise
 
-        written = self._verify_embedded_categories(path, keywords, people, description, subject)
+        written = self._verify_embedded_categories(path, keywords, people, description, subject, rating)
 
         stat = path.stat()
         con.execute(
@@ -3867,7 +3877,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             "not_written": written["not_written"],
         }
 
-    def _verify_embedded_categories(self, path: Path, keywords, people, description, subject) -> dict:
+    def _verify_embedded_categories(self, path: Path, keywords, people, description, subject,
+                                    rating: int = 0) -> dict:
         """Read the file back and report which categories actually landed.
 
         A format that will not carry a field is a fact worth surfacing, not a
@@ -3875,7 +3886,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         """
         offered = {
             "keywords": list(keywords), "people": list(people),
-            "description": description, "subject": subject,
+            "description": description, "subject": subject, "rating": rating,
         }
         try:
             actual = _exiftool_values(path)
@@ -3890,10 +3901,17 @@ class SearchHandler(BaseHTTPRequestHandler):
         for name, value in offered.items():
             if not value:
                 continue
-            landed = any(
-                self._metadata_values(actual.get(field))
-                for field in self.EMBEDDED_CATEGORY_FIELDS[name]
-            )
+            if name == "rating":
+                landed = any(
+                    str(value) == str(rating)
+                    for field in self.EMBEDDED_CATEGORY_FIELDS[name]
+                    for value in self._metadata_values(actual.get(field))
+                )
+            else:
+                landed = any(
+                    self._metadata_values(actual.get(field))
+                    for field in self.EMBEDDED_CATEGORY_FIELDS[name]
+                )
             if landed:
                 written.append(name)
             else:
@@ -4220,6 +4238,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         return {
             "asset": asset, "path": path, "keywords": keywords,
             "people": people, "description": description, "subject": subject,
+            "rating": asset_rating(con, asset["relative_path"]),
         }
 
     def write_tags_to_photo(self, body):
@@ -4247,6 +4266,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     description=data["description"],
                     keywords=data["keywords"],
                     people=data["people"],
+                    rating=data["rating"],
                 )
                 result["wrote_sidecar"] = True
                 result["sidecar_path"] = str(sidecar_path)
@@ -4330,10 +4350,13 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _write_tags_fingerprint(data: dict, mode: str) -> str:
-        payload = json.dumps(
-            [mode, data["subject"], data["description"], data["keywords"], data["people"]],
-            ensure_ascii=False,
-        )
+        fields = [mode, data["subject"], data["description"], data["keywords"], data["people"]]
+        # Only a rated photo adds to the fingerprint, so unrated photos already
+        # written are not rewritten just because ratings now travel with tags.
+        rating = int(data.get("rating") or 0)
+        if rating:
+            fields.append(rating)
+        payload = json.dumps(fields, ensure_ascii=False)
         return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
@@ -4389,7 +4412,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                        WHERE a.in_review_bin = 0 AND a.media_type = 'image'
                        AND (EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id AND at.source IN ('semantic_auto','folder_rule','embedded_xmp','embedded_people'))
                             OR EXISTS (SELECT 1 FROM asset_people ap WHERE ap.asset_id = a.id AND ap.state = 'confirmed')
-                            OR EXISTS (SELECT 1 FROM text_data td WHERE td.asset_id = a.id AND td.ocr_text <> ''))"""
+                            OR EXISTS (SELECT 1 FROM text_data td WHERE td.asset_id = a.id AND td.ocr_text <> '')
+                            OR EXISTS (SELECT 1 FROM asset_ratings r WHERE r.relative_path = a.relative_path AND r.rating > 0))"""
                 ).fetchall()]
 
         total = len(asset_ids)
@@ -4505,6 +4529,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                                 description=data["description"],
                                 keywords=data["keywords"],
                                 people=data["people"],
+                                rating=data["rating"],
                             )
                         if embedded_current:
                             if not sidecar and retire_sidecar(path, relative):
@@ -4522,6 +4547,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                                         description=data["description"],
                                         keywords=data["keywords"],
                                         people=data["people"],
+                                        rating=data["rating"],
                                     )
                                 reason = f"{refused} — a sidecar file was written next to it instead"
                                 fell_back.append({"path": relative, "error": reason})

@@ -31,8 +31,13 @@ def build_xmp(
     description: str = "",
     keywords: list[str] | None = None,
     people: list[str] | None = None,
+    rating: int = 0,
 ) -> str:
-    """Build a complete XMP sidecar XML string."""
+    """Build a complete XMP sidecar XML string.
+
+    A rating outside 1-5 writes no xmp:Rating element at all: "not rated in
+    LensLedger" means leave the rating out, never write 0.
+    """
     _register_namespaces()
     keywords = keywords or []
     people = people or []
@@ -81,6 +86,11 @@ def build_xmp(
         lines.append('        </rdf:Bag>')
         lines.append('      </lr:hierarchicalSubject>')
 
+    if 1 <= rating <= 5:
+        # Declared on the element, not on rdf:Description: is_lensledger_sidecar
+        # recognises our own files by the opening lines of the block.
+        lines.append(f'      <xmp:Rating xmlns:xmp="{_NS["xmp"]}">{rating}</xmp:Rating>')
+
     if people:
         lines.append('      <Iptc4xmpExt:PersonInImage>')
         lines.append('        <rdf:Bag>')
@@ -113,6 +123,7 @@ def write_sidecar(
     description: str = "",
     keywords: list[str] | None = None,
     people: list[str] | None = None,
+    rating: int = 0,
 ) -> Path:
     """Write an XMP sidecar file next to the photo. Returns the sidecar path."""
     xmp_path = photo_path.with_suffix(".xmp")
@@ -121,6 +132,7 @@ def write_sidecar(
         description=description,
         keywords=keywords,
         people=people,
+        rating=rating,
     )
     xmp_path.write_text(content, encoding="utf-8")
     return xmp_path
