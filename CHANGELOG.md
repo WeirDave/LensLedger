@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.21.0 — 2026-10-06
+
+- Scanning now reads each photo's star rating from the file (`XMP:Rating`, the one Lightroom and most programs use), so ratings set in other programs show up in LensLedger. This covers JPEG, HEIC, PNG, WebP and TIFF.
+- Your first scan after updating reads every photo once, so ratings already in your files come in.
+- When the rating in a file and the one here differ, the one that changed since LensLedger last looked at the file wins. If both changed, yours wins and the next **Write all tags** puts it in the file.
+- A rating you clear here stays cleared. A rating that disappears from a file never clears yours.
+- **Write all tags** now checks the file's rating first, so a rating you changed in another program since the last scan is not overwritten with the older one held here.
+- Fixed: renaming or moving a photo could replace a rating you had set here with the one in the file. The rating you set now follows the photo.
+- Lightroom's rejected flag, Windows' own percentage rating, and ratings in RAW, video and separate `.xmp` sidecar files are not read.
+
 ## 1.20.0 — 2026-10-04
 
 - **Write all tags** now writes a photo's star rating into the file as an XMP star rating (`XMP:Rating`), so other programs can see it. The `.xmp` sidecar carries it too.

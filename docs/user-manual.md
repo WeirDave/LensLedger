@@ -201,7 +201,12 @@ Click a photo in the filmstrip to see it in the main viewer area. The sidebar on
 
 Rate the photo from one to five stars with the stars under its file name, or press **1**–**5**. Press **0**, or the same number again, to clear the rating. With several photos selected, the number keys and the **Rate selected…** menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.
 
-Ratings are kept in LensLedger. **Write all tags** also writes them into the photo as an XMP star rating (`XMP:Rating`), so other programs can see them. A photo you have not rated is never given a rating, and a rating another program already put in the file is left alone. If you have rated a photo, **Write all tags** replaces a different rating in the file with yours; the safety copy keeps the old file.
+Ratings are kept in LensLedger and shared with your photo files as an XMP star rating (`XMP:Rating`), the one Lightroom and most other programs use.
+
+- **Scanning reads them.** A rating already in a JPEG, HEIC, PNG, WebP or TIFF file shows up here for a photo you have not rated. Your first scan after updating reads every photo once. Ratings in RAW and video files, and in separate `.xmp` sidecar files, are not read.
+- **Write all tags writes them.** Your ratings go into the files, and into the `.xmp` sidecar if you use one. A photo you have not rated is never given a rating, and a rating another program put in its file is left alone.
+- **If the two differ, the one that changed since LensLedger last looked at the file wins.** Re-rate a photo in Lightroom and the new rating appears here on the next scan. Rate it here and the next **Write all tags** puts it in the file, with the safety copy keeping the old file. If both changed, yours wins.
+- **Clearing is yours.** A rating you clear here stays cleared, and a rating that disappears from a file (a program that strips metadata, say) never clears yours. Lightroom's *rejected* flag is not read.
 
 ### Primary subject
 
