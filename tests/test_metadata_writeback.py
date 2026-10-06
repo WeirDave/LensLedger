@@ -1059,6 +1059,8 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.photo_search._run_exiftool(["-overwrite_original", "-XMP-xmp:Rating=3", str(self.photo)])
         from photo_index import scan_library
         scan_library(self.library, self.database, quiet=True)
+        self.assertEqual(self._ledger_rating(), 3, "scanning imports the rating the file already holds")
+        self._rate(0)
         self._seed_every_category()
 
         result = self.json_response(self.post(
@@ -1107,6 +1109,61 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         job = self._run_write_all_tags("embedded")
         self.assertEqual([item["path"] for item in job["fell_back"]], [self.photo.name])
         self.assertIn(">5</xmp:Rating>", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def _save_with_file_rating(self, rating):
+        from test_rating_import import xmp_packet
+        Image.new("RGB", (32, 24), (24, 80, 140)).save(self.photo, "JPEG", xmp=xmp_packet(rating))
+        later = self.photo.stat().st_mtime_ns + 10_000_000_000
+        os.utime(self.photo, ns=(later, later))
+
+    def _ledger_rating(self):
+        con = sqlite3.connect(self.database)
+        row = con.execute("SELECT rating FROM asset_ratings WHERE relative_path=?",
+                          (self.photo.name,)).fetchone()
+        con.close()
+        return row[0] if row else 0
+
+    def test_write_all_tags_takes_a_rating_changed_in_another_program_instead_of_overwriting_it(self):
+        from photo_index import scan_library
+        self._save_with_file_rating(4)
+        scan_library(self.library, self.database, quiet=True)
+        self.assertEqual(self._ledger_rating(), 4, "imported by the scan")
+        self._save_with_file_rating(2)
+        self._seed_every_category()
+
+        self._run_write_all_tags("sidecar")
+
+        self.assertEqual(self._ledger_rating(), 2, "the file changed since the last scan and nothing here did")
+        self.assertIn(">2</xmp:Rating>", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def test_write_all_tags_keeps_a_rating_set_here_when_the_file_changed_too(self):
+        from photo_index import scan_library
+        self._save_with_file_rating(4)
+        scan_library(self.library, self.database, quiet=True)
+        self._rate(5)
+        self._save_with_file_rating(2)
+        self._seed_every_category()
+
+        self._run_write_all_tags("sidecar")
+
+        self.assertEqual(self._ledger_rating(), 5)
+        self.assertIn(">5</xmp:Rating>", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def test_a_rating_written_into_the_file_is_remembered_so_clearing_it_here_sticks(self):
+        from photo_index import scan_library
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        self._rate(5)
+        self.json_response(self.post("/api/write-tags", {"id": self.asset_id, "write_mode": "embedded"}))
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute("SELECT file_rating FROM asset_rating_sync").fetchall(), [(5,)])
+        con.close()
+
+        self._rate(0)
+        scan_library(self.library, self.database, quiet=True)
+
+        self.assertEqual(self._ledger_rating(), 0,
+                         "the file holds the 5 that was written, which is not a change made elsewhere")
 
     def test_changing_a_rating_makes_a_written_photo_stale_again(self):
         self._seed_every_category()

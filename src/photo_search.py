@@ -62,9 +62,10 @@ from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
     EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
-    extract_embedded_tags, is_cloud_placeholder, refresh_embedded_tags, store_embedded_tags, ocr_assets,
+    extract_embedded_rating, extract_embedded_tags, is_cloud_placeholder, record_file_rating,
+    refresh_embedded_tags, store_embedded_tags, ocr_assets,
     ocr_is_available, pending_scan_counts, rebuild_search_row, scan_library,
-    set_source_tags, sync_person_tags, utc_now,
+    set_source_tags, sync_person_tags, sync_rating_from_file, utc_now,
 )
 from product import APP_NAME, APP_TAGLINE, APP_VERSION
 
@@ -2210,7 +2211,13 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Click a photo in the filmstrip to view it. The sidebar shows editable metadata.</p>
 <h3>Star ratings</h3>
 <p>Rate the photo from one to five stars with the stars under its file name, or press <strong>1</strong>&ndash;<strong>5</strong>. Press <strong>0</strong>, or the same number again, to clear the rating. With several photos selected, the number keys and the <strong>Rate selected&hellip;</strong> menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.</p>
-<p>Ratings are kept in LensLedger. <strong>Write all tags</strong> also writes them into the photo as an XMP star rating (<code>XMP:Rating</code>), so other programs can see them. A photo you have not rated is never given a rating, and a rating another program already put in the file is left alone. If you have rated a photo, <strong>Write all tags</strong> replaces a different rating in the file with yours; the safety copy keeps the old file.</p>
+<p>Ratings are kept in LensLedger and shared with your photo files as an XMP star rating (<code>XMP:Rating</code>), the one Lightroom and most other programs use.</p>
+<ul>
+<li><strong>Scanning reads them.</strong> A rating already in a JPEG, HEIC, PNG, WebP or TIFF file shows up here for a photo you have not rated. Your first scan after updating reads every photo once. Ratings in RAW and video files, and in separate <code>.xmp</code> sidecar files, are not read.</li>
+<li><strong>Write all tags writes them.</strong> Your ratings go into the files, and into the <code>.xmp</code> sidecar if you use one. A photo you have not rated is never given a rating, and a rating another program put in its file is left alone.</li>
+<li><strong>If the two differ, the one that changed since LensLedger last looked at the file wins.</strong> Re-rate a photo in Lightroom and the new rating appears here on the next scan. Rate it here and the next <strong>Write all tags</strong> puts it in the file, with the safety copy keeping the old file. If both changed, yours wins.</li>
+<li><strong>Clearing is yours.</strong> A rating you clear here stays cleared, and a rating that disappears from a file (a program that strips metadata, say) never clears yours. Lightroom's <em>rejected</em> flag is not read.</li>
+</ul>
 <h3>Primary subject</h3>
 <p>A short phrase describing the main thing in the photo (e.g. &ldquo;Golden Gate Bridge at sunset&rdquo;). Stored as IPTC/XMP Title and Headline when published.</p>
 <h3>Photo tags</h3>
@@ -3855,6 +3862,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise
 
         written = self._verify_embedded_categories(path, keywords, people, description, subject, rating)
+        if rating and "rating" in written["written"]:
+            record_file_rating(con, asset["relative_path"], rating)
 
         stat = path.stat()
         con.execute(
@@ -4197,6 +4206,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                 and path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS and path.is_file()
                 and not is_cloud_placeholder(path.stat(), path)):
             refresh_embedded_tags(con, asset_id, path)
+        # A rating changed in another program since the last scan must not be
+        # overwritten by the stale one held here, so settle the two first.
+        if (path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS and path.is_file()
+                and not is_cloud_placeholder(path.stat(), path)):
+            file_rating = extract_embedded_rating(path)
+            if file_rating is not None:
+                sync_rating_from_file(con, asset["relative_path"], file_rating)
 
         excluded = {row[0].casefold() for row in con.execute(
             "SELECT tag FROM asset_tag_exclusions WHERE relative_path=?", (asset["relative_path"],)

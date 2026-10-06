@@ -45,7 +45,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 XMP_SUBJECT_RE = re.compile(
@@ -60,8 +60,8 @@ XMP_PERSON_RE = re.compile(
 EMBEDDED_TAG_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".tif", ".tiff"}
 # Raised whenever extract_embedded_tags learns to read another field, so the
 # next scan re-reads unchanged files once instead of trusting what an older
-# reader stored for them.
-EMBEDDED_TAGS_VERSION = 3
+# reader stored for them. 4: the star rating.
+EMBEDDED_TAGS_VERSION = 4
 RDF_ITEM_RE = re.compile(rb"<rdf:li\b[^>]*>(.*?)</rdf:li>", re.IGNORECASE | re.DOTALL)
 DATE_RE = re.compile(r"(?P<year>19\d{2}|20\d{2})[-_](?P<month>\d{2})[-_](?P<day>\d{2})")
 # Phones and cameras name files IMG_20240101_123456, PXL_20240101_..., or
@@ -147,6 +147,14 @@ CREATE TABLE IF NOT EXISTS asset_ratings (
     relative_path TEXT PRIMARY KEY,
     rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
     updated_at TEXT NOT NULL
+);
+
+-- The rating the photo file held the last time LensLedger read or wrote it
+-- (0 = none), so a later scan can tell which side has changed since.
+CREATE TABLE IF NOT EXISTS asset_rating_sync (
+    relative_path TEXT PRIMARY KEY,
+    file_rating INTEGER NOT NULL CHECK (file_rating BETWEEN 0 AND 5),
+    synced_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS review_bin (
@@ -808,6 +816,105 @@ def extract_embedded_tags(path: Path) -> tuple[list[str], list[str]]:
     return keywords, _unique(_xmp_items(XMP_PERSON_RE, data))
 
 
+XMP_NAMESPACE_PREFIX_RE = re.compile(
+    rb"xmlns:([\w.-]+)\s*=\s*[\"']http://ns\.adobe\.com/xap/1\.0/[\"']"
+)
+
+
+def parse_xmp_rating(data: bytes) -> int:
+    """The 1-5 star rating in an XMP block, or 0 for none.
+
+    Programs write it as an attribute (Lightroom) or an element, and the prefix
+    is whatever the block bound to the XMP namespace. Windows' own
+    MicrosoftPhoto:Rating is a different namespace on a 1-99 scale and is not
+    read. -1 (rejected), 0 and anything else outside 1-5 count as no rating.
+    """
+    for prefix in sorted({match.group(1) for match in XMP_NAMESPACE_PREFIX_RE.finditer(data)}):
+        name = re.escape(prefix)
+        found = (re.search(rb"(?<![\w.:-])" + name + rb":Rating\s*=\s*[\"']([^\"']*)[\"']", data)
+                 or re.search(rb"<" + name + rb":Rating\b[^>]*>\s*([^<]*?)\s*</" + name + rb":Rating>", data))
+        if not found:
+            continue
+        try:
+            value = float(found.group(1).decode("ascii", "ignore").strip())
+        except ValueError:
+            return 0
+        return int(value) if value in (1.0, 2.0, 3.0, 4.0, 5.0) else 0
+    return 0
+
+
+def extract_embedded_rating(path: Path) -> int | None:
+    """The star rating stored inside a photo: 0 for none, None when the file
+    could not be read, so an unreadable file is never taken for an unrated one."""
+    suffix = path.suffix.lower()
+    if suffix not in EMBEDDED_TAG_EXTENSIONS:
+        return None
+    try:
+        with path.open("rb") as stream:
+            if suffix in {".jpg", ".jpeg"}:
+                data = stream.read(1024 * 1024)
+                if not data.startswith(b"\xff\xd8"):
+                    return None
+            else:
+                data = stream.read()
+                start = data.find(b"<x:xmpmeta")
+                end = data.find(b"</x:xmpmeta>", start) if start >= 0 else -1
+                data = data[start:end + 12] if end >= 0 else b""
+    except OSError:
+        return None
+    return parse_xmp_rating(data)
+
+
+def merge_file_rating(ledger: int, file: int, base: int | None) -> tuple[int, int, str]:
+    """Decide between LensLedger's rating and the file's: (rating, new base, outcome).
+
+    base is the file's rating when LensLedger last read or wrote it (None when
+    it never has); 0 means none. Whoever changed since then wins; when both
+    did, LensLedger wins. A rating that disappears from the file never clears
+    LensLedger's: a program that strips metadata must not unrate a library.
+    """
+    if base is None:
+        if ledger == file:
+            return ledger, file, "same"
+        if ledger == 0:
+            return file, file, "imported"
+        return ledger, file, "kept"
+    if file == base:
+        return ledger, base, "same"
+    if file == 0:
+        return ledger, 0, "kept"
+    if ledger == base:
+        return file, file, "imported"
+    return ledger, file, "kept"
+
+
+def sync_rating_from_file(con: sqlite3.Connection, relative_path: str, file_rating: int) -> str:
+    row = con.execute("SELECT rating FROM asset_ratings WHERE relative_path=?", (relative_path,)).fetchone()
+    ledger = int(row[0]) if row else 0
+    base_row = con.execute(
+        "SELECT file_rating FROM asset_rating_sync WHERE relative_path=?", (relative_path,)
+    ).fetchone()
+    base = int(base_row[0]) if base_row else None
+    rating, new_base, outcome = merge_file_rating(ledger, file_rating, base)
+    if rating != ledger:
+        con.execute(
+            """INSERT INTO asset_ratings(relative_path,rating,updated_at) VALUES (?,?,?)
+               ON CONFLICT(relative_path) DO UPDATE SET rating=excluded.rating,updated_at=excluded.updated_at""",
+            (relative_path, rating, utc_now()),
+        )
+    if base != new_base:
+        record_file_rating(con, relative_path, new_base)
+    return outcome
+
+
+def record_file_rating(con: sqlite3.Connection, relative_path: str, file_rating: int) -> None:
+    con.execute(
+        """INSERT INTO asset_rating_sync(relative_path,file_rating,synced_at) VALUES (?,?,?)
+           ON CONFLICT(relative_path) DO UPDATE SET file_rating=excluded.file_rating,synced_at=excluded.synced_at""",
+        (relative_path, file_rating, utc_now()),
+    )
+
+
 def store_embedded_tags(con: sqlite3.Connection, asset_id: int, keywords: list[str],
                         people: list[str]) -> None:
     set_source_tags(con, asset_id, "embedded_xmp", keywords)
@@ -816,6 +923,11 @@ def store_embedded_tags(con: sqlite3.Connection, asset_id: int, keywords: list[s
 
 def refresh_embedded_tags(con: sqlite3.Connection, asset_id: int, path: Path) -> None:
     store_embedded_tags(con, asset_id, *extract_embedded_tags(path))
+    file_rating = extract_embedded_rating(path)
+    if file_rating is not None:
+        row = con.execute("SELECT relative_path FROM assets WHERE id=?", (asset_id,)).fetchone()
+        if row:
+            sync_rating_from_file(con, row[0], file_rating)
     con.execute("UPDATE assets SET tags_scanned=? WHERE id=?", (EMBEDDED_TAGS_VERSION, asset_id))
 
 
@@ -1121,9 +1233,25 @@ def scan_library(
                 # otherwise stay behind at the old path: the subject would
                 # be cleared, removed tags would return, and the last write
                 # could no longer be restored.
-                for table in ("asset_annotations", "asset_tag_exclusions", "asset_ratings"):
+                # The renamed file was scanned as a new photo first, and that
+                # read a rating from the file. What was recorded at the old path
+                # holds what such a read cannot know -- a rating set or cleared
+                # here -- so it replaces the new path's, and the two are then
+                # settled against the file again.
+                had_rating_history = bool(con.execute(
+                    "SELECT 1 FROM asset_ratings WHERE relative_path=? "
+                    "UNION SELECT 1 FROM asset_rating_sync WHERE relative_path=?", (old_rel, old_rel)
+                ).fetchone())
+                if had_rating_history:
+                    for table in ("asset_ratings", "asset_rating_sync"):
+                        con.execute(f"DELETE FROM {table} WHERE relative_path=?", (new_rel,))
+                for table in ("asset_annotations", "asset_tag_exclusions", "asset_ratings", "asset_rating_sync"):
                     con.execute(f"UPDATE OR IGNORE {table} SET relative_path=? WHERE relative_path=?",
                                 (new_rel, old_rel))
+                if had_rating_history:
+                    renamed_rating = extract_embedded_rating(Path(new_path))
+                    if renamed_rating is not None:
+                        sync_rating_from_file(con, new_rel, renamed_rating)
                 con.execute("UPDATE metadata_publications SET relative_path=? WHERE relative_path=?",
                             (new_rel, old_rel))
                 apply_asset_annotation(con, old_id, new_rel)
