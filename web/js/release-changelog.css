@@ -1,0 +1,49 @@
+/* release-changelog.css — styles for js/release-changelog.js.
+   ONE FILE, IDENTICAL IN EVERY PRODUCT (canonical copy: WaxFrame-Professional/js).
+   Colours come from --rc-text, --rc-dim, --rc-accent, --rc-border, --rc-bg and
+   --rc-bg-code. A product maps its own theme onto them by defining those names
+   on :root (or on .rc-box) in its own stylesheet; where it does not, each falls
+   back to the usual --text / --text-dim / --accent / --border / --surface2 /
+   --surface names, then to a dark default. */
+.rc-box {
+  text-align: left;
+  margin: 8px 0;
+}
+.rc-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rc-text, var(--text, #e8eaf0));
+  margin-bottom: 6px;
+}
+.rc-list {
+  max-height: min(220px, 30vh);
+  overflow-y: auto;
+  border: 1px solid var(--rc-border, var(--border, #252838));
+  border-radius: 6px;
+  background: var(--rc-bg, var(--surface2, #181b24));
+}
+.rc-item { border-bottom: 1px solid var(--rc-border, var(--border, #252838)); }
+.rc-item:last-child { border-bottom: none; }
+.rc-item summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--rc-text, var(--text, #e8eaf0));
+}
+.rc-ver { font-weight: 700; color: var(--rc-accent, var(--accent, #c0152a)); }
+.rc-body {
+  padding: 0 10px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--rc-dim, var(--text-dim, #9aa3b8));
+}
+.rc-body ul { margin: 4px 0; padding-left: 16px; }
+.rc-body p { margin: 4px 0; }
+.rc-body code {
+  font-family: 'Courier New', monospace;
+  background: var(--rc-bg-code, var(--surface, #111318));
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.rc-area { margin-top: 6px; font-weight: 700; color: var(--rc-text, var(--text, #e8eaf0)); }
+.rc-more { margin: 6px 0 0; font-size: 12px; color: var(--rc-dim, var(--text-dim, #9aa3b8)); opacity: 0.8; }

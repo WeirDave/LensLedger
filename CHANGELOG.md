@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.22.0 — 2026-10-10
+
+- The update dialog (**Check for updates**, shown as "⬆ Update available" while an update is waiting) now lists what changed in every release newer than the installed version, newest first, above the **Download, install & restart** button. Each release can be collapsed, and the newest is open.
+- The text comes from the GitHub release notes. Sections headed "Files changed", "Verified" or "Verification" are not shown. Up to the 30 most recent releases are listed, with a pointer to the release page for anything older.
+- The list appears only while an update is available. If it cannot be fetched, the dialog behaves as before.
+- Release notes now open with a one-line subtitle, which the update dialog shows next to the version number.
+
 ## 1.21.0 — 2026-10-06
 
 - Scanning now reads each photo's star rating from the file (`XMP:Rating`, the one Lightroom and most programs use), so ratings set in other programs show up in LensLedger. This covers JPEG, HEIC, PNG, WebP and TIFF.

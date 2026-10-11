@@ -409,6 +409,44 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn("git is not installed", body["error"].lower())
         rejected.exception.close()
 
+    def test_update_status_carries_the_changelog_for_an_available_update(self):
+        release = {
+            "version": "99.0.0", "tag": "v99.0.0", "name": "Synthetic release",
+            "page_url": "https://example.test/release", "asset_api_url": "https://example.test/asset",
+            "asset_name": "LensLedger-v99.0.0.zip", "asset_size": 10, "digest": "sha256:" + "0" * 64,
+        }
+        changelog = {
+            "releases": [{"version": "99.0.0", "title": "", "notes": "- A synthetic change.", "url": ""}],
+            "truncated": False,
+        }
+        with patch.object(
+            self.photo_search, "check_for_update",
+            return_value={"current_version": self.photo_search.APP_VERSION, "available": True,
+                          "release": release, "changelog": changelog},
+        ):
+            for _ in range(100):
+                status = self.json_response(self.get("/api/update/status"))
+                if status["state"] != "checking":
+                    break
+                time.sleep(0.01)
+        self.assertEqual(status["state"], "available")
+        self.assertEqual(status["changelog"], changelog)
+
+    def test_the_shared_changelog_script_and_stylesheet_are_served_to_the_page(self):
+        with self.get("/?scope=people") as response:
+            page = response.read().decode("utf-8")
+        # The script copies its own ?v= onto the stylesheet link it adds, so a
+        # changed stylesheet is not served stale from the immutable asset cache.
+        self.assertIn(f"/web/js/release-changelog.js?v={self.photo_search.APP_VERSION}", page)
+        self.assertLess(page.index("release-changelog.js"), page.index("/web/js/viewer.js"))
+        with self.get("/web/js/release-changelog.js") as response:
+            self.assertEqual(response.headers.get_content_type(), "text/javascript")
+            self.assertIn("window.ReleaseChangelog", response.read().decode("utf-8"))
+        # The script loads its stylesheet from the folder it was served from.
+        with self.get("/web/js/release-changelog.css") as response:
+            self.assertEqual(response.headers.get_content_type(), "text/css")
+            self.assertIn(".rc-box", response.read().decode("utf-8"))
+
     def test_update_status_reports_restart_ready_when_running_process_is_stale(self):
         # The test suite itself runs from this repo's real checkout, so
         # `on_disk_version` always reflects the real product.py. Patching only

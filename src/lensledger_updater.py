@@ -7,6 +7,7 @@ import argparse
 import ctypes
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -42,6 +43,7 @@ REQUIRED_FILES = {
     "THIRD_PARTY_NOTICES.md", "tools/ExifTool/ExifTool.exe", "src/windows_ocr.ps1",
     "LICENSE", "README.md",
     "web/css/onboarding.css", "web/js/onboarding.js", "web/css/viewer.css", "web/js/viewer.js",
+    "web/js/release-changelog.js", "web/js/release-changelog.css",
     "web/css/map.css", "web/js/map.js", "web/css/people-review.css", "web/js/people-review.js",
     "web/css/scan-photos.css", "web/js/scan-photos.js",
 }
@@ -204,13 +206,102 @@ def latest_release(token: str | None = None) -> ReleaseInfo:
     )
 
 
+CHANGELOG_PAGE_SIZE = 30
+CHANGELOG_MAX_RESPONSE_BYTES = 5_000_000
+CHANGELOG_MAX_NOTES_CHARS = 6000
+CHANGELOG_MAX_TITLE_CHARS = 160
+_CUT_HEADING = re.compile(r"^##\s+(?:Files changed|Verified|Verification)\b", re.IGNORECASE | re.MULTILINE)
+_LEADING_TITLE = re.compile(r"\A#[ \t]+([^\n]+)\n?")
+
+
+def _bounded(text: str, limit: int) -> str:
+    """Cut at a line boundary where one exists, so a note never ends mid-word."""
+    if len(text) <= limit:
+        return text
+    cut = text.rfind("\n", 0, limit)
+    return text[: cut if cut > limit // 2 else limit].rstrip() + "\n…"
+
+
+def parse_release_list(payload: object) -> list[dict[str, str]]:
+    """GitHub /releases JSON -> [{version, title, notes, url}], newest first.
+
+    Same shape and rules as `ReleaseChangelog.parseApiList` in
+    web/js/release-changelog.js: drafts and prereleases are skipped, a leading
+    "# Title" on the first line becomes `title`, and everything from a
+    "## Files changed", "## Verified" or "## Verification" heading onward is dropped.
+    Entries whose tag is not a plain X.Y.Z version are skipped.
+    """
+    if not isinstance(payload, list):
+        return []
+    found: list[tuple[tuple[int, int, int], dict[str, str]]] = []
+    for item in payload:
+        if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
+            continue
+        tag = str(item.get("tag_name") or "")
+        try:
+            key = version_tuple(tag)
+        except UpdateError:
+            continue
+        notes = str(item.get("body") or "").replace("\r\n", "\n").replace("\r", "\n")
+        cut = _CUT_HEADING.search(notes)
+        if cut:
+            notes = notes[: cut.start()]
+        notes = notes.strip()
+        title = ""
+        lead = _LEADING_TITLE.match(notes)
+        if lead:
+            title = lead.group(1).strip()[:CHANGELOG_MAX_TITLE_CHARS]
+            notes = notes[lead.end():].strip()
+        found.append((key, {
+            "version": tag.removeprefix("v"),
+            "title": title,
+            "notes": _bounded(notes, CHANGELOG_MAX_NOTES_CHARS),
+            "url": str(item.get("html_url") or "")[:300],
+        }))
+    found.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _key, entry in found]
+
+
+def release_changelog(current_version: str, token: str | None = None) -> dict[str, object]:
+    """Every published release newer than `current_version`, newest first.
+
+    Returns {"releases": [...], "truncated": bool}; `truncated` means the page
+    held nothing but newer releases, so older ones may exist beyond it. Any
+    failure gives an empty changelog: the notes are a courtesy and must never
+    stand between the user and the update itself.
+    """
+    empty: dict[str, object] = {"releases": [], "truncated": False}
+    token = github_token() if token is None else token
+    url = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page={CHANGELOG_PAGE_SIZE}"
+    try:
+        current = version_tuple(current_version)
+        request = urllib.request.Request(url, headers=_headers(token))
+        with _opener().open(request, timeout=20) as response:
+            raw = response.read(CHANGELOG_MAX_RESPONSE_BYTES + 1)
+        if len(raw) > CHANGELOG_MAX_RESPONSE_BYTES:
+            return empty
+        payload = json.loads(raw)
+        listed = parse_release_list(payload)
+    except (OSError, ValueError, UpdateError, http.client.HTTPException):
+        return empty
+    newer = [entry for entry in listed if version_tuple(entry["version"]) > current]
+    return {
+        "releases": newer,
+        "truncated": len(payload) >= CHANGELOG_PAGE_SIZE and len(newer) == len(listed),
+    }
+
+
 def check_for_update(current_version: str, token: str | None = None) -> dict[str, object]:
     current = version_tuple(current_version)
+    token = github_token() if token is None else token
     release = latest_release(token)
+    available = version_tuple(release.version) > current
     return {
         "current_version": current_version,
-        "available": version_tuple(release.version) > current,
+        "available": available,
         "release": asdict(release),
+        "changelog": release_changelog(current_version, token) if available
+        else {"releases": [], "truncated": False},
     }
 
 

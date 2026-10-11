@@ -109,9 +109,16 @@ Keep bullets concise. See existing entries for tone and detail level.
 
 Create `docs/releases/vX.Y.Z.md` with detailed release notes:
 
-- Do NOT start with an H1 title like `# LensLedger vX.Y.Z — ...` — GitHub
-  already shows the release title (`LensLedger vX.Y.Z`), so a leading H1
-  just duplicates it. Start directly with the first content section.
+- Begin with a single one-line `# ` subtitle: a short, descriptive summary of
+  the release in sentence case, with no version number and no trailing period,
+  ideally under about 70 characters (for example
+  `# Update dialog lists what changed since the installed version`). The
+  update dialog's "What's new" box shows it next to the version number, so it
+  has to make sense on its own. Do NOT use a title like
+  `# LensLedger vX.Y.Z — ...` — GitHub already shows the release title
+  (`LensLedger vX.Y.Z`), so repeating the product and version duplicates it.
+  After the subtitle, start with the first content section. Notes written
+  before this convention have no subtitle and are left as they are.
 - Start with the motivation/context (what problem, what was wrong before)
 - Describe what changed and how it works now
 - If you found and fixed a bug during testing, add a `## Fixed during testing`

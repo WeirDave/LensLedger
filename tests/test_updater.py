@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -6,6 +7,7 @@ import shutil
 import sqlite3
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from contextlib import closing
 from pathlib import Path
@@ -64,7 +66,8 @@ class UpdaterTests(unittest.TestCase):
             page_url="https://example.test/release", asset_api_url="https://example.test/asset",
             asset_name="LensLedger-v0.20.0.zip", asset_size=10, digest="sha256:" + "0" * 64,
         )
-        with patch.object(updater, "latest_release", return_value=release):
+        with patch.object(updater, "latest_release", return_value=release), \
+             patch.object(updater, "release_changelog", return_value={"releases": [], "truncated": False}):
             self.assertTrue(updater.check_for_update("0.19.0", token="test")["available"])
             self.assertFalse(updater.check_for_update("0.20.0", token="test")["available"])
         with self.assertRaises(updater.UpdateError):
@@ -532,6 +535,189 @@ class GitUpdateTests(unittest.TestCase):
         _write_version(plain, "0.9.0")
         with self.assertRaises(updater.UpdateError):
             updater.git_update(plain)
+
+
+class ChangelogTests(unittest.TestCase):
+    """Release notes shown above the update button (synthetic releases only)."""
+
+    @staticmethod
+    def entry(tag, body="", **extra):
+        return {"tag_name": tag, "name": "LensLedger " + tag, "body": body,
+                "html_url": "https://example.test/releases/" + tag, "draft": False,
+                "prerelease": False, **extra}
+
+    @staticmethod
+    def opener_returning(payload):
+        raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        class Opener:
+            requested = []
+
+            def open(self, request, **_kwargs):
+                Opener.requested.append(request.full_url)
+                return Response(raw)
+
+        return Opener()
+
+    def test_parse_orders_newest_first_by_number_not_by_text(self):
+        parsed = updater.parse_release_list([
+            self.entry("v1.9.0"), self.entry("v1.10.2"), self.entry("v1.10.10"),
+        ])
+        self.assertEqual([item["version"] for item in parsed], ["1.10.10", "1.10.2", "1.9.0"])
+
+    def test_parse_returns_version_title_notes_and_url(self):
+        parsed = updater.parse_release_list([self.entry("v1.2.3", "## What changed\n\n- One thing.")])
+        self.assertEqual(parsed, [{
+            "version": "1.2.3", "title": "", "notes": "## What changed\n\n- One thing.",
+            "url": "https://example.test/releases/v1.2.3",
+        }])
+
+    def test_parse_skips_drafts_prereleases_and_unversioned_tags(self):
+        parsed = updater.parse_release_list([
+            self.entry("v1.0.0"), self.entry("v1.1.0", draft=True),
+            self.entry("v1.2.0", prerelease=True), self.entry("nightly"),
+            "not a release", None, {"tag_name": ""},
+        ])
+        self.assertEqual([item["version"] for item in parsed], ["1.0.0"])
+
+    def test_parse_drops_a_files_changed_section_and_everything_after_it(self):
+        body = "## What changed\n\n- Kept.\n\n## Files changed\n\n- src/example.py\n\n## Verified\n\n- Later."
+        parsed = updater.parse_release_list([self.entry("v1.0.0", body)])
+        self.assertEqual(parsed[0]["notes"], "## What changed\n\n- Kept.")
+
+    def test_parse_drops_verified_and_verification_sections(self):
+        for heading in ("## Verified", "## Verification", "## verified"):
+            with self.subTest(heading=heading):
+                body = "## What changed\n\n- Kept.\n\n" + heading + "\n\n- 210 tests passing."
+                parsed = updater.parse_release_list([self.entry("v1.0.0", body)])
+                self.assertEqual(parsed[0]["notes"], "## What changed\n\n- Kept.")
+
+    def test_parse_keeps_headings_that_only_start_like_a_cut_heading(self):
+        body = "## What changed\n\n## Verifying imports\n\n- Kept."
+        parsed = updater.parse_release_list([self.entry("v1.0.0", body)])
+        self.assertEqual(parsed[0]["notes"], body)
+
+    def test_parse_leaves_a_mid_body_h1_alone(self):
+        body = "## What changed\n\n# Not a title\n\n- Kept."
+        parsed = updater.parse_release_list([self.entry("v1.0.0", body)])
+        self.assertEqual(parsed[0]["title"], "")
+        self.assertEqual(parsed[0]["notes"], body)
+
+    def test_parse_lifts_a_leading_title_and_normalises_line_endings(self):
+        parsed = updater.parse_release_list([self.entry("v2.0.0", "# Faster scans\r\n\r\n- Quick.\r\n")])
+        self.assertEqual(parsed[0]["title"], "Faster scans")
+        self.assertEqual(parsed[0]["notes"], "- Quick.")
+
+    def test_parse_does_not_mistake_a_section_heading_for_a_title(self):
+        parsed = updater.parse_release_list([self.entry("v2.0.0", "## Why this release\n\nText.")])
+        self.assertEqual(parsed[0]["title"], "")
+        self.assertTrue(parsed[0]["notes"].startswith("## Why this release"))
+
+    def test_parse_bounds_long_notes_and_titles(self):
+        long_notes = "\n".join(f"- line {number}" for number in range(2000))
+        parsed = updater.parse_release_list([self.entry("v1.0.0", "# " + "T" * 500 + "\n\n" + long_notes)])
+        self.assertLessEqual(len(parsed[0]["title"]), updater.CHANGELOG_MAX_TITLE_CHARS)
+        self.assertLessEqual(len(parsed[0]["notes"]), updater.CHANGELOG_MAX_NOTES_CHARS + 2)
+        self.assertTrue(parsed[0]["notes"].endswith("…"))
+
+    def test_parse_ignores_a_payload_that_is_not_a_list(self):
+        self.assertEqual(updater.parse_release_list({"message": "Not Found"}), [])
+
+    def test_changelog_keeps_only_releases_newer_than_the_running_version(self):
+        payload = [self.entry(tag) for tag in ("v1.3.0", "v1.2.0", "v1.1.0", "v1.0.0")]
+        opener = self.opener_returning(payload)
+        with patch.object(updater, "_opener", return_value=opener):
+            result = updater.release_changelog("1.1.0", token="test")
+        self.assertEqual([item["version"] for item in result["releases"]], ["1.3.0", "1.2.0"])
+        self.assertFalse(result["truncated"])
+        self.assertIn("per_page=30", opener.requested[0])
+
+    def test_changelog_is_empty_when_already_current(self):
+        with patch.object(updater, "_opener", return_value=self.opener_returning([self.entry("v1.0.0")])):
+            result = updater.release_changelog("1.0.0", token="test")
+        self.assertEqual(result, {"releases": [], "truncated": False})
+
+    def test_changelog_notes_a_full_page_of_newer_releases_as_truncated(self):
+        payload = [self.entry(f"v2.{number}.0") for number in range(updater.CHANGELOG_PAGE_SIZE)]
+        with patch.object(updater, "_opener", return_value=self.opener_returning(payload)):
+            result = updater.release_changelog("1.0.0", token="test")
+        self.assertEqual(len(result["releases"]), updater.CHANGELOG_PAGE_SIZE)
+        self.assertTrue(result["truncated"])
+
+    def test_changelog_full_page_reaching_the_running_version_is_not_truncated(self):
+        payload = [self.entry(f"v1.{number}.0") for number in range(updater.CHANGELOG_PAGE_SIZE)]
+        with patch.object(updater, "_opener", return_value=self.opener_returning(payload)):
+            result = updater.release_changelog("1.10.0", token="test")
+        self.assertFalse(result["truncated"])
+
+    def test_changelog_failures_give_an_empty_list_instead_of_an_error(self):
+        empty = {"releases": [], "truncated": False}
+
+        class Failing:
+            def __init__(self, error):
+                self.error = error
+
+            def open(self, *_args, **_kwargs):
+                raise self.error
+
+        failures = [
+            Failing(urllib.error.HTTPError("https://example.test", 403, "rate limited", {}, None)),
+            Failing(urllib.error.URLError("offline")),
+            Failing(TimeoutError("slow")),
+            Failing(http.client.IncompleteRead(b"par")),
+        ]
+        for opener in failures:
+            with self.subTest(error=type(opener.error).__name__), \
+                 patch.object(updater, "_opener", return_value=opener):
+                self.assertEqual(updater.release_changelog("1.0.0", token="test"), empty)
+        for garbage in (b"<html>not json</html>", b"{}", b"x" * (updater.CHANGELOG_MAX_RESPONSE_BYTES + 1)):
+            with self.subTest(garbage=garbage[:12]), \
+                 patch.object(updater, "_opener", return_value=self.opener_returning(garbage)):
+                self.assertEqual(updater.release_changelog("1.0.0", token="test"), empty)
+
+    def test_check_for_update_includes_the_changelog_only_when_an_update_exists(self):
+        release = updater.ReleaseInfo(
+            version="0.20.0", tag="v0.20.0", name="LensLedger v0.20.0",
+            page_url="https://example.test/release", asset_api_url="https://example.test/asset",
+            asset_name="LensLedger-v0.20.0.zip", asset_size=10, digest="sha256:" + "0" * 64,
+        )
+        changelog = {"releases": [{"version": "0.20.0", "title": "", "notes": "- Note.", "url": ""}],
+                     "truncated": False}
+        with patch.object(updater, "latest_release", return_value=release), \
+             patch.object(updater, "release_changelog", return_value=changelog) as fetched:
+            behind = updater.check_for_update("0.19.0", token="test")
+            current = updater.check_for_update("0.20.0", token="test")
+        self.assertEqual(behind["changelog"], changelog)
+        self.assertEqual(current["changelog"], {"releases": [], "truncated": False})
+        fetched.assert_called_once_with("0.19.0", "test")
+
+    def test_an_update_is_still_offered_when_the_notes_cannot_be_fetched(self):
+        release = updater.ReleaseInfo(
+            version="0.20.0", tag="v0.20.0", name="LensLedger v0.20.0",
+            page_url="https://example.test/release", asset_api_url="https://example.test/asset",
+            asset_name="LensLedger-v0.20.0.zip", asset_size=10, digest="sha256:" + "0" * 64,
+        )
+
+        class Offline:
+            def open(self, *_args, **_kwargs):
+                raise urllib.error.URLError("offline")
+
+        with patch.object(updater, "latest_release", return_value=release), \
+             patch.object(updater, "_opener", return_value=Offline()):
+            result = updater.check_for_update("0.19.0", token="test")
+        self.assertTrue(result["available"])
+        self.assertEqual(result["changelog"], {"releases": [], "truncated": False})
+
+    def test_shared_changelog_files_are_part_of_the_release_zip_contract(self):
+        self.assertIn("web/js/release-changelog.js", updater.REQUIRED_FILES)
+        self.assertIn("web/js/release-changelog.css", updater.REQUIRED_FILES)
 
 
 if __name__ == "__main__":

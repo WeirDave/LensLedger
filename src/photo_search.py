@@ -3286,6 +3286,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </aside></section><div class="sidebar-backdrop" id="sidebarBackdrop"></div><section class="filmstrip" id="filmstrip"></section></main><div class="batch-bar" id="batchBar"><span class="batch-count" id="batchCount">0 selected</span><input id="batchTagInput" placeholder="Add tags to selected"><button type="button" id="batchAddTags">Add tags</button><select id="batchRating" aria-label="Rate selected"><option value="">Rate selected…</option><option value="5">★★★★★</option><option value="4">★★★★</option><option value="3">★★★</option><option value="2">★★</option><option value="1">★</option><option value="0">Clear rating</option></select><button type="button" class="danger" id="batchTrash">Trash selected</button><button type="button" class="secondary" id="batchClear">Clear</button></div><div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="modalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h2 id="modalTitle"></h2><button type="button" class="modal-close" id="modalClose">Close</button></div><div id="modalBody"></div></section></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
+<script src="{asset_url('js/release-changelog.js')}" defer></script>
 <script src="{asset_url('js/viewer.js')}" defer></script></body></html>"""
         self.send_html(page)
 
