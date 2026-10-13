@@ -39,7 +39,8 @@ from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
 from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as learn_faces
-from face_math import EmbeddingSet, modal_dimension, numpy_available
+from face_math import EmbeddingSet, modal_dimension, numpy_available, ranked_groups
+from publish_failures import REPAIRABLE_SUFFIXES, explain_failure
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
 from photo_duplicates import find_exact_duplicate_groups
 from photo_similar import find_similar_groups
@@ -97,7 +98,7 @@ PAGE_SIZE = 250  # default; overridden per-request from settings
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".tif", ".tiff"}
 _PUBLISHABLE_SQL = "a.extension IN ('.jpg','.jpeg','.heic','.heif','.png','.webp','.tif','.tiff')"
 # Repair re-saves the picture as JPEG, so it stays limited to these.
-REPAIRABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif"}
+REPAIRABLE_EXTENSIONS = set(REPAIRABLE_SUFFIXES)
 
 # Sidecar (.xmp) files are turned on or off per file type in Settings. A type
 # LensLedger can embed into defaults to off; any other defaults to on, since a
@@ -3431,7 +3432,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                         asset = self.get_active_asset(con, asset_id)
                         current_path = asset["relative_path"]
                         action.failure(current_path, "not a file type that can carry embedded names")
-                        failed.append({"path": current_path, "reason": "Not a publishable file type"})
+                        failed.append({"path": current_path, "reason": "Not a publishable file type",
+                                       **explain_failure("Not a publishable file type", current_path)})
             except Exception as exc:
                 reason = str(exc) or type(exc).__name__
                 try:
@@ -3441,7 +3443,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 except Exception:
                     current_path = f"(asset id {asset_id})"
                 action.failure(current_path, reason)
-                failed.append({"path": current_path, "reason": reason})
+                failed.append({"path": current_path, "reason": reason,
+                               **explain_failure(reason, current_path)})
             done = i + 1
             SearchHandler.publish_progress = {"state": "running", "done": done, "total": total, "current": current_path}
             action.progress(f"{done:,} of {total:,} photos")
@@ -4098,7 +4101,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not path.is_file():
             raise ValueError("File not found on disk")
         if path.suffix.lower() not in REPAIRABLE_EXTENSIONS:
-            raise ValueError("Only publishable file types can be repaired")
+            raise ValueError("Only JPEG photos can be repaired")
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         relative = Path(rel)
         backup = resolve_inside(metadata_backup_root(), relative.parent / metadata_backups.backup_name(relative.stem, "before-repair-", timestamp, relative.suffix))
@@ -4110,15 +4113,15 @@ class SearchHandler(BaseHTTPRequestHandler):
         try:
             ImageFile.LOAD_TRUNCATED_IMAGES = True
             with Image.open(path) as img:
-                original_format = img.format
-                rgb = img.convert("RGB")
-                exif_data = img.info.get("exif", b"")
-                save_kwargs: dict = {"quality": 95}
-                if original_format == "JPEG":
-                    save_kwargs["subsampling"] = "keep"
-                if exif_data:
-                    save_kwargs["exif"] = exif_data
-                rgb.save(str(path), "JPEG", **save_kwargs)
+                carried = {key: img.info[key] for key in ("exif", "icc_profile", "xmp") if img.info.get(key)}
+                img.load()
+                if img.mode == "RGB":
+                    # Saving the decoded original, not a converted copy, is what lets Pillow
+                    # keep its quantisation tables and chroma subsampling ("keep" is refused
+                    # for a copy because the copy is no longer a JPEG).
+                    img.save(str(path), "JPEG", quality="keep", subsampling="keep", **carried)
+                else:
+                    img.convert("RGB").save(str(path), "JPEG", quality=95, **carried)
         except Exception as exc:
             shutil.copy2(backup, path)
             raise ValueError(f"Repair failed — original restored: {exc}")
@@ -4593,7 +4596,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     pass
                 except Exception as exc:
                     failed.append({"asset_id": asset_id, "path": relative,
-                                   "reason": str(exc), "error": str(exc)})
+                                   "reason": str(exc), "error": str(exc),
+                                   **explain_failure(str(exc), relative)})
                     action.failure(relative, str(exc))
                 action.progress(f"{written:,} of {total:,} photos written")
                 progress = f"Wrote {written:,} of {total:,} photos…"
@@ -5189,15 +5193,13 @@ class SearchHandler(BaseHTTPRequestHandler):
             # A face with no usable embedding can never join a group; keep a
             # few slots for them so they stay reachable and the count can fall.
             unusable = [row for index, row in enumerate(rows) if index not in usable]
-            groups = pool.densest_groups(SIMILAR_FACE_THRESHOLD, limit - min(len(unusable), 3))
             everyone = EmbeddingSet(everyone_blobs, pool.dimensions)
-            counts = everyone.neighbor_counts(
-                [pool.vector(heart) for heart, _ in groups], SIMILAR_FACE_THRESHOLD
-            )
-            for (heart, _size), count in zip(groups, counts):
+            for heart, similar in ranked_groups(
+                pool, everyone, SIMILAR_FACE_THRESHOLD, limit - min(len(unusable), 3)
+            ):
                 row = rows[pool.indexes[heart]]
                 selected.append(row)
-                similar_counts[int(row["face_id"])] = max(0, count - 1)
+                similar_counts[int(row["face_id"])] = similar
             selected.extend(unusable[: limit - len(selected)])
         else:
             DIVERSITY_THRESHOLD = 0.78

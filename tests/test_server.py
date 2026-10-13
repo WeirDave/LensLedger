@@ -896,6 +896,58 @@ class ServerWorkflowTests(unittest.TestCase):
         shown = {face["face_id"] for face in self.json_response(self.get("/api/faces/unidentified"))["faces"]}
         self.assertIn(ids[2], shown)
 
+    def test_repair_refuses_anything_that_is_not_a_jpeg_and_leaves_the_file_alone(self):
+        for name in ("sample.heic", "sample.heif", "sample.tiff"):
+            target = self.library / name
+            target.write_bytes(b"not really this format")
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/publish/repair", {"path": name})
+            self.assertEqual(refused.exception.code, 400)
+            self.assertIn("Only JPEG photos can be repaired", json.loads(refused.exception.read())["error"])
+            refused.exception.close()
+            self.assertEqual(target.read_bytes(), b"not really this format", name)
+
+    def test_repair_resaves_a_jpeg_keeping_its_exif_and_xmp_and_a_backup(self):
+        from PIL import ImageFile
+
+        xmp = (b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+               b'<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject>invented keyword</dc:subject>'
+               b'</rdf:Description></rdf:RDF></x:xmpmeta>')
+        exif = Image.Exif()
+        exif[0x010E] = "invented description"
+        Image.new("RGB", (48, 32), (24, 80, 140)).save(self.photo, quality=90, exif=exif.tobytes(), xmp=xmp)
+
+        result = self.json_response(self.post("/api/publish/repair", {"path": self.photo.name}))
+        self.assertTrue(result["ok"])
+        self.assertTrue(Path(result["backup"]).is_file())
+        ImageFile.LOAD_TRUNCATED_IMAGES = False
+        with Image.open(self.photo) as repaired:
+            repaired.load()
+            self.assertEqual((repaired.format, repaired.size), ("JPEG", (48, 32)))
+            self.assertEqual(repaired.getexif().get(0x010E), "invented description")
+            self.assertIn(b"invented keyword", repaired.info.get("xmp", b""))
+
+    def test_repair_turns_a_truncated_jpeg_into_one_that_decodes_completely(self):
+        import random
+        from PIL import ImageFile
+
+        generator = random.Random(5)
+        noisy = Image.new("RGB", (96, 96))
+        noisy.putdata([(generator.randrange(256), generator.randrange(256), generator.randrange(256)) for _ in range(96 * 96)])
+        noisy.save(self.photo, quality=90)
+        whole = self.photo.read_bytes()
+        self.photo.write_bytes(whole[: int(len(whole) * 0.6)])
+        ImageFile.LOAD_TRUNCATED_IMAGES = False
+        with self.assertRaises(OSError):
+            with Image.open(self.photo) as damaged:
+                damaged.load()
+
+        self.assertTrue(self.json_response(self.post("/api/publish/repair", {"path": self.photo.name}))["ok"])
+        ImageFile.LOAD_TRUNCATED_IMAGES = False
+        with Image.open(self.photo) as repaired:
+            repaired.load()
+            self.assertEqual(repaired.size, (96, 96))
+
     def test_faces_unknown_marks_the_face_and_removes_it_from_the_queue(self):
         con = sqlite3.connect(self.database)
         face_id = int(con.execute(

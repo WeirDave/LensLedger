@@ -109,6 +109,7 @@ $('publishAll').onclick = async () => {
       const summary = document.createElement('summary');
       summary.textContent = failed.length + ' photo' + (failed.length === 1 ? '' : 's') + ' failed';
       details.append(summary);
+      details.append(copyButton('Copy list', () => summary.textContent + ':\n' + failureLines(failed)));
       const table = document.createElement('table');
       table.className = 'publish-table';
       table.innerHTML = '<thead><tr><th>File</th><th>Reason</th><th></th></tr></thead>';
@@ -124,13 +125,14 @@ $('publishAll').onclick = async () => {
         pathTd.append(link);
         const reasonTd = document.createElement('td');
         reasonTd.textContent = f.reason;
+        const hint = failureHint(f);
+        if (hint) reasonTd.append(hint);
         const actionTd = document.createElement('td');
-        const ext = (f.path.match(/\.[^.]+$/) || [''])[0].toLowerCase();
-        if (['.jpg', '.jpeg', '.heic', '.heif'].includes(ext)) {
+        if (f.repairable === true) {
           const btn = document.createElement('button');
           btn.className = 'repair-btn';
           btn.textContent = 'Repair';
-          btn.title = 'Re-save through Pillow to fix corrupt/truncated image data (backup created first)';
+          btn.title = 'Re-save the picture to fix damaged image data. This is lossy; a backup is kept first.';
           btn.onclick = async () => {
             btn.disabled = true;
             btn.textContent = 'Repairing…';
@@ -207,6 +209,47 @@ if ($('classifyPhotos')) {
   };
 }
 
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.append(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) {}
+  area.remove();
+  return ok;
+}
+
+function copyButton(label, getText) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'secondary copy-list';
+  btn.textContent = label;
+  btn.onclick = async () => {
+    const ok = await copyText(getText());
+    btn.textContent = ok ? 'Copied' : 'Could not copy — select the text instead';
+    setTimeout(() => { btn.textContent = label; }, 2500);
+  };
+  return btn;
+}
+
+function failureLines(items) {
+  return items.map(item => (item.path || ('photo ' + item.asset_id)) + ' — '
+    + (item.error || item.reason || 'no reason recorded')).join('\n');
+}
+
+function failureHint(item) {
+  if (!item.hint) return null;
+  const hint = document.createElement('div');
+  hint.className = 'failure-hint';
+  hint.textContent = item.hint;
+  return hint;
+}
+
 function fileReport(title, className, items) {
   if (!items || !items.length) return null;
   const box = document.createElement('div');
@@ -215,6 +258,7 @@ function fileReport(title, className, items) {
   heading.textContent = items.length === 1 ? title.replace('photos', 'photo') : title;
   heading.textContent = heading.textContent.replace('{n}', items.length.toLocaleString());
   box.append(heading);
+  box.append(copyButton('Copy list', () => heading.textContent + ':\n' + failureLines(items)));
   const list = document.createElement('ul');
   items.slice(0, 50).forEach(item => {
     const row = document.createElement('li');
@@ -223,6 +267,8 @@ function fileReport(title, className, items) {
     const why = document.createElement('span');
     why.textContent = ' — ' + (item.error || item.reason || 'no reason recorded');
     row.append(name, why);
+    const hint = failureHint(item);
+    if (hint) row.append(hint);
     list.append(row);
   });
   box.append(list);

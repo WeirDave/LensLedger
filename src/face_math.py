@@ -153,6 +153,30 @@ class EmbeddingSet:
         return groups
 
 
+CANDIDATE_GROUPS_PER_SLOT = 3
+
+
+def ranked_groups(
+    pool: EmbeddingSet, everyone: EmbeddingSet, threshold: float, limit: int,
+) -> list[tuple[int, int]]:
+    """The `limit` biggest look-alike groups, as (pool row, other faces like it).
+
+    Groups are found in the sample `pool`, but a group's size in a small
+    sample says little about its size in the library: with 3,000 of 36,000
+    faces sampled, real groups of 14 and 33 can both show up as 3. So extra
+    candidate groups are found, each is measured against `everyone`, and the
+    result is ordered by that real count (the count excludes the face itself).
+    Needs NumPy.
+    """
+    if limit <= 0:
+        return []
+    candidates = pool.densest_groups(threshold, limit * CANDIDATE_GROUPS_PER_SLOT)
+    counts = everyone.neighbor_counts([pool.vector(heart) for heart, _ in candidates], threshold)
+    measured = [(heart, max(0, count - 1)) for (heart, _), count in zip(candidates, counts)]
+    measured.sort(key=lambda item: item[1], reverse=True)
+    return measured[:limit]
+
+
 def best_two_matches(
     vectors: Sequence[Sequence[float]], profiles: Sequence[Sequence[float]],
 ) -> list[tuple[int, float, float]]:

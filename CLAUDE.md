@@ -85,6 +85,26 @@ After every fix or feature lands on `main` with tests green, perform the
 **full release ceremony** without asking for permission. Every fix ships.
 The steps below must all happen, in order, as a single uninterrupted flow.
 
+**Where it can run.** This ceremony is written for a local session: work in a
+worktree, merge into the primary checkout, commit, tag and push with the
+user's own git credentials. A cloud session (claude.ai/code) clones fresh and
+gets credentials scoped to its own branch. It can push that branch, open a PR
+and merge it through the GitHub API, but **creating a tag is refused with
+HTTP 403** (seen on v1.23.0), and the `Release` workflow only starts on a tag
+push. In a cloud session:
+
+- Say at the start that it cannot tag, instead of finding out at Step 5.
+- Do Steps 1–4 on the session branch, open a draft PR (not a push to `main`),
+  and merge it only when the user asks.
+- Do not push a tag from the branch (the release would be built from unmerged
+  code), and do not retry or route around the 403, for example by triggering
+  the release another way.
+- After the merge, hand the user these commands, with the real version and the
+  merge commit's SHA, and stop there:
+  `git fetch origin`, `git tag vX.Y.Z <merge-sha>`, `git push origin vX.Y.Z`.
+- Once the user says the tag is pushed, do Step 7 and Step 9. The release is
+  done only when the `Release` workflow is green and the GitHub Release exists.
+
 ### Step 1 — Bump the version
 
 Edit `src/product.py`:
