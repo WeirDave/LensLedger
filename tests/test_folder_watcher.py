@@ -142,6 +142,59 @@ class TestFolderWatcher(unittest.TestCase):
             "the scan asked for while another was running never happened",
         )
 
+    def test_scan_soon_scans_once_even_when_watching_is_off(self):
+        """Auto-import must never leave freshly moved photos unscanned."""
+        watcher = self.make(scan_fn=self.record, interval_minutes=60)
+        watcher.scan_soon(delay=0)
+
+        for _ in range(40):
+            if self.calls:
+                break
+            time.sleep(0.05)
+
+        self.assertEqual(len(self.calls), 1, "the requested scan never ran")
+        self.assertFalse(watcher.status()["enabled"],
+                         "a one-off scan must not switch scheduled watching on")
+        time.sleep(0.3)
+        self.assertEqual(len(self.calls), 1, "a one-off scan must not repeat")
+
+    def test_scan_soon_requests_made_together_run_one_scan(self):
+        watcher = self.make(scan_fn=self.record)
+        watcher.scan_soon(delay=0.3)
+        watcher.scan_soon(delay=0.3)
+        watcher.scan_soon(delay=0.3)
+        time.sleep(0.8)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_scan_soon_with_watching_on_reschedules_the_regular_check(self):
+        watcher = self.make(scan_fn=self.record, interval_minutes=60)
+        watcher.start()
+        watcher.scan_soon(delay=0)
+        for _ in range(40):
+            if self.calls:
+                break
+            time.sleep(0.05)
+        self.assertEqual(len(self.calls), 1)
+        self.assertLessEqual(watcher.pending_timer_count(), 1)
+
+    def test_a_failing_one_off_scan_is_survivable(self):
+        attempts = []
+
+        def explode():
+            attempts.append(1)
+            raise RuntimeError("scan blew up")
+
+        watcher = self.make(scan_fn=explode)
+        watcher.scan_soon(delay=0)
+        for _ in range(40):
+            if attempts:
+                break
+            time.sleep(0.05)
+        self.assertTrue(attempts)
+        watcher.scan_soon(delay=0)
+        time.sleep(0.3)
+        self.assertEqual(len(attempts), 2, "a later request must still be honoured")
+
 
 if __name__ == "__main__":
     unittest.main()
