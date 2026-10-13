@@ -14,6 +14,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - A face whose stored data is a different size from the others, or is unreadable, is no longer compared on part of its data. It is left out of matching and stays on the People page to be named or dismissed.
 - Face matching now uses NumPy when it is installed (it is installed with face detection) and works as before without it, only more slowly; without NumPy the People page keeps its random order and shows no badge.
 
+## 1.22.1 — 2026-10-13
+
+- Auto-import now scans the photos it imports even when folder watching is switched off. Before, the scan was requested only while watching was on, so the photos were moved into the library and then left unscanned.
+- **Run now** on the Auto-import page now scans the photos it imports, the same as the timed import. Before, only the timed import asked for a scan.
+
 ## 1.22.0 — 2026-10-10
 
 - The update dialog (**Check for updates**, shown as "⬆ Update available" while an update is waiting) now lists what changed in every release newer than the installed version, newest first, above the **Download, install & restart** button. Each release can be collapsed, and the newest is open.

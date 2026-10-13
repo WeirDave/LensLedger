@@ -38,6 +38,7 @@ class FolderWatcher:
         # would run on side by side and the scan rate would double every time.
         self._generation = 0
         self._live_timers: set[threading.Timer] = set()
+        self._one_shot: threading.Timer | None = None
 
     @property
     def running(self) -> bool:
@@ -74,6 +75,33 @@ class FolderWatcher:
             if not self._running:
                 return
             self._schedule_next(delay=delay)
+
+    def scan_soon(self, delay: int = 5) -> None:
+        """Scan in `delay` seconds even when scheduled watching is switched off.
+
+        Auto-import uses this so photos it has just moved are never left
+        unscanned. With watching on it reschedules the regular check, as
+        trigger_soon does; with watching off it runs a single scan and leaves
+        the watcher off.
+        """
+        with self._lock:
+            if self._running:
+                self._schedule_next(delay=delay)
+                return
+            if self._one_shot is not None and self._one_shot.is_alive():
+                return
+            timer = threading.Timer(delay, self._on_one_shot)
+            timer.daemon = True
+            self._one_shot = timer
+            timer.start()
+
+    def _on_one_shot(self) -> None:
+        try:
+            if self._scan_fn:
+                console_log("Folder watcher: scanning newly imported photos")
+                self._scan_fn()
+        except Exception as exc:
+            console_log(f"Folder watcher: scan error — {exc}")
 
     def _schedule_next(self, delay: int | None = None) -> None:
         """Caller must hold the lock."""
