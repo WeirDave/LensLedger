@@ -176,10 +176,13 @@ class IngestPipeline:
         """Run one processing pass immediately and return stats delta."""
         before = dict(self._stats)
         self._process_source()
-        return {
+        delta = {
             k: self._stats[k] - before.get(k, 0)
             for k in self._stats
         }
+        if delta.get("imported") and self._on_batch_complete:
+            self._on_batch_complete(delta["imported"])
+        return delta
 
     def _schedule_next(self, delay: int | None = None) -> None:
         self._timer = threading.Timer(delay if delay is not None else self._interval, self._on_tick)

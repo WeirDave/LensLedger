@@ -324,6 +324,8 @@ You can add rules that route specific files to different destinations based on f
 
 Duplicate files are detected by content hash and skipped automatically.
 
+Whenever auto-import moves new photos into your library — on its timer or from **Run now**, and whether or not folder watching is switched on — LensLedger scans them a few seconds later: photo locations first, then text recognition, meaning search and face detection where they are installed. If another scan is already running at that moment, the new photos are picked up on the next scheduled check instead.
+
 ---
 
 ## Publishing Metadata

@@ -2321,6 +2321,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Activity log</strong> &mdash; shows every file processed</li>
 </ul>
 <p>If a file with the same name already exists at the destination, a numeric suffix is added automatically.</p>
+<p>Whenever auto-import moves new photos into your library &mdash; on its timer or from <strong>Run now</strong>, and whether or not folder watching is switched on &mdash; LensLedger scans them a few seconds later: photo locations first, then text recognition, meaning search and face detection where they are installed. If another scan is already running at that moment, the new photos are picked up on the next scheduled check instead.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -7842,7 +7843,7 @@ def main():
     ingest_cfg = settings.get("ingest", {})
     def _after_import(count):
         console_log(f"Auto-import: triggering scan for {count} new file(s)")
-        watcher.trigger_soon(delay=5)
+        watcher.scan_soon(delay=5)
     pipeline = IngestPipeline(
         source_folder=str(ingest_cfg.get("source_folder", "")),
         destination_folder=str(ingest_cfg.get("destination_folder", "")),
