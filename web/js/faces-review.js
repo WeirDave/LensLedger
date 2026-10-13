@@ -197,6 +197,8 @@ function addMatchGroup(name, personId, matches, moreData) {
       countParts.push(accuracyPct + '% accuracy — review more to improve');
     }
   }
+  const lowerCount = matches.filter(match => match.lower).length;
+  if (lowerCount) countParts.push(lowerCount + ' lower match' + (lowerCount === 1 ? '' : 'es') + ', outlined — check them');
   group.querySelector('.match-count').textContent = countParts.join(' · ');
   if (confirmedCount >= 10 && accuracyPct === 100 && totalRemaining > 0) {
     const confirmRemBtn = document.createElement('button');
@@ -276,8 +278,10 @@ function addMatchGroup(name, personId, matches, moreData) {
     const wrap = document.createElement('div');
     wrap.className = 'match-item';
     wrap.dataset.faceId = match.face_id;
+    if (match.lower) wrap.classList.add('lower-match');
     const thumb = document.createElement('label');
     thumb.className = 'match-thumb';
+    if (match.lower) thumb.title = 'Lower similarity (' + Number(match.score).toFixed(2) + '): look closely before confirming';
     thumb.innerHTML = '<input type="checkbox" checked><img loading="lazy" alt="Possible match">';
     thumb.querySelector('img').src = '/media-face?face_id=' + match.face_id;
     const btn = document.createElement('button');

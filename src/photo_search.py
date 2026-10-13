@@ -38,7 +38,10 @@ from console_log import Action, log as console_log
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
-from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as learn_faces
+from face_learning import (
+    BULK_CONFIRM_SIMILARITY, FIND_MORE_AUTO_CONFIRM_SIMILARITY, REVIEW_SIMILARITY, SUGGESTION_THRESHOLD,
+    decode_vector, dot, learn as learn_faces,
+)
 from face_math import EmbeddingSet, modal_dimension, numpy_available, ranked_groups
 from publish_failures import REPAIRABLE_SUFFIXES, explain_failure
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
@@ -5119,7 +5122,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         and over, and showing them in random order spreads naming effort
         evenly over a very uneven library: a stranger photographed once is
         offered as readily as someone in hundreds of photos.  So a random
-        pool is split into groups of look-alikes (the same 0.72 similarity
+        pool is split into groups of look-alikes (the same similarity
         the "Also looks like X" match groups use), and each group's
         representative is offered largest group first, with `similar_count`
         saying how many other unnamed faces in the whole library resemble it.
@@ -5186,7 +5189,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         selected = []
         similar_counts: dict[int, int] = {}
         if grouping:
-            SIMILAR_FACE_THRESHOLD = 0.72
+            SIMILAR_FACE_THRESHOLD = REVIEW_SIMILARITY
             pool_blobs = [row["embedding_f32"] for row in rows]
             pool = EmbeddingSet(pool_blobs, modal_dimension(pool_blobs))
             usable = set(pool.indexes)
@@ -5449,7 +5452,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                ORDER BY f.id DESC LIMIT 50000""",
             (face_id,),
         ).fetchall()
-        SIMILAR_FACE_THRESHOLD = 0.72
+        SIMILAR_FACE_THRESHOLD = REVIEW_SIMILARITY
         candidates = EmbeddingSet([row["embedding_f32"] for row in rows], len(vector))
         scored = [
             (score, rows[index])
@@ -5459,7 +5462,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         scored.sort(key=lambda item: item[0], reverse=True)
         return [
             {"face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
-             "score": round(score, 4),
+             "score": round(score, 4), "lower": score < BULK_CONFIRM_SIMILARITY,
              "box_left": row["box_left"], "box_top": row["box_top"],
              "box_right": row["box_right"], "box_bottom": row["box_bottom"],
              "filename": row["filename"], "folder": row["folder"], "capture_date": row["capture_date"]}
@@ -5470,11 +5473,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         """After confirming a batch of 'Also looks like' matches, search for
         more unidentified faces similar to this person.  High-confidence matches
         (>=0.75) are auto-confirmed in the database without metadata publishing;
-        only borderline matches (0.72-0.75) are returned for manual review."""
+        borderline matches (0.60 up to 0.75) are returned for manual review,
+        highest first.  total_remaining counts only those "Confirm all
+        remaining" would confirm without review (>=0.72), so the button's
+        count matches what it does."""
         person_id = int(body["person_id"])
         exclude_face_ids = set(int(fid) for fid in body.get("exclude_face_ids", []))
-        AUTO_CONFIRM_THRESHOLD = 0.75
-        SIMILAR_FACE_THRESHOLD = 0.72
+        AUTO_CONFIRM_THRESHOLD = FIND_MORE_AUTO_CONFIRM_SIMILARITY
+        SIMILAR_FACE_THRESHOLD = REVIEW_SIMILARITY
         with self.db() as con:
             person = con.execute("SELECT name FROM people WHERE id=?", (person_id,)).fetchone()
             if not person:
@@ -5536,7 +5542,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             borderline.sort(key=lambda item: item[0], reverse=True)
             matches = [
                 {"face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
-                 "score": round(score, 4),
+                 "score": round(score, 4), "lower": score < BULK_CONFIRM_SIMILARITY,
                  "box_left": row["box_left"], "box_top": row["box_top"],
                  "box_right": row["box_right"], "box_bottom": row["box_bottom"],
                  "filename": row["filename"], "folder": row["folder"],
@@ -5544,7 +5550,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 for score, row in borderline[:200]
             ]
         n = len(references)
-        total_borderline = len(borderline)
+        total_borderline = sum(1 for score, _row in borderline if score >= BULK_CONFIRM_SIMILARITY)
         with self.db() as con2:
             review_stats = con2.execute(
                 """SELECT COUNT(*) as total,
@@ -5571,7 +5577,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         the first (centroid is stable), iteration stops early and the
         remaining borderline faces are left for human review."""
         person_id = int(body["person_id"])
-        SIMILAR_FACE_THRESHOLD = 0.72
+        SIMILAR_FACE_THRESHOLD = BULK_CONFIRM_SIMILARITY
         total_confirmed = 0
         rounds = 0
         first_round_count = 0
