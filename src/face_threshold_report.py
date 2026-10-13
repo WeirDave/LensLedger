@@ -43,9 +43,24 @@ UNNAMED_SAMPLE = 2000
 UNNAMED_POOL_LIMIT = 50_000
 
 
+def default_catalogue() -> Path:
+    """The catalogue LensLedger itself would open: the saved current library's."""
+    from library_config import library_db_path, load_library_state
+    return library_db_path(load_library_state())
+
+
 def open_read_only(path: Path) -> sqlite3.Connection:
+    text = str(path)
+    if "<" in text and ">" in text:
+        raise SystemExit(
+            f"{text} is the placeholder from the instructions, not a real path. Leave --db off "
+            "and the report finds the catalogue of your current library, or give the real file."
+        )
     if not path.is_file():
-        raise SystemExit(f"No catalogue at {path}. Pass the catalogue file with --db.")
+        raise SystemExit(
+            f"No catalogue at {path}. Leave --db off to use your current library's catalogue, "
+            "or pass the file with --db (LensLedger's Settings page shows it as 'Database')."
+        )
     con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     return con
@@ -295,16 +310,16 @@ def render(report: dict) -> str:
 
 
 def main() -> int:
-    from app_paths import libraries_root
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", type=Path, default=libraries_root() / "default.sqlite3",
-                        help="the library catalogue (.sqlite3) to read")
+    parser.add_argument("--db", type=Path, default=None,
+                        help="the library catalogue (.sqlite3) to read; by default the catalogue "
+                             "of the library LensLedger last opened")
     parser.add_argument("--earliest", type=int, default=8,
                         help="how many of each person's earliest-named faces form the hand-named block")
     parser.add_argument("--seed", type=int, default=1, help="random seed, so a run can be repeated")
     parser.add_argument("--json", action="store_true", help="print JSON instead of a table")
     args = parser.parse_args()
-    report = build_report(args.db, max(1, args.earliest), args.seed)
+    report = build_report(args.db or default_catalogue(), max(1, args.earliest), args.seed)
     print(json.dumps(report, indent=2) if args.json else render(report))
     return 0
 

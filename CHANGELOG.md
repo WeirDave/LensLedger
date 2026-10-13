@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.23.1 — 2026-10-13
+
+- The People page now lists the biggest groups of unnamed faces biggest first. In 1.23.0 the order was worked out from a small sample of the faces, so on a large library the "+N similar" badges could be out of order and some larger groups were missed.
+- The failure lists on Publish photos now say in plain words what went wrong and what to do, for a leftover ExifTool temporary file, a file Windows would not let LensLedger replace, a failed picture check, and damaged picture data.
+- Added a **Copy list** button to those failure lists (the people metadata publish and the Write all tags report), so the list can be pasted elsewhere.
+- **Repair** is now offered only for a JPEG whose picture data is damaged or failed LensLedger's picture check. It is no longer offered for temporary-file or file-in-use errors, where re-saving the picture cannot help, and never for HEIC or HEIF files.
+- Fixed **Repair** failing on every JPEG with "Cannot use 'keep' when original image is not a JPEG". It now re-saves the picture keeping its compression settings, EXIF, colour profile and XMP. A backup is still made first. IPTC fields are not carried over.
+- `face_threshold_report.py` now finds your current library's catalogue by itself when run without `--db`, and says plainly when the `--db` value is the placeholder from the instructions.
+
 ## 1.23.0 — 2026-10-13
 
 - The People page now offers the people who appear in the most photos first. Unnamed faces are grouped by how closely they look alike, and one card is shown per group, largest group first. Previously the cards came in random order, so a stranger seen once was offered as readily as someone in hundreds of photos, and the same person could appear on several cards.

@@ -180,6 +180,63 @@ class ThresholdReportTests(unittest.TestCase):
         return build_report(path, 8, 1)
 
 
+@unittest.skipIf(face_math.np is None, "NumPy is not installed")
+class FindingTheCatalogueTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.library = self.root / "Invented Photos"
+        self.library.mkdir()
+        from unittest.mock import patch
+        self.environment = patch.dict("os.environ", {"LENSLEDGER_DATA_DIR": str(self.root / "data")})
+        self.environment.start()
+
+    def tearDown(self):
+        self.environment.stop()
+        self.temporary.cleanup()
+
+    def test_with_no_path_it_uses_the_catalogue_of_the_saved_library(self):
+        from face_threshold_report import default_catalogue
+        from library_config import library_db_path, save_library_state
+
+        save_library_state(self.library)
+        self.assertEqual(default_catalogue(), library_db_path(self.library.resolve()))
+
+    def test_running_with_no_arguments_reports_on_that_catalogue(self):
+        import contextlib
+        import io
+        import sys
+        from unittest.mock import patch
+        from library_config import library_db_path, save_library_state
+
+        save_library_state(self.library)
+        catalogue = library_db_path(self.library.resolve())
+        catalogue.parent.mkdir(parents=True, exist_ok=True)
+        build_catalogue(catalogue, {NAMES[0]: [0, 3, -3], NAMES[1]: [90, 93, 87]})
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["face_threshold_report.py"]), contextlib.redirect_stdout(output):
+            from face_threshold_report import main
+            self.assertEqual(main(), 0)
+        self.assertIn("LensLedger face-cutoff report", output.getvalue())
+        self.assertIn("All confirmed faces", output.getvalue())
+
+    def test_the_placeholder_from_the_instructions_is_called_out(self):
+        from face_threshold_report import build_report
+
+        placeholder = Path("<your photo library>") / ".LensLedger" / "LensLedger-<name>.sqlite3"
+        with self.assertRaises(SystemExit) as raised:
+            build_report(placeholder, 8, 1)
+        self.assertIn("placeholder", str(raised.exception))
+        self.assertIn("Leave --db off", str(raised.exception))
+
+    def test_a_real_path_with_no_catalogue_says_where_to_look(self):
+        from face_threshold_report import build_report
+
+        with self.assertRaises(SystemExit) as raised:
+            build_report(self.root / "nothing-here.sqlite3", 8, 1)
+        self.assertIn("Settings", str(raised.exception))
+
+
 class WithoutNumpyTests(unittest.TestCase):
     def test_it_says_numpy_is_needed(self):
         from unittest.mock import patch

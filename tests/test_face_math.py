@@ -107,6 +107,45 @@ class DensestGroupTests(unittest.TestCase):
                 embeddings.densest_groups(0.72, 1)
 
 
+@unittest.skipIf(face_math.np is None, "NumPy is not installed")
+class RankedGroupTests(unittest.TestCase):
+    def library(self):
+        """Three people of 40, 15 and 5 faces, and a small sample that sees them as 1, 3 and 2."""
+        everyone_angles = [i * 0.1 for i in range(40)] + [90 + i * 0.1 for i in range(15)] + [180 + i * 0.1 for i in range(5)]
+        pool_angles = [0.0] + [90.0, 90.1, 90.2] + [180.0, 180.1]
+        everyone = EmbeddingSet([blob(*unit(a)) for a in everyone_angles], 2)
+        pool = EmbeddingSet([blob(*unit(a)) for a in pool_angles], 2)
+        return pool, everyone
+
+    def test_a_small_sample_does_not_decide_the_order(self):
+        pool, everyone = self.library()
+        sample_order = [size for _, size in pool.densest_groups(0.72, 3)]
+        self.assertEqual(sample_order, [3, 2, 1], "the sample alone ranks the biggest person last")
+        ranked = face_math.ranked_groups(pool, everyone, 0.72, 3)
+        self.assertEqual([similar for _, similar in ranked], [39, 14, 4])
+
+    def test_the_real_count_leaves_out_the_face_itself(self):
+        pool, everyone = self.library()
+        heart, similar = face_math.ranked_groups(pool, everyone, 0.72, 1)[0]
+        self.assertEqual(similar, 39)
+        self.assertAlmostEqual(pool.vector(heart)[0], 1.0, places=3)
+
+    def test_limit_is_respected_and_a_group_beyond_it_is_dropped(self):
+        pool, everyone = self.library()
+        ranked = face_math.ranked_groups(pool, everyone, 0.72, 2)
+        self.assertEqual([similar for _, similar in ranked], [39, 14])
+        self.assertEqual(face_math.ranked_groups(pool, everyone, 0.72, 0), [])
+
+    def test_counts_never_increase_down_the_list(self):
+        import random
+        generator = random.Random(3)
+        angles = [generator.choice([0, 40, 80, 120, 160, 200, 240, 280, 320]) + generator.uniform(-2, 2) for _ in range(400)]
+        everyone = EmbeddingSet([blob(*unit(a)) for a in angles], 2)
+        pool = EmbeddingSet([blob(*unit(a)) for a in angles[::13]], 2)
+        counts = [similar for _, similar in face_math.ranked_groups(pool, everyone, 0.9, 9)]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+
+
 class BestTwoMatchesTests(BackendCase):
     def test_both_backends_agree_with_a_plain_ranking(self):
         generator = random.Random(7)
