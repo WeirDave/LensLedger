@@ -6,12 +6,19 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
-## 1.24.0 — 2026-10-13
+## 1.25.0 — 2026-10-13
 
 - **Restart server**, **Restart now** and installing an update now restart LensLedger in the same terminal window or tab. Before, each restart opened a new window and closed the old one, so a tab you had arranged in Windows Terminal was lost.
 - While an update installs, the window shows "Restarting LensLedger..." and starts the new version when the install is done. If the install fails, the previous version starts again in the same window.
 - If an update added a required Python package, the window installs it before starting, as a fresh launch does.
 - Only the window you started with `Start LensLedger.cmd` from this version on does this. A window started by an older copy of that file opens a new window for one more restart, then follows the new behavior.
+
+## 1.24.0 — 2026-10-13
+
+- Faces are now offered for you to look at at a lower similarity, 0.60 instead of 0.72. This applies to the "Also looks like …" group after you name a face, to the faces offered for review after "Confirm all", and to the "+N similar" badges and their order on the People page, so a badge still equals the group you get once the card is named. A real library showed that two faces of the same person usually score about 0.6 against each other, so 0.72 reached only a small share of a person's other faces.
+- Matches below 0.72 are outlined in a dashed border in the group, and the group's header counts them ("2 lower matches, outlined — check them"). They are ticked like the others, so look at them before "Confirm all".
+- Nothing that confirms a face without you looking changed: "Confirm all remaining" still stops at 0.72, the faces confirmed automatically after "Confirm all" still need 0.75, and learned suggestions and automatic learning keep their cutoffs. The count on the "Confirm all remaining" button still counts only the faces it will confirm.
+- The cutoff report (`python src\face_threshold_report.py`) now counts up to two million pairs of different people and shows the rate as an upper bound when none were seen, instead of a rounded 0.0%. It adds an "At your scale" table of the wrong faces one face would meet among your unnamed faces, marks the cutoffs the app uses from the app's own values, and says plainly that neither block of named faces is an unbiased sample.
 
 ## 1.23.1 — 2026-10-13
 

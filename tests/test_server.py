@@ -923,6 +923,65 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(faces[2]["similar_count"], 0)
         self.assertEqual(data["total"], 7)
 
+    def _name_faces(self, face_ids, name="Invented Person"):
+        result = None
+        for face_id in face_ids:
+            result = self.json_response(self.post("/api/faces/name", {"face_id": face_id, "name": name}))
+        return result["person_id"]
+
+    def test_naming_a_face_offers_look_alikes_down_to_the_review_similarity(self):
+        # cos 10 = 0.98, cos 50 = 0.64, cos 58 = 0.53, cos 100 = -0.17
+        ids = self._add_unnamed_faces([0, 10, 50, 58, 100])
+        result = self.json_response(self.post("/api/faces/name", {"face_id": ids[0], "name": "Invented Person"}))
+        by_id = {match["face_id"]: match for match in result["matches"]}
+        self.assertEqual(set(by_id), {ids[1], ids[2]})
+        self.assertFalse(by_id[ids[1]]["lower"], "a close match is not marked lower")
+        self.assertTrue(by_id[ids[2]]["lower"], "a match under 0.72 is marked lower so the page can outline it")
+        self.assertEqual([m["face_id"] for m in result["matches"]], [ids[1], ids[2]], "highest score first")
+
+    def test_the_badge_on_a_card_equals_the_group_offered_once_it_is_named(self):
+        from face_math import numpy_available
+
+        if not numpy_available():
+            self.skipTest("grouping needs NumPy")
+        self._add_unnamed_faces([0, 20, 40, 50, 100, 250])
+        card = self.json_response(self.get("/api/faces/unidentified"))["faces"][0]
+        result = self.json_response(self.post("/api/faces/name", {"face_id": card["face_id"], "name": "Invented Person"}))
+        self.assertGreater(card["similar_count"], 0)
+        self.assertEqual(len(result["matches"]), card["similar_count"])
+
+    def test_find_more_reviews_down_to_the_review_similarity_but_auto_confirms_only_above_the_strict_one(self):
+        # Ten faces at 0 degrees are the person. cos 10 = 0.98 (auto-confirmed, >= 0.75),
+        # cos 43 = 0.73 (>= 0.72), cos 45 = 0.71 (review only), cos 55 = 0.57 (not offered).
+        ids = self._add_unnamed_faces([0] * 10 + [10, 43, 45, 55])
+        person_id = self._name_faces(ids[:10])
+        auto, near, nearer, far = ids[10], ids[11], ids[12], ids[13]
+
+        more = self.json_response(self.post("/api/faces/find-more", {"person_id": person_id}))
+        self.assertEqual(more["auto_confirmed"], 1)
+        self.assertEqual([m["face_id"] for m in more["matches"]], [near, nearer], "highest score first, 0.57 left out")
+        self.assertEqual([m["lower"] for m in more["matches"]], [False, True])
+        self.assertEqual(more["total_remaining"], 1, "only what 'Confirm all remaining' will confirm is counted")
+        con = sqlite3.connect(self.database)
+        owner = dict(con.execute(
+            "SELECT id, person_id FROM face_embeddings WHERE id IN (?,?,?,?)", (auto, near, nearer, far)
+        ).fetchall())
+        con.close()
+        self.assertEqual(owner[auto], person_id, "a face at 0.75 or above is confirmed by find-more")
+        for face_id in (near, nearer, far):
+            self.assertIsNone(owner[face_id], "a face in the review band stays unconfirmed until someone looks")
+
+    def test_confirm_all_remaining_still_stops_at_the_strict_similarity(self):
+        ids = self._add_unnamed_faces([0] * 10 + [45])  # cos 45 = 0.71: in the review band, below 0.72
+        person_id = self._name_faces(ids[:10])
+        body = self.post("/api/faces/confirm-remaining", {"person_id": person_id}).read().decode()
+        events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+        self.assertEqual(events[-1]["confirmed"], 0)
+        con = sqlite3.connect(self.database)
+        (owner,) = con.execute("SELECT person_id FROM face_embeddings WHERE id=?", (ids[10],)).fetchone()
+        con.close()
+        self.assertIsNone(owner, "a face nobody has looked at is never confirmed below 0.72")
+
     def test_unidentified_faces_still_work_without_numpy(self):
         ids = self._add_unnamed_faces([0, 4, 90])
         with patch.object(self.photo_search, "numpy_available", return_value=False):

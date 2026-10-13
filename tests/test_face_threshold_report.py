@@ -181,6 +181,80 @@ class ThresholdReportTests(unittest.TestCase):
 
 
 @unittest.skipIf(face_math.np is None, "NumPy is not installed")
+class WrongMatchRateTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.path = Path(self.temporary.name) / "library.sqlite3"
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def report(self):
+        from face_threshold_report import build_report
+        return build_report(self.path, 8, 1)
+
+    def test_when_no_wrong_pair_is_seen_the_rate_is_an_upper_bound_not_a_bare_zero(self):
+        from face_threshold_report import DIFFERENT_PERSON_PAIRS, rate_text
+
+        build_catalogue(self.path, {NAMES[0]: [0, 2, 4], NAMES[1]: [90, 92, 94], NAMES[2]: [180, 182, 184]})
+        named = self.report()["all_named_faces"]
+        row = named["by_cutoff"]["0.60"]
+        self.assertEqual(row["different_person_pairs_matched_count"], 0)
+        self.assertEqual(row["different_person_pairs_matched"], 0.0)
+        pairs = named["pairs_measured"]["different_person"]
+        self.assertGreater(pairs, 0)
+        self.assertAlmostEqual(row["different_person_pairs_upper_bound"], 3 / pairs, places=6)
+        self.assertTrue(rate_text(row).startswith("<"))
+
+    def test_different_people_who_score_alike_are_counted_exactly(self):
+        # Both people at the same angles: every different-person pair scores 1.0.
+        build_catalogue(self.path, {NAMES[0]: [0, 0, 0, 0], NAMES[1]: [0, 0, 0, 0]})
+        named = self.report()["all_named_faces"]
+        total = named["pairs_measured"]["different_person"]
+        for cutoff in ("0.30", "0.90"):
+            row = named["by_cutoff"][cutoff]
+            self.assertEqual(row["different_person_pairs_matched_count"], total, cutoff)
+            self.assertEqual(row["different_person_pairs_matched"], 1.0, cutoff)
+            self.assertIsNone(row["different_person_pairs_upper_bound"], cutoff)
+
+    def test_more_pairs_are_measured_than_before_but_never_more_than_exist(self):
+        from face_threshold_report import DIFFERENT_PERSON_PAIRS
+
+        build_catalogue(self.path, {NAMES[0]: [0, 3, -3], NAMES[1]: [90, 93, 87]})
+        measured = self.report()["all_named_faces"]["pairs_measured"]["different_person"]
+        self.assertLessEqual(measured, 6 * 5 // 2, "6 faces can make only 15 pairs")
+        self.assertLess(DIFFERENT_PERSON_PAIRS, 10 ** 7)
+        self.assertGreaterEqual(DIFFERENT_PERSON_PAIRS, 1_000_000)
+
+    def test_the_scale_table_multiplies_the_rate_by_the_number_of_unnamed_faces(self):
+        from face_threshold_report import render, wrong_faces_expected
+
+        build_catalogue(
+            self.path, {NAMES[0]: [0, 1, 2, 3], NAMES[1]: [10, 11, 12, 13]},
+            unnamed_angles=[200, 201, 202, 203, 204],
+        )
+        report = self.report()
+        named = report["all_named_faces"]
+        self.assertEqual(named["unnamed_pool"], 5)
+        row = named["by_cutoff"]["0.90"]
+        self.assertGreater(row["different_person_pairs_matched"], 0.0)
+        self.assertAlmostEqual(wrong_faces_expected(row, 5), row["different_person_pairs_matched"] * 5, places=6)
+        text = render(report)
+        self.assertIn("At your scale", text)
+        self.assertIn("5 unnamed faces", text)
+
+    def test_the_current_cutoffs_marked_come_from_the_values_the_app_uses(self):
+        from face_learning import (
+            AUTO_CONFIRM_THRESHOLD, BULK_CONFIRM_SIMILARITY, FIND_MORE_AUTO_CONFIRM_SIMILARITY, REVIEW_SIMILARITY,
+        )
+        from face_threshold_report import CURRENT_CUTOFFS, CUTOFFS
+
+        for value in (REVIEW_SIMILARITY, BULK_CONFIRM_SIMILARITY, FIND_MORE_AUTO_CONFIRM_SIMILARITY, AUTO_CONFIRM_THRESHOLD):
+            self.assertIn(value, CURRENT_CUTOFFS)
+            self.assertIn(value, CUTOFFS, "every current cutoff has a row in the table")
+
+
+@unittest.skipIf(face_math.np is None, "NumPy is not installed")
 class FindingTheCatalogueTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

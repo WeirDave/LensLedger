@@ -30,14 +30,23 @@ try:
 except ImportError:
     np = None
 
+from face_learning import (
+    AUTO_CONFIRM_THRESHOLD, BULK_CONFIRM_SIMILARITY, FIND_MORE_AUTO_CONFIRM_SIMILARITY, REVIEW_SIMILARITY,
+    SUGGESTION_THRESHOLD,
+)
 from face_math import EmbeddingSet, modal_dimension
 
 GRID = [round(0.30 + 0.05 * step, 2) for step in range(12)]
-CURRENT_CUTOFFS = (0.72, 0.75, 0.90)
+CURRENT_CUTOFFS = tuple(sorted({
+    REVIEW_SIMILARITY, SUGGESTION_THRESHOLD, BULK_CONFIRM_SIMILARITY,
+    FIND_MORE_AUTO_CONFIRM_SIMILARITY, AUTO_CONFIRM_THRESHOLD,
+}))
 CUTOFFS = sorted({*GRID, *CURRENT_CUTOFFS})
 PERCENTILES = (5, 25, 50, 75, 95)
 MAX_FACES_PER_PERSON_FOR_PAIRS = 150
-DIFFERENT_PERSON_PAIRS = 200_000
+DIFFERENT_PERSON_PAIRS = 2_000_000
+PAIR_CHUNK = 20_000
+PERCENTILE_PAIRS_KEPT = 200_000
 IMPOSTOR_SAMPLE = 3000
 UNNAMED_SAMPLE = 2000
 UNNAMED_POOL_LIMIT = 50_000
@@ -121,7 +130,36 @@ def person_sums(vectors, owner, people: int):
     return sums
 
 
-def measure_named(vectors, owner, generator: np.random.Generator, rng: random.Random) -> dict:
+def count_different_person_pairs(vectors, owner, generator, draws: int):
+    """Count, per cutoff, how many random pairs of different people score at least that.
+
+    Pairs are drawn and counted in chunks so millions can be checked without
+    holding them in memory; only the first PERCENTILE_PAIRS_KEPT scores are kept,
+    for the percentiles. Returns (counts per cutoff, pairs counted, kept scores).
+    """
+    counts = {cutoff: 0 for cutoff in CUTOFFS}
+    kept: list = []
+    kept_total = 0
+    total = 0
+    remaining = draws
+    while remaining > 0:
+        size = min(PAIR_CHUNK, remaining)
+        remaining -= size
+        left = generator.integers(0, len(owner), size=size)
+        right = generator.integers(0, len(owner), size=size)
+        apart = owner[left] != owner[right]
+        scores = np.einsum("ij,ij->i", vectors[left[apart]], vectors[right[apart]])
+        total += len(scores)
+        for cutoff in CUTOFFS:
+            counts[cutoff] += int(np.count_nonzero(scores >= cutoff))
+        if kept_total < PERCENTILE_PAIRS_KEPT:
+            kept.append(scores)
+            kept_total += len(scores)
+    return counts, total, (np.concatenate(kept)[:PERCENTILE_PAIRS_KEPT] if kept else np.empty(0))
+
+
+def measure_named(vectors, owner, generator: np.random.Generator, rng: random.Random,
+                  unnamed_pool: int = 0) -> dict:
     """Same-person and different-person similarity for one set of named faces."""
     people = int(owner.max()) + 1 if len(owner) else 0
     counts = np.bincount(owner, minlength=people)
@@ -140,10 +178,10 @@ def measure_named(vectors, owner, generator: np.random.Generator, rng: random.Ra
         same_pairs.append(grid[np.triu_indices(len(members), k=1)])
     same_pairs = np.concatenate(same_pairs)
 
-    left = generator.integers(0, len(owner), size=DIFFERENT_PERSON_PAIRS)
-    right = generator.integers(0, len(owner), size=DIFFERENT_PERSON_PAIRS)
-    apart = owner[left] != owner[right]
-    different_pairs = np.einsum("ij,ij->i", vectors[left[apart]], vectors[right[apart]])
+    draws = min(DIFFERENT_PERSON_PAIRS, len(owner) * (len(owner) - 1) // 2)
+    different_counts, different_total, different_pairs = count_different_person_pairs(
+        vectors, owner, generator, draws
+    )
 
     sums = person_sums(vectors, owner, people)
     full_norm = np.linalg.norm(sums, axis=1)
@@ -180,14 +218,21 @@ def measure_named(vectors, owner, generator: np.random.Generator, rng: random.Ra
     result["by_cutoff"] = {
         f"{cutoff:.2f}": {
             "same_person_pairs_reached": share_at_least(same_pairs, cutoff),
-            "different_person_pairs_matched": share_at_least(different_pairs, cutoff),
+            "different_person_pairs_matched": (
+                round(different_counts[cutoff] / different_total, 7) if different_total else None
+            ),
+            "different_person_pairs_matched_count": different_counts[cutoff],
+            "different_person_pairs_upper_bound": (
+                round(3 / different_total, 7) if different_total and not different_counts[cutoff] else None
+            ),
             "faces_whose_own_centroid_reaches": share_at_least(own_centroid, cutoff),
             "faces_a_wrong_centroid_reaches": share_at_least(best_other_centroid, cutoff),
             "faces_with_a_wrong_face_this_close": share_at_least(nearest_impostor, cutoff),
         }
         for cutoff in CUTOFFS
     }
-    result["pairs_measured"] = {"same_person": int(len(same_pairs)), "different_person": int(len(different_pairs))}
+    result["pairs_measured"] = {"same_person": int(len(same_pairs)), "different_person": int(different_total)}
+    result["unnamed_pool"] = int(unnamed_pool)
     return result
 
 
@@ -235,15 +280,31 @@ def build_report(db_path: Path, seeds: int, seed: int) -> dict:
     if not len(owner):
         report["note"] = "no named faces to measure"
         return report
-    report["all_named_faces"] = measure_named(vectors, owner, generator, rng)
+    report["all_named_faces"] = measure_named(vectors, owner, generator, rng, len(unnamed))
     first = rank < seeds
-    report["earliest_named_faces"] = {"per_person": seeds, **measure_named(vectors[first], owner[first], generator, rng)}
+    report["earliest_named_faces"] = {"per_person": seeds, **measure_named(vectors[first], owner[first], generator, rng, len(unnamed))}
     report["unnamed"] = measure_unnamed(unnamed, rng) if len(unnamed) else {"unnamed_faces": 0}
     return report
 
 
 def pct(value) -> str:
     return "   -  " if value is None else f"{value * 100:5.1f}%"
+
+
+def rate_text(row: dict) -> str:
+    """A rate of different people matched, never rounded to a bare 0.0%."""
+    if row.get("different_person_pairs_upper_bound") is not None:
+        return f"<{row['different_person_pairs_upper_bound'] * 100:.5f}%"
+    rate = row.get("different_person_pairs_matched")
+    return "   -  " if rate is None else f"{rate * 100:.5f}%"
+
+
+def wrong_faces_expected(row: dict, pool: int) -> float | None:
+    """How many wrong faces one face would meet among `pool` faces, at the rate seen between named people."""
+    rate = row.get("different_person_pairs_upper_bound")
+    if rate is None:
+        rate = row.get("different_person_pairs_matched")
+    return None if rate is None or not pool else rate * pool
 
 
 def render_named(title: str, section: dict, lines: list[str]) -> None:
@@ -272,11 +333,24 @@ def render_named(title: str, section: dict, lines: list[str]) -> None:
         marker = " <- current" if float(cutoff) in CURRENT_CUTOFFS else ""
         lines.append(
             f"  {cutoff}   |          {pct(row['same_person_pairs_reached'])}          |"
-            f"            {pct(row['different_person_pairs_matched'])}             |"
+            f"       {rate_text(row):>10}        |"
             f"       {pct(row['faces_whose_own_centroid_reaches'])}       |"
             f"       {pct(row['faces_a_wrong_centroid_reaches'])}       |"
             f"       {pct(row['faces_with_a_wrong_face_this_close'])}{marker}"
         )
+    pool = section.get("unnamed_pool", 0)
+    if pool:
+        lines += ["", f"At your scale: wrong faces one face would meet among your {pool:,} unnamed faces,",
+                  "if they differed from it the way your named people differ from each other",
+                  "('<' means none were seen, so this is an upper bound):",
+                  "  cutoff | wrong faces per face"]
+        for cutoff, row in section["by_cutoff"].items():
+            if float(cutoff) < 0.45:
+                continue
+            expected = wrong_faces_expected(row, pool)
+            marker = " <- current" if float(cutoff) in CURRENT_CUTOFFS else ""
+            mark = "<" if row.get("different_person_pairs_upper_bound") is not None else " "
+            lines.append(f"  {cutoff}   | {mark}{expected:8.2f}{marker}" if expected is not None else f"  {cutoff}   |    -")
 
 
 def render(report: dict) -> str:
@@ -302,9 +376,12 @@ def render(report: dict) -> str:
         "- A good cutoff reaches most same-person pairs while matching almost no different-person pairs.",
         "- 'wrong face this close' is the stricter test: the share of faces that have SOME face of another",
         "  named person at or above that cutoff, so a match there could be wrong.",
-        "- Faces LensLedger confirmed automatically were confirmed because they scored high, which flatters",
-        "  'All confirmed faces'. The earliest-named block leans on faces you named by hand.",
-        "- Only people you have named are measured; strangers who are not named are not in the wrong-person columns.",
+        "- Neither block of named faces is an unbiased sample. Faces LensLedger confirmed automatically were",
+        "  confirmed because they scored high, and even an early face is often named together with the faces",
+        "  that matched it, so real same-person scores are likely lower than shown.",
+        "- Only people you have named are measured. Strangers and look-alike relatives who are not named are",
+        "  not in the wrong-person columns, so treat them as a floor for wrong matches, not a ceiling.",
+        "- Current cutoffs: " + ", ".join(f"{c:.2f}" for c in CURRENT_CUTOFFS) + " (marked '<- current').",
     ]
     return "\n".join(lines)
 

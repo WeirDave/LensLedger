@@ -17,6 +17,19 @@ from face_math import best_two_matches
 from photo_index import connect, rebuild_search_row, sync_person_tags, utc_now
 
 
+# Similarity at which a face is put in front of a person to look at, either
+# face to face ("Also looks like") or face to a person's profile (the review
+# band after "Confirm all"). The faces are shown with their score, lowest
+# last, and the person decides, so this can be loose: on a real library the
+# same person's faces typically scored about 0.6 against each other, and
+# faces of different named people almost never reached 0.5.
+REVIEW_SIMILARITY = 0.60
+# Similarity at which "Confirm all remaining" confirms a face without anyone
+# looking at it. Stricter than REVIEW_SIMILARITY because nobody sees it first.
+BULK_CONFIRM_SIMILARITY = 0.72
+# A face this close to a person's profile is confirmed as part of "Confirm all"
+# before the person reviews the rest.
+FIND_MORE_AUTO_CONFIRM_SIMILARITY = 0.75
 MIN_PROFILE_FACES = 2
 PROFILE_FACE_THRESHOLD = 0.66
 SUGGESTION_THRESHOLD = 0.70
