@@ -824,6 +824,78 @@ class ServerWorkflowTests(unittest.TestCase):
             (0.1, 0.2, 0.4, 0.6),
         )
 
+    def _add_unnamed_faces(self, angles):
+        """One synthetic photo and one 2-D face per angle (degrees); returns
+        the face ids in the same order."""
+        import math
+        from photo_index import scan_library, utc_now
+
+        photos = []
+        for index, _angle in enumerate(angles):
+            photo = self.library / f"2026-09-{index + 1:02d} synthetic {index}.jpg"
+            Image.new("RGB", (32, 24), (index * 9 % 256, 40 + index * 7 % 200, 90)).save(photo, quality=92)
+            photos.append(photo)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        face_ids = []
+        for index, (photo, angle) in enumerate(zip(photos, angles)):
+            asset_id = int(con.execute(
+                "SELECT id FROM assets WHERE relative_path=?", (photo.name,)
+            ).fetchone()[0])
+            vector = array.array("f", [math.cos(math.radians(angle)), math.sin(math.radians(angle))]).tobytes()
+            face_ids.append(int(con.execute(
+                """INSERT INTO face_embeddings(
+                       source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,
+                       box_left,box_top,box_right,box_bottom,localized_at
+                   ) VALUES ('test',?,?,?,2,?,0.1,0.2,0.4,0.6,?)""",
+                (index + 1, asset_id, photo.name, vector, utc_now()),
+            ).lastrowid))
+        con.commit()
+        con.close()
+        return face_ids
+
+    def test_unidentified_faces_offer_the_biggest_look_alike_group_first(self):
+        from face_math import numpy_available
+
+        if not numpy_available():
+            self.skipTest("grouping needs NumPy")
+        # Angles 0/4/-4/2 are one person (4 faces), 90/94 another (2), 200 a
+        # stranger seen once; 2-D unit vectors 4 degrees apart score ~0.998.
+        ids = self._add_unnamed_faces([200, 90, 0, 94, 4, -4, 2])
+        stranger, near_90_a, near_0_a, near_90_b, near_0_b, near_0_c, near_0_d = ids
+
+        data = self.json_response(self.get("/api/faces/unidentified"))
+        faces = data["faces"]
+        self.assertEqual(len(faces), 3, "one representative per group")
+        self.assertIn(faces[0]["face_id"], {near_0_a, near_0_b, near_0_c, near_0_d})
+        self.assertEqual(faces[0]["similar_count"], 3)
+        self.assertIn(faces[1]["face_id"], {near_90_a, near_90_b})
+        self.assertEqual(faces[1]["similar_count"], 1)
+        self.assertEqual(faces[2]["face_id"], stranger)
+        self.assertEqual(faces[2]["similar_count"], 0)
+        self.assertEqual(data["total"], 7)
+
+    def test_unidentified_faces_still_work_without_numpy(self):
+        ids = self._add_unnamed_faces([0, 4, 90])
+        with patch.object(self.photo_search, "numpy_available", return_value=False):
+            data = self.json_response(self.get("/api/faces/unidentified"))
+        self.assertEqual(len(data["faces"]), 2)
+        self.assertTrue({face["face_id"] for face in data["faces"]} <= set(ids))
+        self.assertTrue(all("similar_count" not in face for face in data["faces"]))
+
+    def test_unidentified_faces_keep_faces_without_a_usable_embedding_reachable(self):
+        from face_math import numpy_available
+
+        if not numpy_available():
+            self.skipTest("grouping needs NumPy")
+        ids = self._add_unnamed_faces([0, 4, 90])
+        con = sqlite3.connect(self.database)
+        con.execute("UPDATE face_embeddings SET embedding_f32=? WHERE id=?", (b"", ids[2]))
+        con.commit()
+        con.close()
+        shown = {face["face_id"] for face in self.json_response(self.get("/api/faces/unidentified"))["faces"]}
+        self.assertIn(ids[2], shown)
+
     def test_faces_unknown_marks_the_face_and_removes_it_from_the_queue(self):
         con = sqlite3.connect(self.database)
         face_id = int(con.execute(

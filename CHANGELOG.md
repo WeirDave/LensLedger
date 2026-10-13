@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.23.0 — 2026-10-13
+
+- The People page now offers the people who appear in the most photos first. Unnamed faces are grouped by how closely they look alike, and one card is shown per group, largest group first. Previously the cards came in random order, so a stranger seen once was offered as readily as someone in hundreds of photos, and the same person could appear on several cards.
+- Each card shows a "+N similar" badge counting the other unnamed faces that look like it. Naming that card offers them together under "Also looks like …".
+- "Confirm all", "Confirm all remaining", naming a face and "Learn from confirmed people" now find matching faces much faster, so the wait after each click is short on a large library. They give the same matches as before.
+- A face whose stored data is a different size from the others, or is unreadable, is no longer compared on part of its data. It is left out of matching and stays on the People page to be named or dismissed.
+- Face matching now uses NumPy when it is installed (it is installed with face detection) and works as before without it, only more slowly; without NumPy the People page keeps its random order and shows no badge.
+
 ## 1.22.0 — 2026-10-10
 
 - The update dialog (**Check for updates**, shown as "⬆ Update available" while an update is waiting) now lists what changed in every release newer than the installed version, newest first, above the **Download, install & restart** button. Each release can be collapsed, and the newest is open.

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_paths import libraries_root
+from face_math import best_two_matches
 from photo_index import connect, rebuild_search_row, sync_person_tags, utc_now
 
 
@@ -208,15 +209,17 @@ def learn(db_path: Path, *, apply: bool = True) -> dict[str, object]:
         }
         proposals: dict[tuple[int, int], tuple[float, int]] = {}
         auto_confirms: dict[tuple[int, int], tuple[float, int]] = {}
-        for face in faces:
-            ranked = sorted(
-                ((dot(face.vector, profile.centroid), profile) for profile in eligible_profiles),
-                key=lambda item: item[0], reverse=True,
-            )
-            if not ranked:
-                continue
-            best_score, best_profile = ranked[0]
-            second_score = ranked[1][0] if len(ranked) > 1 else -1.0
+        # Faces are only ever compared with profiles of their own embedding
+        # size; a prefix comparison across sizes is meaningless.
+        dimension = len(eligible_profiles[0].centroid) if eligible_profiles else 0
+        rankable_profiles = [p for p in eligible_profiles if len(p.centroid) == dimension]
+        rankable_faces = [face for face in faces if len(face.vector) == dimension] if dimension else []
+        matches = best_two_matches(
+            [face.vector for face in rankable_faces],
+            [profile.centroid for profile in rankable_profiles],
+        )
+        for face, (best_index, best_score, second_score) in zip(rankable_faces, matches):
+            best_profile = rankable_profiles[best_index]
             margin = best_score - second_score
             key = (face.asset_id, best_profile.person_id)
             if key in existing:
