@@ -489,6 +489,54 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(spawned[0][0], "restart-source")
         self.assertIn("--old-window-pid", spawned[0])
 
+    def test_restart_leaves_the_relaunch_to_the_launcher_window_when_it_supports_that(self):
+        marker = self.root / "restart.pending"
+        spawned = []
+        handler = self.photo_search.SearchHandler
+        with patch.dict(os.environ, {"LENSLEDGER_RESTART_MARKER": str(marker)}), \
+             patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: spawned.append(extra_args)), \
+             patch.object(handler, "_schedule_shutdown", lambda self: spawned.append("shutdown")), \
+             patch.object(self.photo_search, "is_git_install", return_value=False):
+            result = self.json_response(self.post("/api/restart", {}))
+        self.assertEqual(result["state"], "restarting")
+        self.assertEqual(spawned, ["shutdown"], "no helper window may be opened; the launcher relaunches in place")
+        self.assertFalse(marker.exists())
+
+    def test_managed_update_holds_the_launcher_until_the_install_finishes(self):
+        marker = self.root / "restart.pending"
+        spawned = []
+        handler = self.photo_search.SearchHandler
+        with patch.dict(os.environ, {"LENSLEDGER_RESTART_MARKER": str(marker)}), \
+             patch.object(handler, "update_job", {"state": "available", "release": {"version": "9.9.9"}}), \
+             patch.object(handler, "_spawn_updater_helper", lambda self, extra_args: spawned.append(extra_args)), \
+             patch.object(handler, "_schedule_shutdown", lambda self: None), \
+             patch.object(self.photo_search, "is_git_install", return_value=False), \
+             patch.object(self.photo_search, "is_managed_install", return_value=True):
+            result = self.json_response(self.post("/api/update/install", {}))
+        self.assertEqual(result["state"], "restarting")
+        self.assertTrue(marker.is_file(), "the launcher waits while this file exists")
+        args = spawned[0]
+        self.assertEqual(args[0], "install-latest")
+        self.assertIn("--no-launch", args)
+        self.assertEqual(args[args.index("--restart-marker") + 1], str(marker))
+
+    def test_managed_update_that_cannot_start_its_helper_releases_the_launcher(self):
+        marker = self.root / "restart.pending"
+        handler = self.photo_search.SearchHandler
+
+        def broken_helper(self, extra_args):
+            raise OSError("cannot start helper")
+
+        with patch.dict(os.environ, {"LENSLEDGER_RESTART_MARKER": str(marker)}), \
+             patch.object(handler, "update_job", {"state": "available", "release": {"version": "9.9.9"}}), \
+             patch.object(handler, "_spawn_updater_helper", broken_helper), \
+             patch.object(self.photo_search, "is_git_install", return_value=False), \
+             patch.object(self.photo_search, "is_managed_install", return_value=True):
+            with self.assertRaises(urllib.error.HTTPError) as failed:
+                self.post("/api/update/install", {})
+            failed.exception.close()
+        self.assertFalse(marker.exists(), "a stuck marker would hold the launcher for ten minutes")
+
     def test_menu_restart_server_is_refused_while_a_job_runs(self):
         handler = self.photo_search.SearchHandler
         with patch.object(handler, "face_scan_job", {"state": "running"}), \

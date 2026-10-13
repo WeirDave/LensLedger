@@ -1075,6 +1075,10 @@ def main() -> int:
     latest.add_argument("--old-window-pid", type=int, default=0)
     latest.add_argument("--legacy-root", type=Path)
     latest.add_argument("--no-launch", action="store_true")
+    latest.add_argument(
+        "--restart-marker", type=Path,
+        help="file the launcher window waits on before relaunching in place; removed when the install ends",
+    )
     restart = subparsers.add_parser(
         "restart-source",
         help="restart a source checkout once its running process exits, with no download or file changes",
@@ -1110,7 +1114,7 @@ def main() -> int:
         return 0
     except UpdateError as exc:
         print(f"Update failed: {exc}", file=sys.stderr)
-        if args.command == "install-latest" and args.wait_pid:
+        if args.command == "install-latest" and args.wait_pid and not args.restart_marker:
             current_root = args.current_root.resolve()
             if (current_root / "src" / "photo_search.py").is_file():
                 try:
@@ -1119,6 +1123,9 @@ def main() -> int:
                 except OSError as restart_error:
                     print(f"The previous copy could not restart: {restart_error}", file=sys.stderr)
         return 1
+    finally:
+        if args.command == "install-latest" and args.restart_marker:
+            args.restart_marker.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
