@@ -470,6 +470,14 @@ function buildCard(face) {
   const small = card.querySelector('small');
   small.textContent = shortPath;
   small.title = (face.capture_date || 'Date unknown') + ' · ' + face.relative_path;
+  if (face.similar_count > 0) {
+    const similar = document.createElement('span');
+    similar.className = 'similar-badge';
+    similar.textContent = '+' + face.similar_count.toLocaleString() + ' similar';
+    similar.title = 'About ' + face.similar_count.toLocaleString()
+      + ' other unnamed faces look like this one. Name it and they are offered together.';
+    small.after(similar);
+  }
   if (face.publishable === false) {
     const badge = document.createElement('span');
     badge.className = 'not-publishable-badge';

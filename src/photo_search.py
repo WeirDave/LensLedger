@@ -38,7 +38,8 @@ from console_log import Action, log as console_log
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root,
 )
-from face_learning import SUGGESTION_THRESHOLD, centroid, decode_vector, dot, learn as learn_faces
+from face_learning import SUGGESTION_THRESHOLD, decode_vector, dot, learn as learn_faces
+from face_math import EmbeddingSet, modal_dimension, numpy_available
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
 from photo_duplicates import find_exact_duplicate_groups
 from photo_similar import find_similar_groups
@@ -3316,7 +3317,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="quickTagBtn">Quick tag</button><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="secondary" id="unskipAll" hidden>Show skipped</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people", str(self.library_root))}
-<main><div class="publish-reminder" id="publishReminder" hidden><span class="publish-reminder-text" id="publishReminderText"></span><a class="button secondary publish-reminder-btn" href="/publish">Publish now</a></div><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet. Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><div class="publish-reminder" id="publishReminder" hidden><span class="publish-reminder-text" id="publishReminderText"></span><a class="button secondary publish-reminder-btn" href="/publish">Publish now</a></div><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet, with the people who appear in the most photos first (the &#x201c;+N similar&#x201d; badge counts the other unnamed faces that look like that one). Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><div class="lightbox-picker" id="lightboxPicker"></div><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button><button type="button" class="danger" id="lightboxTrash">Trash photo</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div><div class="lightbox-path" id="lightboxPath"><span class="lightbox-path-text" id="lightboxPathText"></span><button type="button" class="secondary lightbox-reveal" id="lightboxReveal">Show in folder</button></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
@@ -5107,15 +5108,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "published": 1})
 
     def unidentified_faces(self, params):
-        """Detected faces with no confirmed name yet, diversity-sampled.
+        """Detected faces with no confirmed name yet, one per visual group,
+        biggest group first.
 
-        Instead of showing faces newest-first (which floods the page with
-        the same person over and over), this uses greedy diversity sampling:
-        pick a face, skip all faces that look too similar to any already
-        picked, repeat.  The result is one representative per visual
-        cluster -- the user sees a variety of different people and names
-        each once.  The existing "Also looks like X" match groups handle
-        confirming the rest of that person's photos after naming.
+        Showing faces newest-first floods the page with the same person over
+        and over, and showing them in random order spreads naming effort
+        evenly over a very uneven library: a stranger photographed once is
+        offered as readily as someone in hundreds of photos.  So a random
+        pool is split into groups of look-alikes (the same 0.72 similarity
+        the "Also looks like X" match groups use), and each group's
+        representative is offered largest group first, with `similar_count`
+        saying how many other unnamed faces in the whole library resemble it.
+        One name then clears the most photos.  Without NumPy the grouping is
+        too slow, so it falls back to random diversity sampling.
 
         Still capped to one face per photo per batch to avoid group-shot
         flooding, and still requires a recovered bounding box for cropping."""
@@ -5134,7 +5139,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             skipped_count = int(con.execute(
                 "SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id WHERE f.skipped_at IS NOT NULL AND f.person_id IS NULL AND f.ignored_at IS NULL AND f.unknown_at IS NULL AND a.in_review_bin=0"
             ).fetchone()[0])
-            pool_limit = min(total, 2000)
+            grouping = numpy_available()
+            pool_limit = min(total, 3000 if grouping else 2000)
             rows = con.execute(
                 f"""WITH ranked AS (
                         SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.relative_path, a.capture_date,
@@ -5148,6 +5154,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                     FROM ranked WHERE rn=1 ORDER BY RANDOM() LIMIT ?""",
                 (pool_limit,),
             ).fetchall()
+            everyone_blobs = [row[0] for row in con.execute(
+                f"""SELECT f.embedding_f32 FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                    WHERE {where} ORDER BY f.id DESC LIMIT 50000"""
+            )] if grouping else []
             people_names = [row[0] for row in con.execute(
                 "SELECT name FROM people ORDER BY name COLLATE NOCASE"
             )]
@@ -5169,28 +5179,39 @@ class SearchHandler(BaseHTTPRequestHandler):
                      AND {_PUBLISHABLE_SQL}"""
             ).fetchone()[0])
 
-        DIVERSITY_THRESHOLD = 0.78
-        candidates = []
-        for row in rows:
-            vector = decode_vector(row["embedding_f32"]) if row["embedding_f32"] else ()
-            candidates.append((row, vector))
-
         selected = []
-        selected_vectors = []
-        for row, vector in candidates:
-            if len(selected) >= limit:
-                break
-            if not vector:
+        similar_counts: dict[int, int] = {}
+        if grouping:
+            SIMILAR_FACE_THRESHOLD = 0.72
+            pool_blobs = [row["embedding_f32"] for row in rows]
+            pool = EmbeddingSet(pool_blobs, modal_dimension(pool_blobs))
+            usable = set(pool.indexes)
+            # A face with no usable embedding can never join a group; keep a
+            # few slots for them so they stay reachable and the count can fall.
+            unusable = [row for index, row in enumerate(rows) if index not in usable]
+            groups = pool.densest_groups(SIMILAR_FACE_THRESHOLD, limit - min(len(unusable), 3))
+            everyone = EmbeddingSet(everyone_blobs, pool.dimensions)
+            counts = everyone.neighbor_counts(
+                [pool.vector(heart) for heart, _ in groups], SIMILAR_FACE_THRESHOLD
+            )
+            for (heart, _size), count in zip(groups, counts):
+                row = rows[pool.indexes[heart]]
                 selected.append(row)
-                continue
-            too_similar = False
-            for sv in selected_vectors:
-                if dot(vector, sv) >= DIVERSITY_THRESHOLD:
-                    too_similar = True
+                similar_counts[int(row["face_id"])] = max(0, count - 1)
+            selected.extend(unusable[: limit - len(selected)])
+        else:
+            DIVERSITY_THRESHOLD = 0.78
+            selected_vectors = []
+            for row in rows:
+                if len(selected) >= limit:
                     break
-            if not too_similar:
-                selected.append(row)
-                selected_vectors.append(vector)
+                vector = decode_vector(row["embedding_f32"]) if row["embedding_f32"] else ()
+                if not vector:
+                    selected.append(row)
+                    continue
+                if not any(dot(vector, sv) >= DIVERSITY_THRESHOLD for sv in selected_vectors):
+                    selected.append(row)
+                    selected_vectors.append(vector)
 
         self.send_json({
             "total": total,
@@ -5208,6 +5229,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "box_left": row["box_left"], "box_top": row["box_top"],
                     "box_right": row["box_right"], "box_bottom": row["box_bottom"],
                     "publishable": row["extension"] in PUBLISHABLE_EXTENSIONS,
+                    **({"similar_count": similar_counts[int(row["face_id"])]}
+                       if int(row["face_id"]) in similar_counts else {}),
                 }
                 for row in selected
             ],
@@ -5425,14 +5448,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             (face_id,),
         ).fetchall()
         SIMILAR_FACE_THRESHOLD = 0.72
-        scored = []
-        for row in rows:
-            candidate = decode_vector(row["embedding_f32"])
-            if not candidate:
-                continue
-            score = dot(vector, candidate)
-            if score >= SIMILAR_FACE_THRESHOLD:
-                scored.append((score, row))
+        candidates = EmbeddingSet([row["embedding_f32"] for row in rows], len(vector))
+        scored = [
+            (score, rows[index])
+            for index, score in zip(candidates.indexes, candidates.scores(vector))
+            if score >= SIMILAR_FACE_THRESHOLD
+        ]
         scored.sort(key=lambda item: item[0], reverse=True)
         return [
             {"face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
@@ -5461,11 +5482,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                    WHERE f.person_id=? AND f.embedding_f32 IS NOT NULL""",
                 (person_id,),
             ).fetchall()
-            vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
-            if not vectors:
-                self.send_json({"ok": True, "matches": [], "auto_confirmed": 0, "name": person["name"]})
-                return
-            center = centroid(vectors)
+            ref_blobs = [row["embedding_f32"] for row in refs]
+            references = EmbeddingSet(ref_blobs, modal_dimension(ref_blobs))
+            center = references.mean_direction()
             if not center:
                 self.send_json({"ok": True, "matches": [], "auto_confirmed": 0, "name": person["name"]})
                 return
@@ -5482,13 +5501,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             ).fetchall()
             high = []
             borderline = []
-            for row in rows:
+            candidates = EmbeddingSet([row["embedding_f32"] for row in rows], len(center))
+            for index, score in zip(candidates.indexes, candidates.scores(center)):
+                row = rows[index]
                 if int(row["face_id"]) in exclude_face_ids:
                     continue
-                candidate = decode_vector(row["embedding_f32"])
-                if not candidate:
-                    continue
-                score = dot(center, candidate)
                 if score >= AUTO_CONFIRM_THRESHOLD:
                     high.append((score, row))
                 elif score >= SIMILAR_FACE_THRESHOLD:
@@ -5524,7 +5541,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                  "capture_date": row["capture_date"]}
                 for score, row in borderline[:200]
             ]
-        n = len(vectors)
+        n = len(references)
         total_borderline = len(borderline)
         with self.db() as con2:
             review_stats = con2.execute(
@@ -5581,10 +5598,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                        WHERE f.person_id=? AND f.embedding_f32 IS NOT NULL""",
                     (person_id,),
                 ).fetchall()
-                vectors = [v for row in refs if (v := decode_vector(row["embedding_f32"]))]
-                if not vectors:
-                    break
-                center = centroid(vectors)
+                ref_blobs = [row["embedding_f32"] for row in refs]
+                center = EmbeddingSet(ref_blobs, modal_dimension(ref_blobs)).mean_direction()
                 if not center:
                     break
                 rows = con.execute(
@@ -5596,13 +5611,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                              AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
                        ORDER BY f.id DESC LIMIT 50000""",
                 ).fetchall()
-                matched = []
-                for row in rows:
-                    candidate = decode_vector(row["embedding_f32"])
-                    if not candidate:
-                        continue
-                    if dot(center, candidate) >= SIMILAR_FACE_THRESHOLD:
-                        matched.append(row)
+                candidates = EmbeddingSet([row["embedding_f32"] for row in rows], len(center))
+                matched = [
+                    rows[index]
+                    for index, score in zip(candidates.indexes, candidates.scores(center))
+                    if score >= SIMILAR_FACE_THRESHOLD
+                ]
                 if not matched:
                     break
                 now = utc_now()
