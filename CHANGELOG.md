@@ -13,6 +13,7 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - "Confirm all", "Confirm all remaining", naming a face and "Learn from confirmed people" now find matching faces much faster, so the wait after each click is short on a large library. They give the same matches as before.
 - A face whose stored data is a different size from the others, or is unreadable, is no longer compared on part of its data. It is left out of matching and stays on the People page to be named or dismissed.
 - Face matching now uses NumPy when it is installed (it is installed with face detection) and works as before without it, only more slowly; without NumPy the People page keeps its random order and shows no badge.
+- Added `src/face_threshold_report.py`, a command-line report that measures how well the face-matching cutoffs fit a library. It reads the faces already named, opens the catalogue read-only, and prints only counts and percentages (no names, paths or ids) of what each cutoff would catch and get wrong.
 
 ## 1.22.1 — 2026-10-13
 

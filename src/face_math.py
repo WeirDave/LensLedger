@@ -80,6 +80,13 @@ class EmbeddingSet:
     def __len__(self) -> int:
         return len(self.indexes)
 
+    @property
+    def matrix(self):
+        """The unit-length rows as a NumPy array (NumPy only)."""
+        if np is None:
+            raise RuntimeError("matrix needs NumPy")
+        return self._matrix
+
     def vector(self, row: int) -> tuple[float, ...]:
         if np is not None:
             return tuple(self._matrix[row].tolist())
