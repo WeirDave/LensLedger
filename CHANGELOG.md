@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.24.0 — 2026-10-13
+
+- **Restart server**, **Restart now** and installing an update now restart LensLedger in the same terminal window or tab. Before, each restart opened a new window and closed the old one, so a tab you had arranged in Windows Terminal was lost.
+- While an update installs, the window shows "Restarting LensLedger..." and starts the new version when the install is done. If the install fails, the previous version starts again in the same window.
+- If an update added a required Python package, the window installs it before starting, as a fresh launch does.
+- Only the window you started with `Start LensLedger.cmd` from this version on does this. A window started by an older copy of that file opens a new window for one more restart, then follows the new behavior.
+
 ## 1.23.1 — 2026-10-13
 
 - The People page now lists the biggest groups of unnamed faces biggest first. In 1.23.0 the order was worked out from a small sample of the faces, so on a large library the "+N similar" badges could be out of order and some larger groups were missed.

@@ -53,25 +53,38 @@ REM window, which is why the check below matches on the parent process
 REM being cmd.exe with this exact script on its command line.
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5309 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $ownerId = $_.OwningProcess; $owner = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownerId) -ErrorAction SilentlyContinue; if ($owner) { $parent = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $owner.ParentProcessId) -ErrorAction SilentlyContinue; if ($parent -and $parent.Name -eq 'cmd.exe' -and $parent.CommandLine -like '*Start LensLedger.cmd*') { Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue } }; Stop-Process -Id $ownerId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
-python src\photo_search.py %*
+REM Exit code 75 means the server stopped to restart. This window stays open
+REM and starts it again here, so a restart keeps the same terminal tab instead
+REM of opening a new one (closing this window's process would close the tab).
+REM An update may be installing meanwhile: the server leaves the marker file
+REM below in place, the updater deletes it when it has finished, and this waits
+REM for that for up to ten minutes. The loop is one parenthesised block, with no
+REM labels or GOTOs, so cmd never re-reads this file after an update has
+REM replaced it.
+set "LENSLEDGER_RESTART_MARKER=%TEMP%\lensledger-restart-%RANDOM%%RANDOM%.pending"
+if exist "%LENSLEDGER_RESTART_MARKER%" del "%LENSLEDGER_RESTART_MARKER%" >nul 2>&1
 
-REM Exit code 75: the server stopped to restart and a new window is taking
-REM over, so close this one cleanly instead of waiting at the pause. Linger a
-REM few seconds first: if this is the last tab in its Windows Terminal window,
-REM closing it at once can take the window down while the new launcher is
-REM still being handed to it, and the new LensLedger never starts.
-if "%errorlevel%"=="75" (
-    echo Restarting LensLedger in a new window...
-    ping -n 6 127.0.0.1 >nul
-    exit 0
+setlocal EnableDelayedExpansion
+set "RESTART_FLAG="
+for /l %%n in (1,1,100000) do (
+    python src\photo_search.py !RESTART_FLAG! %*
+    set "RC=!errorlevel!"
+    if "!RC!"=="75" (
+        echo Restarting LensLedger...
+        for /l %%w in (1,1,600) do if exist "%LENSLEDGER_RESTART_MARKER%" ping -n 2 127.0.0.1 >nul
+        del "%LENSLEDGER_RESTART_MARKER%" >nul 2>&1
+        python -c "import PIL, pillow_heif" >nul 2>&1
+        if errorlevel 1 python -m pip install -r requirements.txt
+        cls
+        set "RESTART_FLAG=--restarted"
+    ) else (
+        echo.
+        if "!RC!"=="0" (
+            echo LensLedger has closed normally.
+        ) else (
+            echo LensLedger could not start. Review the error above.
+        )
+        pause
+        exit /b !RC!
+    )
 )
-
-if errorlevel 1 (
-    echo.
-    echo LensLedger could not start. Review the error above.
-) else (
-    echo.
-    echo LensLedger has closed normally.
-)
-
-pause

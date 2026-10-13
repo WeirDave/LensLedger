@@ -145,7 +145,7 @@ function restartServer(stopRunning) {
       notice.append(' ', stop);
     }
   }
-  if (!stopRunning && !confirm('Restart LensLedger now?\n\nThe server stops and starts again in a new window, and this page reloads when it is back.')) return;
+  if (!stopRunning && !confirm('Restart LensLedger now?\n\nThe server stops and starts again, and this page reloads when it is back.')) return;
   fetch('/api/version', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(before) {
     say(stopRunning ? 'Stopping the running job, then restarting LensLedger…' : 'Restarting LensLedger…');
     return fetch('/api/restart', {

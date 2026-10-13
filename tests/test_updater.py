@@ -357,6 +357,43 @@ class UpdaterTests(unittest.TestCase):
                 self.assertEqual(updater.main(), 0)
             self.assertEqual(calls, [("wait", 4242), ("launch", root.resolve(), 777)])
 
+    def _run_install_latest(self, marker, install_result):
+        launched = []
+        with patch.object(updater, "install_latest", install_result), \
+             patch.object(updater, "launch_lensledger", lambda *a, **k: launched.append(a)), \
+             patch(
+                 "sys.argv",
+                 ["lensledger_updater.py", "install-latest", "--current-root", str(marker.parent),
+                  "--current", "1.0.0", "--wait-pid", "4242", "--no-launch",
+                  "--restart-marker", str(marker)],
+             ):
+            code = updater.main()
+        return code, launched
+
+    def test_install_latest_releases_the_launcher_marker_when_it_finishes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "restart.pending"
+            marker.write_text("installing", encoding="utf-8")
+            code, launched = self._run_install_latest(marker, lambda *a, **k: {"installed": True})
+            self.assertEqual(code, 0)
+            self.assertFalse(marker.exists())
+            self.assertEqual(launched, [])
+
+    def test_failed_install_releases_the_marker_and_leaves_the_relaunch_to_the_launcher(self):
+        def fails(*a, **k):
+            raise updater.UpdateError("download failed")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "src").mkdir()
+            (root / "src" / "photo_search.py").write_text("", encoding="utf-8")
+            marker = root / "restart.pending"
+            marker.write_text("installing", encoding="utf-8")
+            code, launched = self._run_install_latest(marker, fails)
+            self.assertEqual(code, 1)
+            self.assertFalse(marker.exists())
+            self.assertEqual(launched, [], "the launcher window restarts the previous copy itself")
+
     def test_close_old_launcher_window_only_shells_out_for_a_positive_pid_on_windows(self):
         with patch.object(updater.os, "name", "nt"), patch.object(updater.subprocess, "run") as mocked_run:
             updater.close_old_launcher_window(0)

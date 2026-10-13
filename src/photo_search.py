@@ -1393,6 +1393,14 @@ class _LibraryAttr:
 
 
 RESTART_EXIT_CODE = 75
+RESTART_MARKER_ENV = "LENSLEDGER_RESTART_MARKER"
+
+
+def launcher_restart_marker() -> Path | None:
+    """Set by Start LensLedger.cmd when it will relaunch this server in its own
+    window after exit code 75. The path is a file the launcher waits on."""
+    value = os.environ.get(RESTART_MARKER_ENV, "").strip()
+    return Path(value) if value else None
 
 class _AlreadyWritten(Exception):
     """Raised inside a Write all tags step to skip a photo that is up to date."""
@@ -6577,12 +6585,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                                 "Restarting…"),
                     "current_version": APP_VERSION,
                 }
-            self._spawn_updater_helper([
-                "restart-source",
-                "--current-root", str(install_root),
-                "--wait-pid", str(os.getpid()),
-                "--old-window-pid", str(os.getppid()),
-            ])
+            if not launcher_restart_marker():
+                self._spawn_updater_helper([
+                    "restart-source",
+                    "--current-root", str(install_root),
+                    "--wait-pid", str(os.getpid()),
+                    "--old-window-pid", str(os.getppid()),
+                ])
             self._schedule_shutdown()
             self.send_json({
                 "ok": True,
@@ -6620,7 +6629,16 @@ class SearchHandler(BaseHTTPRequestHandler):
         ]
         if (install_root / "photo-index.sqlite3").is_file():
             command_args.extend(["--legacy-root", str(install_root)])
-        self._spawn_updater_helper(command_args)
+        marker = launcher_restart_marker()
+        if marker:
+            marker.write_text("installing", encoding="utf-8")
+            command_args.extend(["--no-launch", "--restart-marker", str(marker)])
+        try:
+            self._spawn_updater_helper(command_args)
+        except Exception:
+            if marker:
+                marker.unlink(missing_ok=True)
+            raise
         self._schedule_shutdown()
         self.send_json({
             "ok": True,
@@ -6696,12 +6714,13 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "current_version": APP_VERSION,
             }
 
-        self._spawn_updater_helper([
-            "restart-source",
-            "--current-root", str(install_root),
-            "--wait-pid", str(os.getpid()),
-            "--old-window-pid", str(os.getppid()),
-        ])
+        if not launcher_restart_marker():
+            self._spawn_updater_helper([
+                "restart-source",
+                "--current-root", str(install_root),
+                "--wait-pid", str(os.getpid()),
+                "--old-window-pid", str(os.getppid()),
+            ])
         self._schedule_shutdown()
         self.send_json({"ok": True, "state": "restarting", "message": reply_message}, 202)
 
@@ -7895,8 +7914,9 @@ def main():
         watcher.stop()
         pipeline.stop()
         server.server_close(); print(f"{APP_NAME} stopped.", flush=True)
-    # Start LensLedger.cmd closes its own window on this code; a window killed
-    # from outside exits non-zero, and Windows Terminal keeps such tabs open.
+    # Start LensLedger.cmd relaunches in the same window on this code (or, for
+    # an older launcher, closes itself while a helper opens a new one); a window
+    # killed from outside exits non-zero, and Windows Terminal keeps such tabs open.
     if getattr(SearchHandler, "restart_requested", False):
         sys.exit(RESTART_EXIT_CODE)
 
