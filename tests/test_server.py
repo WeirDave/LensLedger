@@ -929,6 +929,64 @@ class ServerWorkflowTests(unittest.TestCase):
             result = self.json_response(self.post("/api/faces/name", {"face_id": face_id, "name": name}))
         return result["person_id"]
 
+    def _face_on_a_big_photo(self, name, box, *, rotated=False):
+        """A 1600x1200 photo with a red square exactly under `box` (fractions of the displayed
+        photo), and one face row for it. With rotated=True the file stores the photo turned a
+        quarter, with the EXIF orientation that turns it back."""
+        import io
+        from photo_index import scan_library, utc_now
+
+        photo = Image.new("RGB", (1600, 1200), (255, 255, 255))
+        left, top, right, bottom = box
+        photo.paste((255, 0, 0), (int(left * 1600), int(top * 1200), int(right * 1600), int(bottom * 1200)))
+        path = self.library / name
+        if rotated:
+            exif = Image.Exif()
+            exif[0x0112] = 6
+            photo.rotate(90, expand=True).save(path, quality=92, exif=exif.tobytes())
+        else:
+            photo.save(path, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path=?", (name,)).fetchone()[0])
+        next_number = int(con.execute("SELECT COALESCE(MAX(source_face_id),0)+1 FROM face_embeddings").fetchone()[0])
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,
+                   box_left,box_top,box_right,box_bottom,localized_at)
+               VALUES ('test',?,?,?,2,?,?,?,?,?,?)""",
+            (next_number, asset_id, name, array.array("f", [1.0, 0.0]).tobytes(), left, top, right, bottom, utc_now()),
+        ).lastrowid)
+        con.commit()
+        con.close()
+        return face_id
+
+    def _thumbnail(self, face_id, size=None):
+        import io
+        query = f"/media-face?face_id={face_id}" + (f"&size={size}" if size is not None else "")
+        data = self.get(query).read()
+        return Image.open(io.BytesIO(data))
+
+    def test_a_small_face_thumbnail_is_made_from_the_right_part_of_the_photo(self):
+        for rotated in (False, True):
+            with self.subTest(rotated=rotated):
+                face_id = self._face_on_a_big_photo(f"big-{rotated}.jpg", (0.40, 0.35, 0.60, 0.65), rotated=rotated)
+                small = self._thumbnail(face_id, 160)
+                self.assertEqual(small.format, "JPEG")
+                self.assertEqual(max(small.size), 160, "decoded at reduced scale, yet not smaller than asked")
+                red, green, blue = small.convert("RGB").getpixel((small.width // 2, small.height // 2))
+                self.assertGreater(red, 200)
+                self.assertLess(green, 60)
+                self.assertLess(blue, 60)
+                corner = small.convert("RGB").getpixel((1, 1))
+                self.assertGreater(min(corner), 200, "the padding around the face is the white of the photo")
+
+    def test_face_thumbnail_size_is_limited_and_defaults_to_the_old_360(self):
+        face_id = self._face_on_a_big_photo("limits.jpg", (0.30, 0.30, 0.70, 0.70))
+        self.assertEqual(max(self._thumbnail(face_id).size), 360)
+        self.assertEqual(max(self._thumbnail(face_id, 9999).size), 360)
+        self.assertEqual(max(self._thumbnail(face_id, 1).size), 64)
+        self.assertEqual(max(self._thumbnail(face_id, "abc").size), 360)
+
     def test_naming_a_face_offers_look_alikes_down_to_the_review_similarity(self):
         # cos 10 = 0.98, cos 50 = 0.64, cos 58 = 0.53, cos 100 = -0.17
         ids = self._add_unnamed_faces([0, 10, 50, 58, 100])
