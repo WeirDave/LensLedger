@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.27.0 — 2026-10-14
+
+- Each "Also looks like" group on the People page has **Select all** and **Select none** buttons. Every face is still ticked when the group opens, lower matches included.
+- **Confirm all** is greyed out while no face is ticked, so unticking everything can no longer skip the whole group by accident. **Not these** still skips them.
+
 ## 1.26.0 — 2026-10-14
 
 - `Start LensLedger.cmd` now opens as a tab in the Windows Terminal window you already have open, or starts Windows Terminal if none is open, instead of a console window of its own.
