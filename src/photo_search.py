@@ -5250,11 +5250,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         })
 
     def serve_face_media(self, params):
-        """Serve a padded crop of one detected face as a JPEG thumbnail."""
+        """Serve a padded crop of one detected face as a JPEG thumbnail.
+
+        `size` (64 to 360, default 360) is the longest side wanted. A group of
+        match thumbnails asks for a small one, because each thumbnail opens the
+        whole photo and a 12-megapixel decode dominates the cost."""
         try:
             face_id = int(params.get("face_id", [""])[0])
         except ValueError:
             return self.send_error(400)
+        try:
+            size = max(64, min(360, int(params.get("size", ["360"])[0])))
+        except ValueError:
+            size = 360
         with self.db() as con:
             row = con.execute(
                 """SELECT a.path,f.box_left,f.box_top,f.box_right,f.box_bottom
@@ -5273,9 +5281,18 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.send_error(404)
         try:
             with Image.open(path) as image:
+                left, top, right, bottom = row["box_left"], row["box_top"], row["box_right"], row["box_bottom"]
+                if image.format == "JPEG":
+                    # A JPEG can be decoded at 1/2, 1/4 or 1/8 scale. Ask for no less than the
+                    # padded face needs to fill `size`, so the thumbnail is never upscaled.
+                    # The photo may still be rotated by its EXIF orientation, so swap the sides.
+                    need_w = int(size / (max(0.01, right - left) * 1.7)) + 1
+                    need_h = int(size / (max(0.01, bottom - top) * 1.7)) + 1
+                    if image.getexif().get(0x0112, 1) in (5, 6, 7, 8):
+                        need_w, need_h = need_h, need_w
+                    image.draft("RGB", (need_w, need_h))
                 image = ImageOps.exif_transpose(image).convert("RGB")
                 width, height = image.size
-                left, top, right, bottom = row["box_left"], row["box_top"], row["box_right"], row["box_bottom"]
                 pad_x = (right - left) * width * 0.35
                 pad_y = (bottom - top) * height * 0.35
                 crop_left = max(0, int(left * width - pad_x))
@@ -5285,7 +5302,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 if crop_right <= crop_left or crop_bottom <= crop_top:
                     return self.send_error(404)
                 cropped = image.crop((crop_left, crop_top, crop_right, crop_bottom))
-                cropped.thumbnail((360, 360))
+                cropped.thumbnail((size, size))
                 buffer = io.BytesIO()
                 cropped.save(buffer, format="JPEG", quality=85)
         except Exception:

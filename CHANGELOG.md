@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.25.1 — 2026-10-13
+
+- Naming a face on the People page now shows that it is working: a spinner and "Saving the name…", then "Looking for faces that look like … 3s" with a running count of seconds, and after ten seconds "still working, checking N unnamed faces". Before, it showed only "Saving…" with nothing to say it had not hung. The same applies when naming from the enlarged view.
+- A group of matches now says "Loading faces… 12 of 200" in its header while its thumbnails load, shows a light placeholder for each one still to come instead of a black square, and marks a face that could not be loaded with a "?".
+- Face thumbnails in a group load about twice as fast. Each one opens the whole photo on the server, and a group can now hold 200 faces, so a JPEG is now decoded at a reduced size, never smaller than the thumbnail needs. The group asks for 160-pixel thumbnails, as it shows them at 74 pixels. Face cards and the enlarged view are unchanged.
+
 ## 1.25.0 — 2026-10-13
 
 - **Restart server**, **Restart now** and installing an update now restart LensLedger in the same terminal window or tab. Before, each restart opened a new window and closed the old one, so a tab you had arranged in Windows Terminal was lost.
