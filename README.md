@@ -91,7 +91,10 @@ alternate name at a time, separating multiple names with commas.
 7. Review the scan report, then select **Open my library**.
 
 LensLedger opens a localhost-only viewer at `http://127.0.0.1:5309`. Keep the
-terminal window open while using the application.
+terminal window open while using the application. When Windows Terminal is
+installed, the launcher opens as a tab in the Windows Terminal window you
+already have open instead of a console window of its own. Turn that off under
+**Settings → Photo libraries → Open the launcher in a Windows Terminal tab**.
 
 ### Updates and rollback
 

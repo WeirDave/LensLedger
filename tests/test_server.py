@@ -572,6 +572,23 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(result["state"], "restarting")
         self.assertEqual(len(spawned), 1)
 
+    def test_settings_page_shows_the_terminal_tab_choice_from_the_saved_value(self):
+        def terminal_tab_input():
+            with self.get("/settings") as response:
+                page = response.read().decode("utf-8")
+            self.assertIn("Open the launcher in a Windows Terminal tab", page)
+            start = page.index('id="terminalTab"')
+            return page[start:page.index(">", start)]
+
+        try:
+            self.assertIn("checked", terminal_tab_input(), "on by default")
+            self.json_response(self.post("/api/settings/save", {"settings": {"startup": {"terminal_tab": False}}}))
+            self.assertNotIn("checked", terminal_tab_input())
+            self.json_response(self.post("/api/settings/save", {"settings": {"startup": {"terminal_tab": True}}}))
+            self.assertIn("checked", terminal_tab_input())
+        finally:
+            self.post("/api/settings/save", {"settings": {"startup": {"terminal_tab": True}}}).close()
+
     def test_every_page_menu_offers_restart_server(self):
         with self.get("/settings") as response:
             page = response.read().decode("utf-8")

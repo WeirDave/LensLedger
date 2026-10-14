@@ -12,6 +12,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Open in a tab of the Windows Terminal window already on screen, rather than
+REM a console of our own. tools\terminal_tab.py decides: it exits 0 once a tab is
+REM running this launcher, and 1 for "stay here" -- already inside a terminal,
+REM switched off in Settings, or no wt.exe. The tab passes --in-tab back so it
+REM can never open a second one from inside itself.
+if /i "%~1"=="--in-tab" goto :launcher_ready
+python -m tools.terminal_tab "%~f0" 2>nul
+if not errorlevel 1 exit /b 0
+:launcher_ready
+
 REM Install the small Python dependency set on first launch, and again whenever
 REM a required package is missing -- an install made before a package joined
 REM requirements.txt would otherwise never get it (HEIC photos need
