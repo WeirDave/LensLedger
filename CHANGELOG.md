@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.26.0 — 2026-10-14
+
+- `Start LensLedger.cmd` now opens as a tab in the Windows Terminal window you already have open, or starts Windows Terminal if none is open, instead of a console window of its own.
+- It stays where it is when you start it from inside Windows Terminal or VS Code, when Windows Terminal is not installed, and on macOS and Linux.
+- Added **Open the launcher in a Windows Terminal tab** to Settings, on by default. Turn it off to keep the plain console window.
+- A restart that has to start a new launcher window now opens it as a tab too, and no longer force-closes the old window; the old one exits by itself, which closes its tab.
+- If a tab cannot be opened, LensLedger logs why and starts in the window you used.
+
 ## 1.25.0 — 2026-10-13
 
 - **Restart server**, **Restart now** and installing an update now restart LensLedger in the same terminal window or tab. Before, each restart opened a new window and closed the old one, so a tab you had arranged in Windows Terminal was lost.

@@ -42,6 +42,7 @@ DEFAULTS: dict[str, object] = {
     },
     "startup": {
         "show_library_picker": False,
+        "terminal_tab": True,
     },
     "publish": {
         "write_mode": "embedded",

@@ -36,7 +36,7 @@ REQUIRED_FILES = {
     "src/database_tools.py", "src/library_config.py", "src/metadata_reader.py", "src/lensledger_updater.py",
     "src/generate_historical_folder_tags.py", "src/face_locations.py", "src/face_scan.py", "src/face_learning.py", "src/face_math.py", "src/face_threshold_report.py", "src/publish_failures.py",
     "src/photo_index.py", "src/photo_search.py", "src/product.py", "requirements.txt",
-    "src/console_log.py", "src/folder_watcher.py", "src/media_dates.py", "src/ingest_pipeline.py", "src/metadata_backups.py",
+    "src/console_log.py", "tools/__init__.py", "tools/terminal_tab.py", "src/folder_watcher.py", "src/media_dates.py", "src/ingest_pipeline.py", "src/metadata_backups.py",
     "src/person_duplicates.py", "src/photo_duplicates.py", "src/photo_similar.py", "src/semantic_classify.py",
     "src/semantic_index.py", "src/settings_config.py", "src/xmp_sidecar.py", "src/generate_face_suggestions.py",
     "Install LensLedger.cmd", "Start LensLedger.cmd",
@@ -988,21 +988,38 @@ def close_old_launcher_window(pid: int, started_before: dt.datetime | None = Non
         pass
 
 
+def _restart_in_terminal_tab(install_root: Path, launcher: str, extra_args: tuple[str, ...]) -> bool:
+    """Open the replacement launcher as a Windows Terminal tab; False to fall
+    back to a console of its own. The helper runs from a copy outside the
+    install, so the tab helper is imported from the install it is restarting,
+    and a tree that does not have it (an install that failed on an older
+    version) just falls back."""
+    try:
+        if str(install_root) not in sys.path:
+            sys.path.insert(0, str(install_root))
+        from tools import terminal_tab
+        return terminal_tab.restart_in_tab(launcher, extra_args=extra_args)
+    except Exception:
+        return False
+
+
 def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> None:
     """Start a fresh LensLedger. When `old_window_pid` is given, the new
     copy is started first and only then is the old launcher window closed
     (see close_old_launcher_window) -- so a failure to launch never leaves
     the user with no LensLedger window at all, just a stale extra one."""
     launched_at = dt.datetime.now()
+    in_tab = False
     if os.name == "nt":
-        cmd_args = ["cmd.exe", "/c", str(install_root / "Start LensLedger.cmd")]
-        if old_window_pid:
-            cmd_args.append("--restarted")
-        subprocess.Popen(
-            cmd_args, cwd=install_root,
-            close_fds=True,
-            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-        )
+        launcher = str(install_root / "Start LensLedger.cmd")
+        extra_args = ("--restarted",) if old_window_pid else ()
+        in_tab = _restart_in_terminal_tab(install_root, launcher, extra_args)
+        if not in_tab:
+            subprocess.Popen(
+                ["cmd.exe", "/c", launcher, *extra_args], cwd=install_root,
+                close_fds=True,
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
     else:
         subprocess.Popen(
             [sys.executable, str(install_root / "src" / "photo_search.py")], cwd=install_root,
@@ -1019,7 +1036,8 @@ def launch_lensledger(install_root: Path, old_window_pid: int | None = None) -> 
             wait_for_process(old_window_pid, timeout_seconds=15)
         except UpdateError:
             pass
-        close_old_launcher_window(old_window_pid, started_before=launched_at)
+        if not in_tab:
+            close_old_launcher_window(old_window_pid, started_before=launched_at)
 
 
 def install_current(source: Path, target: Path | None = None, legacy_root: Path | None = None,
