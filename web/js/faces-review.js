@@ -166,6 +166,28 @@ function showBusy(status, text) {
   status.append(span);
 }
 
+// Naming a face asks the server to search every unnamed face for look-alikes. That is
+// quick on a small library and noticeable on a big one, so say what is happening and
+// for how long, instead of a bare "Saving…". The spinner is made once and only the
+// text changes, so it does not restart. Returns {stop, note}: stop() when the request
+// settles, note(message) to replace the text and stop counting (for a retry notice).
+function showWaiting(status, name) {
+  const started = Date.now();
+  showBusy(status, 'Saving the name…');
+  const text = status.querySelector('span');
+  const timer = setInterval(() => {
+    const seconds = Math.round((Date.now() - started) / 1000);
+    let message = seconds < 2 ? 'Saving the name…'
+      : 'Looking for faces that look like ' + name + '… ' + seconds + 's';
+    if (seconds >= 10) message += ' · still working, checking ' + remaining.toLocaleString() + ' unnamed faces';
+    text.textContent = message;
+  }, 500);
+  return {
+    stop: () => clearInterval(timer),
+    note: message => { clearInterval(timer); text.textContent = message; },
+  };
+}
+
 function addMatchGroup(name, personId, matches, moreData) {
   const autoCount = moreData ? moreData.auto_confirmed : 0;
   const confirmedCount = moreData ? moreData.confirmed_count : 0;
@@ -181,6 +203,7 @@ function addMatchGroup(name, personId, matches, moreData) {
   const group = document.createElement('div');
   group.className = 'match-group';
   group.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span>'
+    + '<span class="match-progress"></span>'
     + '<span class="spacer"></span>'
     + '<button type="button" class="secondary dismiss">Not these</button>'
     + '<button type="button" class="confirm-all">Confirm all</button></div>'
@@ -274,6 +297,16 @@ function addMatchGroup(name, personId, matches, moreData) {
     };
   }
   const thumbs = group.querySelector('.match-thumbs');
+  // Each thumbnail opens a whole photo on the server, so a big group takes a while
+  // to fill in. Count them in the header so black squares read as "loading", not "hung".
+  const progress = group.querySelector('.match-progress');
+  let finished = 0;
+  showBusy(progress, 'Loading faces… 0 of ' + matches.length);
+  const noteFinished = () => {
+    finished += 1;
+    if (finished >= matches.length) { progress.replaceChildren(); return; }
+    progress.querySelector('span').textContent = 'Loading faces… ' + finished + ' of ' + matches.length;
+  };
   matches.forEach(match => {
     const wrap = document.createElement('div');
     wrap.className = 'match-item';
@@ -282,8 +315,17 @@ function addMatchGroup(name, personId, matches, moreData) {
     const thumb = document.createElement('label');
     thumb.className = 'match-thumb';
     if (match.lower) thumb.title = 'Lower similarity (' + Number(match.score).toFixed(2) + '): look closely before confirming';
-    thumb.innerHTML = '<input type="checkbox" checked><img loading="lazy" alt="Possible match">';
-    thumb.querySelector('img').src = '/media-face?face_id=' + match.face_id;
+    thumb.innerHTML = '<input type="checkbox" checked><img alt="Possible match">';
+    wrap.classList.add('img-loading');
+    const image = thumb.querySelector('img');
+    const settled = failed => {
+      wrap.classList.remove('img-loading');
+      if (failed) { wrap.classList.add('img-error'); thumb.title = 'This face could not be loaded'; }
+      noteFinished();
+    };
+    image.onload = () => settled(false);
+    image.onerror = () => settled(true);
+    image.src = '/media-face?face_id=' + match.face_id + '&size=160';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'match-enlarge';
@@ -500,15 +542,17 @@ function buildCard(face) {
     onChoose: async name => {
       const tryName = async () => {
         notPersonButton.disabled = true; unknownButton.disabled = true;
-        status.textContent = 'Saving…';
         status.querySelectorAll('button').forEach(b => b.remove());
+        const waiting = showWaiting(status, name);
         try {
           registerKnownPerson(name);
           const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name },
-            message => status.textContent = message);
+            message => waiting.note(message));
+          waiting.stop();
           removeCard(card);
           if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches, result);
         } catch (error) {
+          waiting.stop();
           status.textContent = error.message + ' ';
           const retry = document.createElement('button');
           retry.type = 'button';
@@ -608,15 +652,18 @@ const lbPicker = createPersonPicker({
     if (card) {
       card.querySelector('.not-person').disabled = true;
       card.querySelector('.unknown-person').disabled = true;
-      card.querySelector('.face-status').textContent = 'Saving…';
     }
+    const waiting = card ? showWaiting(card.querySelector('.face-status'), name) : null;
     try {
       registerKnownPerson(name);
-      const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name });
+      const result = await apiRetry('/api/faces/name', { face_id: face.face_id, name },
+        message => { if (waiting) waiting.note(message); });
+      if (waiting) waiting.stop();
       if (card) removeCard(card);
       else { removeMatchItem(face.face_id); remaining = Math.max(0, remaining - 1); updateProgress(); }
       if (result.matches && result.matches.length) addMatchGroup(name, result.person_id, result.matches, result);
     } catch (error) {
+      if (waiting) waiting.stop();
       if (card) {
         card.querySelector('.face-status').textContent = error.message;
         card.querySelector('.not-person').disabled = false;
