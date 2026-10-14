@@ -205,6 +205,8 @@ function addMatchGroup(name, personId, matches, moreData) {
   group.innerHTML = '<div class="match-group-head"><strong></strong><span class="match-count"></span>'
     + '<span class="match-progress"></span>'
     + '<span class="spacer"></span>'
+    + '<button type="button" class="secondary select-all">Select all</button>'
+    + '<button type="button" class="secondary select-none">Select none</button>'
     + '<button type="button" class="secondary dismiss">Not these</button>'
     + '<button type="button" class="confirm-all">Confirm all</button></div>'
     + '<div class="match-thumbs"></div><div class="match-status"></div>';
@@ -293,6 +295,7 @@ function addMatchGroup(name, personId, matches, moreData) {
       } catch (error) {
         status.textContent = error.message;
         group.querySelectorAll('button').forEach(b => b.disabled = false);
+        syncSelection();
       }
     };
   }
@@ -335,6 +338,19 @@ function addMatchGroup(name, personId, matches, moreData) {
     thumbs.append(wrap);
   });
   const status = group.querySelector('.match-status');
+  const boxes = () => [...thumbs.querySelectorAll('.match-item input')];
+  const syncSelection = () => {
+    const all = boxes();
+    const ticked = all.filter(box => box.checked).length;
+    group.querySelector('.select-all').disabled = ticked === all.length;
+    group.querySelector('.select-none').disabled = ticked === 0;
+    group.querySelector('.confirm-all').disabled = ticked === 0;
+  };
+  const setAll = state => { boxes().forEach(box => { box.checked = state; }); syncSelection(); };
+  group.querySelector('.select-all').onclick = () => setAll(true);
+  group.querySelector('.select-none').onclick = () => setAll(false);
+  thumbs.addEventListener('change', syncSelection);
+  syncSelection();
   group.querySelector('.dismiss').onclick = async () => {
     const unchecked = [...thumbs.querySelectorAll('.match-item')]
       .filter(t => !t.querySelector('input').checked)
@@ -392,6 +408,7 @@ function addMatchGroup(name, personId, matches, moreData) {
     } catch (error) {
       status.textContent = error.message;
       group.querySelectorAll('button').forEach(b => b.disabled = false);
+      syncSelection();
     }
   };
   $('matchGroups').prepend(group);
