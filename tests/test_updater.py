@@ -428,6 +428,7 @@ class UpdaterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater, "_restart_in_terminal_tab", return_value=False), \
                  patch.object(updater.subprocess, "Popen"), \
                  patch.object(updater, "wait_for_process", lambda pid, timeout_seconds=180: None), \
                  patch.object(updater, "close_old_launcher_window",
@@ -441,6 +442,7 @@ class UpdaterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater, "_restart_in_terminal_tab", return_value=False), \
                  patch.object(updater.subprocess, "Popen", lambda *a, **k: order.append("launch")), \
                  patch.object(updater, "wait_for_process",
                               lambda pid, timeout_seconds=180: order.append(("wait", pid))), \
@@ -458,6 +460,7 @@ class UpdaterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater, "_restart_in_terminal_tab", return_value=False), \
                  patch.object(updater.subprocess, "Popen"), \
                  patch.object(updater, "wait_for_process", never_exits), \
                  patch.object(updater, "close_old_launcher_window", lambda pid, **kw: closed.append(pid)):
@@ -468,6 +471,7 @@ class UpdaterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with patch.object(updater.os, "name", "nt"), \
+                 patch.object(updater, "_restart_in_terminal_tab", return_value=False), \
                  patch.object(updater.subprocess, "Popen") as mocked_popen, \
                  patch.object(updater, "close_old_launcher_window") as mocked_close:
                 updater.launch_lensledger(root)
