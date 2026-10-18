@@ -8,8 +8,15 @@ import array
 import math
 import os
 import sys
+import threading
+from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterable
+
+try:
+    import numpy as np
+except ImportError:  # NumPy is optional in LensLedger; it arrives with face detection.
+    np = None
 
 from PIL import Image, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -332,7 +339,93 @@ def build_index(
                 counts["indexed"] += 1
         if progress:
             progress(snapshot())
+    if counts["indexed"]:
+        clear_matrix_cache(db_path)
     return counts
+
+
+# A decoded copy of a library's embeddings, kept in memory so repeated and
+# paged searches don't re-read and re-decode the whole table every time. Only
+# the stored side is cached; the query is still encoded on each call.
+_matrix_cache: dict[str, dict] = {}
+_matrix_cache_lock = threading.Lock()
+
+
+def clear_matrix_cache(db_path: Path | None = None) -> None:
+    """Drop the cached embeddings for one library, or all of them."""
+    with _matrix_cache_lock:
+        if db_path is None:
+            _matrix_cache.clear()
+        else:
+            _matrix_cache.pop(str(db_path), None)
+
+
+def _embeddings_signature(con) -> tuple[int, str]:
+    """A cheap fingerprint of the embedding table: a changed row count or a
+    newer write invalidates the cache without reading any vector."""
+    row = con.execute(
+        "SELECT COUNT(*) AS n, COALESCE(MAX(updated_at),'') AS stamp FROM semantic_embeddings"
+    ).fetchone()
+    return int(row["n"]), str(row["stamp"])
+
+
+def _load_matrix(db_path: Path) -> dict:
+    """The decoded embeddings for ``db_path``, cached and rebuilt only when the
+    table has changed since it was last read.
+
+    With NumPy the vectors become one ``(rows, dimensions)`` float32 matrix, so a
+    query scores as a single matrix-vector product; without it they stay a list of
+    tuples scored by the pure-Python ``dot`` fallback. Vectors are stored already
+    L2-normalized, so neither path renormalizes them. Any row whose blob width does
+    not match the library's dominant dimension is set aside (``off_ids``) and scored
+    -1.0, exactly as ``dot`` treats a length mismatch."""
+    key = str(db_path)
+    with connect(db_path) as con:
+        signature = _embeddings_signature(con)
+        with _matrix_cache_lock:
+            cached = _matrix_cache.get(key)
+            if cached is not None and cached["signature"] == signature:
+                return cached
+        rows = con.execute(
+            "SELECT asset_id,model,embedding_f32 FROM semantic_embeddings ORDER BY asset_id"
+        ).fetchall()
+    ids = [int(row["asset_id"]) for row in rows]
+    model = str(rows[0]["model"]) if rows else DEFAULT_MODEL
+    entry: dict = {"signature": signature, "ids": ids, "model": model,
+                   "matrix": None, "matrix_ids": [], "off_ids": [], "vectors": None}
+    if rows and np is not None:
+        sizes = Counter(len(row["embedding_f32"]) // 4 for row in rows if row["embedding_f32"])
+        width = (sizes.most_common(1)[0][0] if sizes else 0) * 4
+        kept = [row for row in rows if row["embedding_f32"] and len(row["embedding_f32"]) == width]
+        if kept:
+            buffer = b"".join(row["embedding_f32"] for row in kept)
+            entry["matrix"] = np.frombuffer(buffer, dtype="<f4").reshape(len(kept), width // 4)
+            entry["matrix_ids"] = [int(row["asset_id"]) for row in kept]
+        entry["off_ids"] = [int(row["asset_id"]) for row in rows
+                            if not (row["embedding_f32"] and len(row["embedding_f32"]) == width)]
+    elif rows:
+        entry["vectors"] = [(int(row["asset_id"]), decode_vector(row["embedding_f32"])) for row in rows]
+    with _matrix_cache_lock:
+        _matrix_cache[key] = entry
+    return entry
+
+
+def _rank(entry: dict, query: tuple[float, ...]) -> list[tuple[int, float]]:
+    """Score every cached vector against ``query`` (a cosine, since both sides are
+    unit-length) and return (asset_id, score) pairs, highest first."""
+    if entry["vectors"] is not None:
+        return sorted(
+            ((asset_id, dot(query, vector)) for asset_id, vector in entry["vectors"]),
+            key=lambda item: item[1], reverse=True,
+        )
+    matrix = entry["matrix"]
+    if matrix is not None and matrix.shape[1] == len(query):
+        scores = matrix @ np.asarray(query, dtype="<f4")
+        pairs = list(zip(entry["matrix_ids"], (float(value) for value in scores)))
+    else:
+        pairs = [(asset_id, -1.0) for asset_id in entry["matrix_ids"]]
+    pairs.extend((asset_id, -1.0) for asset_id in entry["off_ids"])
+    return sorted(pairs, key=lambda item: item[1], reverse=True)
 
 
 def search(
@@ -345,21 +438,14 @@ def search(
     text = " ".join(text.split())
     if not text:
         return []
-    with connect(db_path) as con:
-        rows = con.execute(
-            "SELECT asset_id,model,embedding_f32 FROM semantic_embeddings ORDER BY asset_id"
-        ).fetchall()
-    if not rows:
+    entry = _load_matrix(db_path)
+    if not entry["ids"]:
         raise RuntimeError(
             "Meaning search has not been indexed yet. Run semantic_index.py build first."
         )
-    model = str(rows[0]["model"])
-    encoder = encoder or encoder_for(model)
+    encoder = encoder or encoder_for(entry["model"])
     query = normalize(encoder.encode_text(text))
-    ranked = sorted(
-        ((int(row["asset_id"]), dot(query, decode_vector(row["embedding_f32"]))) for row in rows),
-        key=lambda item: item[1], reverse=True,
-    )
+    ranked = _rank(entry, query)
     return ranked[max(0, offset):max(0, offset) + max(1, limit)]
 
 
