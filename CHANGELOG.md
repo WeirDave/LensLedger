@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.27.1 — 2026-10-18
+
+- Meaning search is faster, especially on large libraries and when paging through results. It no longer re-reads and re-decodes the whole meaning index on every search; the index is held in memory and only reloaded after it changes. Results are unchanged.
+
 ## 1.27.0 — 2026-10-14
 
 - Each "Also looks like" group on the People page has **Select all** and **Select none** buttons. Every face is still ticked when the group opens, lower matches included.
