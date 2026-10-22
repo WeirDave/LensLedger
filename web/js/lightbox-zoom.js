@@ -1,3 +1,17 @@
+// A face far smaller than the lightbox would draw as a box of a few pixels
+// that is easy to miss, so it is grown around its centre to a minimum size and
+// flagged so the stylesheet can pulse it.
+const MIN_FACE_BOX_PX = 44;
+function placeFaceBox(marker, left, top, width, height) {
+  const tiny = width < MIN_FACE_BOX_PX || height < MIN_FACE_BOX_PX;
+  const w = Math.max(width, MIN_FACE_BOX_PX), h = Math.max(height, MIN_FACE_BOX_PX);
+  marker.style.left = (left - (w - width) / 2) + 'px';
+  marker.style.top = (top - (h - height) / 2) + 'px';
+  marker.style.width = w + 'px';
+  marker.style.height = h + 'px';
+  marker.classList.toggle('tiny', tiny);
+}
+
 function initLightboxZoom(boxId) {
   const box = document.getElementById(boxId);
   if (!box) return null;
@@ -41,10 +55,8 @@ function initLightboxZoom(boxId) {
       const boxRect = box.getBoundingClientRect();
       const imgOffsetX = imgRect.left - boxRect.left;
       const imgOffsetY = imgRect.top - boxRect.top;
-      marker.style.left = (imgOffsetX + offsetX + face.box_left * shownWidth) + 'px';
-      marker.style.top = (imgOffsetY + offsetY + face.box_top * shownHeight) + 'px';
-      marker.style.width = ((face.box_right - face.box_left) * shownWidth) + 'px';
-      marker.style.height = ((face.box_bottom - face.box_top) * shownHeight) + 'px';
+      placeFaceBox(marker, imgOffsetX + offsetX + face.box_left * shownWidth, imgOffsetY + offsetY + face.box_top * shownHeight,
+        (face.box_right - face.box_left) * shownWidth, (face.box_bottom - face.box_top) * shownHeight);
     });
   }
 

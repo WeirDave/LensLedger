@@ -450,10 +450,7 @@ function markFace(container, img, face) {
     const shownWidth = img.naturalWidth * scale, shownHeight = img.naturalHeight * scale;
     const offsetX = (img.clientWidth - shownWidth) / 2, offsetY = (img.clientHeight - shownHeight) / 2;
     const left = offsetX + face.box_left * shownWidth, top = offsetY + face.box_top * shownHeight;
-    marker.style.left = left + 'px';
-    marker.style.top = top + 'px';
-    marker.style.width = ((face.box_right - face.box_left) * shownWidth) + 'px';
-    marker.style.height = ((face.box_bottom - face.box_top) * shownHeight) + 'px';
+    placeFaceBox(marker, left, top, (face.box_right - face.box_left) * shownWidth, (face.box_bottom - face.box_top) * shownHeight);
     marker.classList.toggle('label-right', left + 90 > container.clientWidth);
     marker.classList.toggle('label-below', top < 34);
   };
