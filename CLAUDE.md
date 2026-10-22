@@ -77,7 +77,16 @@ PYTHONPATH=src python -m unittest discover -s tests
 
 All tests must pass. Do not commit with failing tests.
 
-For UI/CSS changes: visually verify in a browser, not just DOM-state checks.
+Browser checks are for **CSS-impacting changes only** — edits to `web/css/*.css`,
+inline styles, or anything that changes layout, `position`, `overflow`,
+`z-index`, colours or theming. For those, visually verify in a browser (light
+and dark), not just DOM-state checks.
+
+Do not open a browser for changes that don't touch CSS: backend/Python,
+scan logic, database, tests, docs, release plumbing, or JS that changes
+behaviour without changing how anything is laid out or styled. The test suite
+is the verification for those. Do not run a browser check as a routine part of
+the release ceremony.
 
 ## Release ceremony
 
@@ -145,7 +154,7 @@ Create `docs/releases/vX.Y.Z.md` with detailed release notes:
   section explaining what broke and how you fixed it
 - End with a `## Verified` section listing what you tested:
   - Test suite result (count and status)
-  - Any manual/browser verification you performed
+  - Browser verification, only if the release changed CSS; otherwise omit it
 
 See `docs/releases/v0.80.0.md` for a good example of all sections.
 
