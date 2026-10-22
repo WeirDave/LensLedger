@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.27.1 — 2026-10-21
+
+- The "This face" box on the enlarged photo (People page, **Enlarge** on a face) is never drawn smaller than 44 pixels. A small face in a large scene used to get a box only a few pixels wide that was easy to overlook.
+- A box that was enlarged this way has a dashed outline and pulses, which shows it marks a small detection. The same applies to the "Face being checked" box when reviewing a person's faces.
+
 ## 1.27.0 — 2026-10-14
 
 - Each "Also looks like" group on the People page has **Select all** and **Select none** buttons. Every face is still ticked when the group opens, lower matches included.
