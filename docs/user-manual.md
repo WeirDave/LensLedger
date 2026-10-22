@@ -256,6 +256,15 @@ The page shows a grid of unidentified face crops, diversity-sampled to show vari
 
 Click any face crop to see the full photo for context.
 
+### Fixing a mistaken Unknown person or Not a person
+
+Faces marked **Unknown person** or **Not a person** leave the People page. To find them again, open **Set-aside faces** from the navigation menu, or click **Set-aside faces** at the top of the People page. The **Unknown person** and **Not a person** tabs list the faces marked each way, most recent first. For a face listed there you can:
+
+- **Name it** — type a name in **Who is this?**. The mark is removed and the face is tagged with that person.
+- **Put back for review** — remove the mark so the face appears on the People page again.
+
+**Select** at the top of the page turns on selection, so several faces can be assigned to one person or put back for review together.
+
 ### When to stop
 
 Match group headers show progress toward automatic confirmation:

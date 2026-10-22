@@ -1169,6 +1169,75 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(also_ignore.exception.code, 400)
         also_ignore.exception.close()
 
+    def _insert_face(self, source_face_id):
+        con = sqlite3.connect(self.database)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(
+                   source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,
+                   box_left,box_top,box_right,box_bottom
+               ) VALUES ('test',?,?,?,2,?,0.1,0.2,0.4,0.6)""",
+            (source_face_id, self.asset_id, self.photo.name, b"12345678"),
+        ).lastrowid)
+        con.commit()
+        con.close()
+        return face_id
+
+    def test_set_aside_lists_each_kind_separately_with_counts(self):
+        unknown_id = self._insert_face(1)
+        ignored_id = self._insert_face(2)
+        untouched_id = self._insert_face(3)
+        self.json_response(self.post("/api/faces/unknown", {"face_id": unknown_id}))
+        self.json_response(self.post("/api/faces/ignore", {"face_id": ignored_id}))
+
+        unknown = self.json_response(self.get("/api/faces/set-aside?kind=unknown"))
+        self.assertEqual([face["face_id"] for face in unknown["faces"]], [unknown_id])
+        self.assertEqual(unknown["total"], 1)
+        self.assertEqual(unknown["counts"], {"unknown": 1, "not_a_person": 1})
+
+        not_a_person = self.json_response(self.get("/api/faces/set-aside?kind=not_a_person"))
+        self.assertEqual([face["face_id"] for face in not_a_person["faces"]], [ignored_id])
+        self.assertNotIn(untouched_id, {face["face_id"] for face in unknown["faces"] + not_a_person["faces"]})
+
+        with self.assertRaises(urllib.error.HTTPError) as bad_kind:
+            self.get("/api/faces/set-aside?kind=everything")
+        self.assertEqual(bad_kind.exception.code, 400)
+        bad_kind.exception.close()
+
+    def test_putting_a_set_aside_face_back_returns_it_to_the_unidentified_queue(self):
+        face_id = self._insert_face(1)
+        self.json_response(self.post("/api/faces/ignore", {"face_id": face_id}))
+        self.assertNotIn(face_id, {f["face_id"] for f in self.json_response(self.get("/api/faces/unidentified"))["faces"]})
+
+        result = self.json_response(self.post("/api/faces/restore", {"face_ids": [face_id]}))
+        self.assertEqual(result["restored"], 1)
+
+        self.assertEqual(self.json_response(self.get("/api/faces/set-aside?kind=not_a_person"))["faces"], [])
+        self.assertIn(face_id, {f["face_id"] for f in self.json_response(self.get("/api/faces/unidentified"))["faces"]})
+        again = self.json_response(self.post("/api/faces/restore", {"face_ids": [face_id]}))
+        self.assertEqual(again["restored"], 0)
+
+    def test_naming_a_set_aside_face_clears_the_mark(self):
+        face_id = self._insert_face(1)
+        self.json_response(self.post("/api/faces/unknown", {"face_id": face_id}))
+
+        self.json_response(self.post("/api/faces/name", {"face_id": face_id, "name": "Invented Person"}))
+
+        con = sqlite3.connect(self.database)
+        person_id, unknown_at, ignored_at = con.execute(
+            "SELECT person_id, unknown_at, ignored_at FROM face_embeddings WHERE id=?", (face_id,)
+        ).fetchone()
+        con.close()
+        self.assertIsNotNone(person_id)
+        self.assertIsNone(unknown_at)
+        self.assertIsNone(ignored_at)
+        self.assertEqual(self.json_response(self.get("/api/faces/set-aside?kind=unknown"))["faces"], [])
+
+    def test_set_aside_page_is_served(self):
+        with self.get("/people/set-aside") as response:
+            body = response.read().decode("utf-8")
+        self.assertIn("Set-aside faces", body)
+        self.assertIn("js/set-aside.js", body)
+
     def test_person_view_exposes_pending_matches_and_the_focused_face(self):
         from photo_index import scan_library, utc_now
 

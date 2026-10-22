@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.0 — 2026-10-21
+
+- New **Set-aside faces** page (navigation menu, and a button at the top of the People page) lists every face marked **Unknown person** or **Not a person**, on separate tabs with counts, most recently marked first.
+- A face on that page can be named with **Who is this?**, which removes the mark and tags the face with that person, or put back on the People page with **Put back for review**. **Select** allows several faces to be assigned or put back together.
+- Naming a face that was marked Unknown person or Not a person now clears the mark, so the face counts toward that person's matches.
+
 ## 1.27.1 — 2026-10-21
 
 - The "This face" box on the enlarged photo (People page, **Enlarge** on a face) is never drawn smaller than 44 pixels. A small face in a large scene used to get a box only a few pixels wide that was easy to overlook.

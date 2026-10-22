@@ -296,6 +296,7 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         + _link("/scan-photos", "\U0001f50e Scan photos", "scan-photos")
         + _link("/?scope=people", "\U0001f465 People Index", "people-directory")
         + _link("/people", "\U0001f3f7️ Tag faces", "people")
+        + _link("/people/set-aside", "\U0001f5c3️ Set-aside faces", "set-aside")
         + _link("/publish", "\U0001f4e4 Publish photos", "publish")
         + _link("/map", "\U0001f30d Photo map", "map")
         + _link("/?scope=duplicates", "\U0001f5c2️ Duplicate photos", "duplicates")
@@ -797,6 +798,7 @@ ACTION_LABELS = {
     "/api/faces/confirm-remaining": "Confirm all remaining faces",
     "/api/faces/ignore": "Mark as not a person",
     "/api/faces/unknown": "Mark as unknown person",
+    "/api/faces/restore": "Put set-aside faces back for review",
     "/api/faces/skip": "Skip faces",
     "/api/faces/unskip": "Show skipped faces again",
     "/api/faces/publish-person": "Publish one person's name to photos",
@@ -1616,8 +1618,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.people_review_queue(params)
         if url.path == "/api/faces/unidentified":
             return self.unidentified_faces(params)
+        if url.path == "/api/faces/set-aside":
+            return self.set_aside_faces(params)
         if url.path == "/people":
             return self.faces_review_page()
+        if url.path == "/people/set-aside":
+            return self.set_aside_page()
         if url.path == "/people/review":
             return self.people_review_page(params)
         if url.path == "/people/groups":
@@ -1719,6 +1725,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.publish_person_metadata(body)
             if route == "/api/faces/confirm-remaining":
                 return self.confirm_remaining_faces(body)
+            if route == "/api/faces/restore":
+                return self.restore_set_aside_faces(body)
             if route == "/api/faces/skip":
                 return self.skip_faces(body)
             if route == "/api/faces/unskip":
@@ -2264,6 +2272,13 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Unknown person</strong> &mdash; mark as a real person you don&rsquo;t want to name yet</li>
 </ul>
 <p>Use &ldquo;Enlarge&rdquo; or double-click any face crop to see the full photo for context.</p>
+<h3>Fixing a mistaken Unknown person or Not a person</h3>
+<p>Faces marked <strong>Unknown person</strong> or <strong>Not a person</strong> leave the People page. To find them again, open <strong>Set-aside faces</strong> from the navigation menu, or click <strong>Set-aside faces</strong> at the top of the People page. The <strong>Unknown person</strong> and <strong>Not a person</strong> tabs list the faces marked each way, most recent first. For a face listed there you can:</p>
+<ul>
+<li><strong>Name it</strong> &mdash; type a name in <strong>Who is this?</strong>. The mark is removed and the face is tagged with that person.</li>
+<li><strong>Put back for review</strong> &mdash; remove the mark so the face appears on the People page again.</li>
+</ul>
+<p><strong>Select</strong> at the top of the page turns on selection, so several faces can be assigned to one person or put back for review together.</p>
 <h3>When to stop</h3>
 <p>As you confirm faces, the match group header tracks your progress toward a threshold where the system can take over:</p>
 <ul>
@@ -3328,7 +3343,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>People — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
-<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><button type="button" class="secondary" id="quickTagBtn">Quick tag</button><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="secondary" id="unskipAll" hidden>Show skipped</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><a class="button secondary" href="/people/set-aside" id="setAsideLink">Set-aside faces</a><button type="button" class="secondary" id="quickTagBtn">Quick tag</button><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="secondary" id="unskipAll" hidden>Show skipped</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people", str(self.library_root))}
 <main><div class="publish-reminder" id="publishReminder" hidden><span class="publish-reminder-text" id="publishReminderText"></span><a class="button secondary publish-reminder-btn" href="/publish">Publish now</a></div><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet, with the people who appear in the most photos first (the &#x201c;+N similar&#x201d; badge counts the other unnamed faces that look like that one). Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><div class="lightbox-picker" id="lightboxPicker"></div><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button><button type="button" class="danger" id="lightboxTrash">Trash photo</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div><div class="lightbox-path" id="lightboxPath"><span class="lightbox-path-text" id="lightboxPathText"></span><button type="button" class="secondary lightbox-reveal" id="lightboxReveal">Show in folder</button></div></div>
@@ -3336,6 +3351,25 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/person-picker.js')}" defer></script>
 <script src="{asset_url('js/lightbox-zoom.js')}" defer></script>
 <script src="{asset_url('js/faces-review.js')}" defer></script>
+</body></html>"""
+        self.send_html(page)
+
+    def set_aside_page(self):
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Set-aside faces — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/faces-review.css')}">
+<script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
+<header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Set-aside faces</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><a class="button secondary" href="/people">Tag faces</a><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
+{nav_menu("set-aside", str(self.library_root))}
+<main><div class="intro"><p>Faces marked &#x201c;Unknown person&#x201d; or &#x201c;Not a person&#x201d; no longer appear anywhere else. Look through them here: name a face that turned out to be someone, or put it back for review. The most recently marked faces come first.</p></div>
+<div class="set-aside-tabs" role="tablist"><button type="button" class="tab active" id="tabUnknown" data-kind="unknown" role="tab">Unknown person <span class="tab-count" id="countUnknown"></span></button><button type="button" class="tab" id="tabNotPerson" data-kind="not_a_person" role="tab">Not a person <span class="tab-count" id="countNotPerson"></span></button></div>
+<div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkRestore">Put back for review</button><button type="button" class="secondary" id="bulkAll">Select all shown</button><button type="button" class="secondary" id="bulkClear">Clear</button></div></div>
+<div class="face-grid" id="faceGrid"></div>
+<div class="set-aside-more"><button type="button" class="secondary" id="loadMore" hidden>Show more</button></div>
+<div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">Nothing here</h2><p id="emptyText"></p></div></div></main>
+<div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><div class="lightbox-picker" id="lightboxPicker"></div><button type="button" class="secondary" id="lightboxRestore">Put back for review</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div><div class="lightbox-path" id="lightboxPath"><span class="lightbox-path-text" id="lightboxPathText"></span><button type="button" class="secondary lightbox-reveal" id="lightboxReveal">Show in folder</button></div></div>
+<script src="{asset_url('js/person-picker.js')}" defer></script>
+<script src="{asset_url('js/lightbox-zoom.js')}" defer></script>
+<script src="{asset_url('js/set-aside.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 
@@ -5343,7 +5377,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                        updated_at=excluded.updated_at""",
                 (asset_id, person_id, face_id, now),
             )
-            con.execute("UPDATE face_embeddings SET person_id=? WHERE id=?", (person_id, face_id))
+            con.execute(
+                "UPDATE face_embeddings SET person_id=?,ignored_at=NULL,unknown_at=NULL,skipped_at=NULL WHERE id=?",
+                (person_id, face_id),
+            )
             con.execute(
                 """INSERT INTO people_review_actions(
                        asset_id,person_id,action,previous_json,created_at
@@ -5716,6 +5753,81 @@ class SearchHandler(BaseHTTPRequestHandler):
         if not updated:
             raise ValueError("this face was already handled")
         self.send_json({"ok": True})
+
+    SET_ASIDE_KINDS = {"unknown": "unknown_at", "not_a_person": "ignored_at"}
+
+    def set_aside_faces(self, params):
+        """Faces marked "Unknown person" or "Not a person", newest mark first,
+        so a mistaken click can be found again, named, or put back for review."""
+        kind = params.get("kind", ["unknown"])[0]
+        column = self.SET_ASIDE_KINDS.get(kind)
+        if not column:
+            return self.send_error(400)
+        try:
+            limit = max(1, min(200, int(params.get("limit", ["60"])[0])))
+            offset = max(0, int(params.get("offset", ["0"])[0]))
+        except ValueError:
+            return self.send_error(400)
+        where = f"""f.{column} IS NOT NULL AND a.in_review_bin=0
+                    AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                    AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
+        with self.db() as con:
+            counts = {
+                name: int(con.execute(
+                    f"""SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                        WHERE f.{col} IS NOT NULL AND a.in_review_bin=0
+                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
+                ).fetchone()[0])
+                for name, col in self.SET_ASIDE_KINDS.items()
+            }
+            rows = con.execute(
+                f"""SELECT f.id AS face_id, f.asset_id, a.filename, a.folder, a.relative_path, a.capture_date,
+                           f.box_left, f.box_top, f.box_right, f.box_bottom, a.extension
+                    FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                    WHERE {where}
+                    ORDER BY f.{column} DESC, f.id DESC LIMIT ? OFFSET ?""",
+                (limit, offset),
+            ).fetchall()
+            people_names = [row[0] for row in con.execute(
+                "SELECT name FROM people ORDER BY name COLLATE NOCASE"
+            )]
+            people_alias_map = {row[0]: row[1] for row in con.execute(
+                "SELECT pa.alias, p.name FROM person_aliases pa JOIN people p ON p.id=pa.person_id"
+            )}
+        self.send_json({
+            "kind": kind,
+            "total": counts[kind],
+            "counts": counts,
+            "people_options": people_names,
+            "people_alias_map": people_alias_map,
+            "faces": [
+                {
+                    "face_id": int(row["face_id"]), "asset_id": int(row["asset_id"]),
+                    "filename": row["filename"], "folder": row["folder"],
+                    "relative_path": row["relative_path"], "capture_date": row["capture_date"],
+                    "box_left": row["box_left"], "box_top": row["box_top"],
+                    "box_right": row["box_right"], "box_bottom": row["box_bottom"],
+                    "publishable": row["extension"] in PUBLISHABLE_EXTENSIONS,
+                }
+                for row in rows
+            ],
+        })
+
+    def restore_set_aside_faces(self, body):
+        face_ids = body.get("face_ids", [])
+        if not isinstance(face_ids, list) or not face_ids:
+            raise ValueError("face_ids required")
+        with self.db() as con:
+            restored = 0
+            for face_id in face_ids:
+                restored += con.execute(
+                    """UPDATE face_embeddings SET ignored_at=NULL,unknown_at=NULL,skipped_at=NULL
+                       WHERE id=? AND (ignored_at IS NOT NULL OR unknown_at IS NOT NULL)""",
+                    (int(face_id),),
+                ).rowcount
+        console_log(f"Set-aside faces: {restored:,} put back for review")
+        self.send_json({"ok": True, "restored": restored})
 
     def skip_faces(self, body):
         face_ids = body.get("face_ids", [])

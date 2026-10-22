@@ -64,3 +64,7 @@ main{padding:18px 20px 60px}
 .match-item.img-error .match-thumb::after{content:'?';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:var(--text-secondary)}
 @keyframes matchLoading{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.match-item.img-loading .match-thumb{animation:none}}
+
+.set-aside-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}.set-aside-tabs .tab{background:var(--btn-secondary);color:var(--btn-secondary-text)}.set-aside-tabs .tab.active{background:var(--btn-primary);color:var(--text-on-accent)}.tab-count{margin-left:6px;font-weight:600;opacity:.85}
+.set-aside-more{display:flex;justify-content:center;margin-top:18px}.set-aside-more button[hidden]{display:none}
+header a.button{display:inline-block}
