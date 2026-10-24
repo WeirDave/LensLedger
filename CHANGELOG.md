@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.1 — 2026-10-23
+
+- The automatic check for a newer release now runs at most once an hour while LensLedger is in use, instead of once every six hours, so a new release is announced sooner.
+- After a check fails, for example on a network that blocks GitHub, the next attempt waits 30 minutes. Previously every page load retried the check.
+- **Check for updates** in the menu still checks immediately.
+
 ## 1.28.0 — 2026-10-21
 
 - New **Set-aside faces** page (navigation menu, and a button at the top of the People page) lists every face marked **Unknown person** or **Not a person**, on separate tabs with counts, most recently marked first.

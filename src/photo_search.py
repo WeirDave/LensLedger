@@ -1509,6 +1509,12 @@ class SearchHandler(BaseHTTPRequestHandler):
     people_merge_lock = threading.Lock()
     update_lock = threading.Lock()
     update_job: dict[str, object] = {"state": "idle", "message": "Checking has not started."}
+    # Opening the viewer asks for the status, and the status starts a check once
+    # the last answer is older than this. A failed check waits a shorter time
+    # rather than none, so a blocked network is retried gently instead of on
+    # every page load.
+    update_check_interval = dt.timedelta(hours=1)
+    update_error_retry = dt.timedelta(minutes=30)
     dev_override: str = ""
     folder_watcher: FolderWatcher | None = None
     root_given_at_launch: bool = False
@@ -6568,15 +6574,20 @@ class SearchHandler(BaseHTTPRequestHandler):
         with cls.update_lock:
             if cls.update_job.get("state") == "checking":
                 return False
-            if not force and cls.update_job.get("state") not in {"idle", "error"}:
-                if cls.update_job.get("state") == "available":
+            state = cls.update_job.get("state")
+            if not force and state != "idle":
+                if state == "available":
                     return False
+                wait = cls.update_error_retry if state == "error" else cls.update_check_interval
                 try:
                     checked = dt.datetime.fromisoformat(str(cls.update_job.get("checked_at", "")))
-                    if dt.datetime.now(dt.timezone.utc) - checked < dt.timedelta(hours=6):
+                    if dt.datetime.now(dt.timezone.utc) - checked < wait:
                         return False
                 except ValueError:
-                    return False
+                    # An error with no usable time is retried, as before; any
+                    # other state without one is mid-install and left alone.
+                    if state != "error":
+                        return False
             cls.update_job = {
                 "state": "checking",
                 "message": "Checking GitHub for a verified LensLedger release…",

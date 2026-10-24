@@ -99,7 +99,7 @@ already have open instead of a console window of its own. Turn that off under
 ### Updates and rollback
 
 LensLedger checks for a newer GitHub release when the viewer opens and at most
-once every six hours while it remains in use. It only shows a notification; an
+once an hour while it remains in use. It only shows a notification; an
 update is never installed until you open **Check for updates** and approve it.
 
 Self-updating this way only works for the **managed** installation that step 4
