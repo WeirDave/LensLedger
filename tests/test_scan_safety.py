@@ -76,13 +76,13 @@ class ScanSafetyTests(unittest.TestCase):
 
     def test_photos_in_a_folder_that_cannot_be_listed_are_kept(self):
         self.assertEqual(self.scan(), 0)
-        locked = self.library / "trip"
+        locked = (self.library / "trip").resolve()
         (self.library / "photo0.jpg").unlink()
         real_walk = os.walk
 
         def walk_without_listing_locked(top, onerror=None, **kwargs):
             for entry in real_walk(top, onerror=onerror, **kwargs):
-                if Path(entry[0]) == locked:
+                if Path(entry[0]).resolve() == locked:
                     if onerror:
                         onerror(PermissionError(13, "Access is denied", str(locked)))
                     entry[1][:] = []
@@ -100,12 +100,12 @@ class ScanSafetyTests(unittest.TestCase):
 
     def test_the_folders_that_cannot_be_listed_are_named_in_the_error_details(self):
         self.assertEqual(self.scan(), 0)
-        locked = self.library / "trip"
+        locked = (self.library / "trip").resolve()
         real_walk = os.walk
 
         def walk_without_listing_locked(top, onerror=None, **kwargs):
             for entry in real_walk(top, onerror=onerror, **kwargs):
-                if Path(entry[0]) == locked:
+                if Path(entry[0]).resolve() == locked:
                     onerror(PermissionError(13, "Access is denied", str(locked)))
                     continue
                 yield entry

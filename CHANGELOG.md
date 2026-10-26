@@ -6,7 +6,7 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
-## 1.28.2 — 2026-10-26
+## 1.28.3 — 2026-10-26
 
 - A scan no longer empties the index when the photo folder cannot be reached, for example an unplugged drive or a disconnected network share. It stops with a message and leaves the index as it was. The same applies when a folder that has photos indexed suddenly contains none.
 - A subfolder that cannot be read during a scan is counted under **errors** on the **Scan your photos** page, and its photos stay in the index instead of being removed.
