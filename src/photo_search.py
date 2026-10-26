@@ -50,9 +50,9 @@ from photo_similar import find_similar_groups
 from person_duplicates import dismiss_pair as dismiss_duplicate_pair, find_possible_duplicates
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
 from library_config import (
-    associate_db_path, choose_file, choose_library_folder, library_db_path, library_db_path_appdata,
-    has_chosen_library, load_all_known_libraries, load_library_config, load_library_state, save_library_state,
-    suggested_library_roots,
+    associate_db_path, choose_file, choose_library_folder, forget_library, library_db_path, library_db_path_appdata,
+    has_chosen_library, load_all_known_libraries, load_library_config, load_library_state, move_library_record,
+    save_library_state, suggested_library_roots,
 )
 from folder_watcher import FolderWatcher
 from ingest_pipeline import IngestPipeline
@@ -309,8 +309,8 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         '<button type="button" class="menu-item" data-panel="guide">\U0001f4d6 Quick guide</button>'
         + '<a class="menu-item" href="/manual" target="_blank" rel="noopener">\U0001f4d3 User manual</a>'
         + '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a>'
-        '<button type="button" class="menu-item" onclick="reportIssue()">🐛 Report an issue</button>'
-        '<button type="button" class="menu-item" onclick="copyDiagnostics()">\U0001f4cb Copy diagnostics</button>'
+        '<button type="button" class="menu-item" id="reportIssueMenu">🐛 Report an issue</button>'
+        '<button type="button" class="menu-item" id="copyDiagnosticsMenu">\U0001f4cb Copy diagnostics</button>'
         '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'
         '<button type="button" class="menu-item" id="restartServerMenu">🔄 Restart server</button>'
         '</details>'
@@ -1471,6 +1471,20 @@ def _open_explorer_in_front(arguments: list[str], folder: Path) -> None:
             pass
 
     threading.Thread(target=raise_window, name="raise-explorer", daemon=True).start()
+
+
+def _undo_file_moves(moves: list[tuple[Path, Path]]) -> None:
+    """Put photos back where they were after the database change that went with the move failed.
+
+    Without this the database rolls back to "the photo is in the library" while
+    the file sits in the Review Bin, and the catalog points at nothing.
+    """
+    for source, destination in reversed(moves):
+        try:
+            source.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(destination), str(source))
+        except OSError as exc:
+            console_log(f"Review Bin: could not put a photo back after an error — {destination} — {exc}")
 
 
 class SearchHandler(BaseHTTPRequestHandler):
@@ -2683,22 +2697,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         path = str(body.get("path", "")).strip()
         if not path:
             raise ValueError("no path specified")
-        config = load_library_config()
-        libraries = config.get("libraries", [])
         resolved = str(Path(path).resolve()).casefold()
         current = str(self.library_root).casefold()
         if resolved == current:
             raise ValueError("cannot remove the active library")
-        libraries = [p for p in libraries if str(Path(p).resolve()).casefold() != resolved]
-        from library_config import library_state_file
-        state_path = library_state_file()
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({
-            "current_root": str(self.library_root),
-            "libraries": libraries,
-        }, indent=2), encoding="utf-8")
-        tmp.replace(state_path)
+        forget_library(Path(path))
         self.send_json({"ok": True})
 
     def export_status(self):
@@ -3351,7 +3354,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>People</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress">Loading faces…</span><a class="button secondary" href="/people/set-aside" id="setAsideLink">Set-aside faces</a><button type="button" class="secondary" id="quickTagBtn">Quick tag</button><button type="button" class="secondary" id="bulkSelectBtn">Select</button><button type="button" class="secondary" id="unskipAll" hidden>Show skipped</button><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("people", str(self.library_root))}
-<main><div class="publish-reminder" id="publishReminder" hidden><span class="publish-reminder-text" id="publishReminderText"></span><a class="button secondary publish-reminder-btn" href="/publish">Publish now</a></div><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet, with the people who appear in the most photos first (the &#x201c;+N similar&#x201d; badge counts the other unnamed faces that look like that one). Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" onclick="this.parentElement.hidden=true;try{{localStorage.setItem('ll-faces-intro-dismissed','1')}}catch(e){{}}">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
+<main><div class="publish-reminder" id="publishReminder" hidden><span class="publish-reminder-text" id="publishReminderText"></span><a class="button secondary publish-reminder-btn" href="/publish">Publish now</a></div><div class="loading-overlay" id="loadingOverlay"><div class="loading-content"><div class="loading-spinner"></div><h2>Loading faces…</h2></div></div><div class="quick-tag-bar" id="quickTagBar" hidden><div class="quick-tag-inner"><span class="quick-tag-label">Quick tag:</span><div class="quick-tag-picker" id="quickTagPicker"></div><span class="quick-tag-hint" id="quickTagHint">Click faces to tag them</span><span class="quick-tag-count" id="quickTagCount"></span><button type="button" class="secondary" id="quickTagStop">Done</button></div></div><div class="bulk-bar" id="bulkBar" hidden><div class="bulk-inner"><span id="bulkCount">0 selected</span><div class="bulk-picker" id="bulkPicker"></div><button type="button" class="secondary" id="bulkClear">Clear</button></div></div><div class="intro" hidden><p>Faces LensLedger has detected but nobody has named yet, with the people who appear in the most photos first (the &#x201c;+N similar&#x201d; badge counts the other unnamed faces that look like that one). Name a handful of different people (5–10 is plenty), confirming the &#x201c;Also looks like&#x201d; matches as they come up. Once the system has 10 confirmed faces with 100% accuracy, a &#x201c;Confirm all remaining&#x201d; button appears — click it and move on to the next person. Use &#x201c;Enlarge&#x201d; or double-click a portrait to see the full photo for context. If it&#x27;s not a real face, use &#x201c;Not a person&#x201d;; if it&#x27;s a real face you just can&#x27;t identify, use &#x201c;Unknown person&#x201d; so it stops resurfacing.</p><button type="button" class="secondary intro-dismiss" id="introDismiss">Got it, don&#x27;t show again</button></div><div class="match-groups" id="matchGroups" hidden></div><div class="face-grid" id="faceGrid" hidden></div><div class="empty" id="emptyState" hidden><div><h2 id="emptyHeading">No unidentified faces</h2><p id="emptyText">Every detected face already has a confirmed name, or none have been detected yet.</p><a class="button" href="/scan-photos">Scan for faces</a></div></div></main>
 <div class="lightbox" id="lightbox"><div class="lightbox-head"><div class="lightbox-actions"><div class="lightbox-picker" id="lightboxPicker"></div><button type="button" class="secondary" id="lightboxNotAPerson">Not a person</button><button type="button" class="secondary" id="lightboxUnknownPerson">Unknown person</button><button type="button" class="danger" id="lightboxTrash">Trash photo</button></div><button type="button" class="secondary" id="closeLightbox">Close</button></div><div class="lightbox-photo" id="largePhotoBox"><img id="largePhoto" alt="Enlarged photo"><div class="lb-zoom-controls"><span class="lb-zoom-level">100%</span><button type="button" class="lb-zoom-reset">Reset zoom</button></div></div><div class="lightbox-path" id="lightboxPath"><span class="lightbox-path-text" id="lightboxPathText"></span><button type="button" class="secondary lightbox-reveal" id="lightboxReveal">Show in folder</button></div></div>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/person-picker.js')}" defer></script>
@@ -7363,20 +7366,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 con.execute("UPDATE assets SET library_root = ? WHERE library_root = ?", (new_prefix, old_prefix))
             except sqlite3.OperationalError:
                 pass
-        config = load_library_config()
-        libraries = config.get("libraries", [])
         old_cf = str(old_root).casefold()
-        libraries = [new_prefix if str(Path(p).resolve()).casefold() == old_cf else p for p in libraries]
-        if new_prefix not in libraries:
-            libraries.insert(0, new_prefix)
-        current = config.get("current_root", "")
-        if current and str(Path(current).resolve()).casefold() == old_cf:
-            current = new_prefix
-        from library_config import library_state_file
-        state_path = library_state_file()
-        tmp = state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"current_root": current, "libraries": libraries}, indent=2), encoding="utf-8")
-        tmp.replace(state_path)
+        move_library_record(old_root, new_root)
         if str(self.library_root).casefold() == old_cf:
             type(self).current_library = (new_root, database)
         self.send_json({"ok": True, "path": str(new_root)})
@@ -7567,23 +7558,29 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def move_to_review_bin(self, body):
         asset_id = int(body["id"])
-        with self.db() as con:
-            asset = self.get_active_asset(con, asset_id)
-            source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
-            if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
-                raise ValueError("refusing to move this path")
-            review_root = review_bin_root().resolve()
-            destination = review_root / Path(asset["relative_path"])
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if destination.exists():
-                destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
-            destination.resolve().relative_to(review_root)
-            shutil.move(str(source), str(destination))
-            review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
-                VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
-            con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
-            console_log("Move a photo to the Review Bin: moved out of the library — "
-                        f"{asset['relative_path']}")
+        moves: list[tuple[Path, Path]] = []
+        try:
+            with self.db() as con:
+                asset = self.get_active_asset(con, asset_id)
+                source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
+                if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
+                    raise ValueError("refusing to move this path")
+                review_root = review_bin_root().resolve()
+                destination = review_root / Path(asset["relative_path"])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.exists():
+                    destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
+                destination.resolve().relative_to(review_root)
+                shutil.move(str(source), str(destination))
+                moves.append((source, destination))
+                review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
+                    VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
+                con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
+                console_log("Move a photo to the Review Bin: moved out of the library — "
+                            f"{asset['relative_path']}")
+        except Exception:
+            _undo_file_moves(moves)
+            raise
         self.send_json({"ok": True, "review_id": review_id})
 
     def move_to_review_bin_batch(self, body):
@@ -7594,25 +7591,31 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise ValueError("too many photos selected (max 500)")
         review_ids = []
         action = Action("Move photos to the Review Bin", f"{len(ids):,} selected")
-        with self.db() as con:
-            for asset_id in ids:
-                asset_id = int(asset_id)
-                asset = self.get_active_asset(con, asset_id)
-                source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
-                if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
-                    continue
-                review_root = review_bin_root().resolve()
-                destination = review_root / Path(asset["relative_path"])
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if destination.exists():
-                    destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
-                destination.resolve().relative_to(review_root)
-                shutil.move(str(source), str(destination))
-                review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
-                    VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
-                con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
-                review_ids.append(review_id)
-                action.note(f"moved out of the library: {asset['relative_path']}")
+        moves: list[tuple[Path, Path]] = []
+        try:
+            with self.db() as con:
+                for asset_id in ids:
+                    asset_id = int(asset_id)
+                    asset = self.get_active_asset(con, asset_id)
+                    source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
+                    if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
+                        continue
+                    review_root = review_bin_root().resolve()
+                    destination = review_root / Path(asset["relative_path"])
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    if destination.exists():
+                        destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
+                    destination.resolve().relative_to(review_root)
+                    shutil.move(str(source), str(destination))
+                    moves.append((source, destination))
+                    review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
+                        VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
+                    con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
+                    review_ids.append(review_id)
+                    action.note(f"moved out of the library: {asset['relative_path']}")
+        except Exception:
+            _undo_file_moves(moves)
+            raise
         skipped = len(ids) - len(review_ids)
         summary = f"{len(review_ids):,} photos moved to the Review Bin"
         if skipped > 0:

@@ -16,6 +16,7 @@ import csv
 import datetime as dt
 import hashlib
 import html
+import os
 import re
 import sqlite3
 import subprocess
@@ -959,17 +960,41 @@ def extract_gps_coordinates(path: Path) -> tuple[float | None, float | None]:
         return None, None
 
 
-def iter_media(root: Path):
-    for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in MEDIA_EXTENSIONS:
-            continue
+def iter_media(root: Path, unreadable: list[Path] | None = None):
+    """Yield (path, relative path) for every media file under root.
+
+    A folder that cannot be listed is skipped silently by a plain directory
+    walk, which looks the same as a folder with no photos in it. Passing a list
+    as `unreadable` collects those folders so the caller can tell the two apart.
+    """
+    def note_unreadable(error: OSError) -> None:
+        if unreadable is not None and error.filename:
+            unreadable.append(Path(error.filename))
+
+    for directory, directories, filenames in os.walk(root, onerror=note_unreadable):
+        directories[:] = [name for name in directories if name not in SKIP_DIRECTORIES]
+        for name in filenames:
+            path = Path(directory, name)
+            if path.suffix.lower() not in MEDIA_EXTENSIONS or not path.is_file():
+                continue
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
+            if any(part in SKIP_DIRECTORIES for part in rel.parts):
+                continue
+            yield path, rel
+
+
+def _unreadable_folders(root: Path, unreadable: list[Path]) -> list[str]:
+    """Folders iter_media could not list, as paths relative to root ('.' is root itself)."""
+    folders: list[str] = []
+    for folder in unreadable:
         try:
-            rel = path.relative_to(root)
+            folders.append(folder.relative_to(root).as_posix())
         except ValueError:
             continue
-        if any(part in SKIP_DIRECTORIES for part in rel.parts):
-            continue
-        yield path, rel
+    return folders
 
 
 def ensure_tag(con: sqlite3.Connection, name: str) -> int:
@@ -1044,6 +1069,10 @@ def scan_library(
     quiet: bool = False,
 ) -> int:
     root = root.resolve()
+    if not root.is_dir():
+        # Without this, an unplugged drive or an unreachable share looks like a
+        # library whose every photo was deleted, and the index is emptied.
+        raise FileNotFoundError(f"The photo folder is not available: {root}")
     con = connect(db_path)
     started = utc_now()
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
@@ -1065,7 +1094,8 @@ def scan_library(
 
     report()
 
-    for path, rel in iter_media(root):
+    unreadable: list[Path] = []
+    for path, rel in iter_media(root, unreadable):
         if should_cancel and should_cancel():
             counts["cancelled"] = True
             break
@@ -1170,6 +1200,31 @@ def scan_library(
 
     if not counts["cancelled"]:
         missing = {rel for rel, row in known.items() if not row["in_review_bin"]} - seen
+        blocked = _unreadable_folders(root, unreadable)
+        if "." in blocked or (missing and not seen):
+            # The top folder could not be read, or it came back with no photos
+            # at all while the index holds some. Either is far more likely to be
+            # a drive or share that is not really there than every photo being
+            # deleted, so the index is left exactly as it was.
+            con.execute("DELETE FROM runs WHERE id=?", (run_id,))
+            con.commit()
+            con.close()
+            raise OSError(
+                f"No photos could be read from {root}. The folder may be offline or "
+                "empty, so the existing index was left unchanged."
+            )
+        if blocked:
+            # Photos inside a folder that could not be listed were not seen,
+            # which does not mean they are gone.
+            missing = {rel for rel in missing if not any(
+                rel == folder or rel.startswith(folder + "/") for folder in blocked
+            )}
+            for folder in blocked:
+                counts["errors"] += 1
+                counts["error_details"].append({
+                    "path": folder,
+                    "error": "This folder could not be read. Its photos were left in the index.",
+                })
         if missing:
             orphan_hashes: dict[str, list[str]] = {}
             for rel_text in missing:

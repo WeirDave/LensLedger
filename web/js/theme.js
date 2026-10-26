@@ -174,4 +174,10 @@ function restartServer(stopRunning) {
 document.addEventListener('DOMContentLoaded', function() {
   var item = document.getElementById('restartServerMenu');
   if (item) item.addEventListener('click', function() { restartServer(false); });
+  // Looked up when clicked, so a page that defines its own copyDiagnostics
+  // (the Dev tools page) is the one that runs there.
+  var report = document.getElementById('reportIssueMenu');
+  if (report) report.addEventListener('click', function() { reportIssue(); });
+  var diagnostics = document.getElementById('copyDiagnosticsMenu');
+  if (diagnostics) diagnostics.addEventListener('click', function() { copyDiagnostics(); });
 });

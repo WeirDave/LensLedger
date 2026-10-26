@@ -245,6 +245,27 @@ class TestNoInlineStylesOrScripts(unittest.TestCase):
             f"take effect -- move them to a stylesheet: {offenders}",
         )
 
+    def test_no_inline_event_handler_attributes_in_any_served_page(self):
+        offenders = re.findall(r"""on[a-z]+\s*=\s*["']""", self.served_html())
+        self.assertEqual(
+            offenders, [],
+            "the policy omits 'unsafe-inline' for scripts too, so an onclick= "
+            "attribute never runs -- bind the handler from a script file instead",
+        )
+
+    def test_the_menu_buttons_that_replaced_inline_handlers_are_bound(self):
+        source = self.served_html()
+        theme = (Path(__file__).resolve().parent.parent / "web" / "js" / "theme.js").read_text(encoding="utf-8")
+        for element_id in ("reportIssueMenu", "copyDiagnosticsMenu"):
+            self.assertIn(f'id="{element_id}"', source)
+            self.assertIn(f"getElementById('{element_id}')", theme)
+
+    def test_the_faces_intro_dismiss_button_is_bound(self):
+        source = self.served_html()
+        script = (Path(__file__).resolve().parent.parent / "web" / "js" / "faces-review.js").read_text(encoding="utf-8")
+        self.assertIn('id="introDismiss"', source)
+        self.assertIn("$('introDismiss')", script)
+
     def test_the_policy_still_forbids_inline_styles(self):
         """If this ever gains 'unsafe-inline', the test above stops meaning anything."""
         source = self.served_html()

@@ -133,3 +133,94 @@ class LoadAllKnownLibrariesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LibraryStateRewriteTests(unittest.TestCase):
+    """Saving the current library must not forget anything else the file records."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        import library_config
+
+        self.library_config = library_config
+        self.state_path = self.root / "library-state.json"
+        self.patched_state_path = patch.object(library_config, "library_state_file", return_value=self.state_path)
+        self.patched_state_path.start()
+        self.here = self.root / "here"
+        self.here.mkdir()
+        self.other = self.root / "other"
+        self.other.mkdir()
+        self.unplugged = self.root / "unplugged drive" / "photos"
+
+    def tearDown(self):
+        self.patched_state_path.stop()
+        self.temporary.cleanup()
+
+    def state(self) -> dict:
+        return json.loads(self.state_path.read_text(encoding="utf-8"))
+
+    def write_state(self, **extra):
+        self.state_path.write_text(json.dumps({
+            "current_root": str(self.here),
+            "libraries": [str(self.here), str(self.unplugged), str(self.other)],
+            **extra,
+        }), encoding="utf-8")
+
+    def test_saving_the_current_library_keeps_where_each_database_lives(self):
+        (self.root / "appdata.sqlite3").write_bytes(b"")
+        self.library_config.associate_db_path(self.here, self.root / "appdata.sqlite3")
+
+        self.library_config.save_library_state(self.here)
+
+        self.assertEqual(
+            self.library_config.library_db_path(self.here), (self.root / "appdata.sqlite3").resolve(),
+            "a library whose database lives in the app data folder must still find it",
+        )
+
+    def test_saving_the_current_library_keeps_libraries_that_are_offline(self):
+        self.write_state()
+
+        self.library_config.save_library_state(self.other)
+
+        state = self.state()
+        self.assertEqual(state["current_root"], str(self.other.resolve()))
+        self.assertEqual(state["libraries"][0], str(self.other.resolve()))
+        self.assertIn(str(self.unplugged.resolve()), state["libraries"])
+        self.assertIn(str(self.here.resolve()), state["libraries"])
+        self.assertEqual(len(state["libraries"]), 3)
+
+    def test_the_offline_library_still_offers_itself_for_reconnecting(self):
+        self.write_state()
+        self.library_config.save_library_state(self.here)
+
+        known = {item["path"]: item["accessible"] for item in self.library_config.load_all_known_libraries()}
+
+        self.assertIs(known[str(self.unplugged.resolve())], False)
+
+    def test_forgetting_a_library_removes_only_that_one(self):
+        self.write_state(db_mappings={"x": "y"})
+
+        self.library_config.forget_library(self.other)
+
+        state = self.state()
+        self.assertEqual(state["libraries"], [str(self.here.resolve()), str(self.unplugged.resolve())])
+        self.assertEqual(state["db_mappings"], {"x": "y"})
+        self.assertEqual(state["current_root"], str(self.here))
+
+    def test_moving_a_library_keeps_the_rest_of_the_state(self):
+        self.write_state(db_mappings={"x": "y"})
+        moved = self.root / "moved"
+        moved.mkdir()
+
+        self.library_config.move_library_record(self.here, moved)
+
+        state = self.state()
+        self.assertEqual(state["current_root"], str(moved.resolve()))
+        self.assertEqual(state["libraries"], [str(moved.resolve()), str(self.unplugged.resolve()), str(self.other.resolve())])
+        self.assertEqual(state["db_mappings"], {"x": "y"})
+
+    def test_saving_with_no_state_file_creates_one(self):
+        self.library_config.save_library_state(self.here)
+
+        self.assertEqual(self.state()["libraries"], [str(self.here.resolve())])

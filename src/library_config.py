@@ -193,16 +193,82 @@ def load_library_state() -> Path:
     return default_library().resolve()
 
 
-def save_library_state(root: Path) -> None:
+def _read_state() -> dict[str, object]:
+    """The whole library-state file, or an empty dict when missing or unreadable."""
+    try:
+        raw = json.loads(library_state_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _recorded_libraries(state: dict[str, object]) -> list[str]:
+    """Every library path in the state file, including folders that are offline.
+
+    `load_library_config` drops folders that are not there right now, which is
+    right for deciding what to open but wrong for deciding what to write back:
+    an unplugged drive's library must still be on the list when it returns.
+    """
+    value = state.get("libraries", [])
+    if not isinstance(value, list):
+        return []
+    recorded: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            recorded.append(str(Path(item).resolve()))
+        except OSError:
+            recorded.append(item)
+    return recorded
+
+
+def _write_state(state: dict[str, object]) -> None:
     library_state_file().parent.mkdir(parents=True, exist_ok=True)
-    config = load_library_config()
-    libraries = [str(Path(str(item)).resolve()) for item in config.get("libraries", [])]
+    write_json_atomically(library_state_file(), state)
+
+
+def save_library_state(root: Path) -> None:
+    """Make `root` the current library and move it to the front of the list.
+
+    Everything else in the file is kept: the database location recorded for each
+    library, and libraries whose folders are not reachable at the moment.
+    """
+    state = _read_state()
     root_text = str(root.resolve())
-    libraries = [item for item in libraries if item.casefold() != root_text.casefold()]
+    libraries = [item for item in _recorded_libraries(state) if item.casefold() != root_text.casefold()]
     libraries.insert(0, root_text)
-    write_json_atomically(
-        library_state_file(), {"current_root": root_text, "libraries": libraries}
-    )
+    state["current_root"] = root_text
+    state["libraries"] = libraries
+    _write_state(state)
+
+
+def forget_library(path: Path) -> None:
+    """Drop `path` from the list of known libraries, leaving every other entry as it was."""
+    state = _read_state()
+    target = str(path.resolve()).casefold()
+    state["libraries"] = [item for item in _recorded_libraries(state) if item.casefold() != target]
+    _write_state(state)
+
+
+def move_library_record(old_root: Path, new_root: Path) -> None:
+    """Point the list of known libraries (and the current one) at `new_root` instead of `old_root`."""
+    state = _read_state()
+    old_text = str(old_root.resolve()).casefold()
+    new_text = str(new_root.resolve())
+    libraries = [new_text if item.casefold() == old_text else item for item in _recorded_libraries(state)]
+    if new_text not in libraries:
+        libraries.insert(0, new_text)
+    current = str(state.get("current_root") or state.get("root") or "")
+    try:
+        current_matches = bool(current) and str(Path(current).resolve()).casefold() == old_text
+    except OSError:
+        current_matches = False
+    if current_matches:
+        current = new_text
+    state["current_root"] = current
+    state["libraries"] = libraries
+    _write_state(state)
 
 
 def suggested_library_roots() -> list[dict[str, str]]:

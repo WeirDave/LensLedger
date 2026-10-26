@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -48,6 +49,29 @@ def _is_backup(path: Path) -> bool:
     return ".before-" in path.name
 
 
+_COPY_TIME = re.compile(r"\.before-(?:[a-z]+-)*(\d{8}T\d{6})(\d{0,6})Z", re.IGNORECASE)
+
+
+def copy_time(path: Path, stat: os.stat_result | None = None) -> float:
+    """When a safety copy was made, as a POSIX timestamp.
+
+    The copy keeps the photo's own modification time, so that time says how old
+    the photo is, not how old the copy is: a copy of a three-year-old photo would
+    look three years old the moment it was made. The name carries the moment of
+    the copy, so that is used; the file time is only the fallback for a name
+    that does not.
+    """
+    matches = _COPY_TIME.findall(path.name)
+    if matches:
+        stamp, micro = matches[-1]
+        try:
+            moment = dt.datetime.strptime(stamp, "%Y%m%dT%H%M%S").replace(tzinfo=dt.timezone.utc)
+            return moment.timestamp() + (int(micro.ljust(6, "0")) / 1_000_000 if micro else 0)
+        except ValueError:
+            pass
+    return (stat or path.stat()).st_mtime
+
+
 def usage(backup_root: Path) -> dict[str, object]:
     """Total size, count and age span of the safety copies kept on disk."""
     total = 0
@@ -64,8 +88,9 @@ def usage(backup_root: Path) -> dict[str, object]:
                 continue
             total += stat.st_size
             count += 1
-            oldest = stat.st_mtime if oldest is None else min(oldest, stat.st_mtime)
-            newest = stat.st_mtime if newest is None else max(newest, stat.st_mtime)
+            made = copy_time(path, stat)
+            oldest = made if oldest is None else min(oldest, made)
+            newest = made if newest is None else max(newest, made)
     return {
         "bytes": total,
         "count": count,
@@ -118,7 +143,7 @@ def prune(backup_root: Path, keep_days: int | None = None,
             stat = path.stat()
         except OSError:
             continue
-        entries.append((stat.st_mtime, stat.st_size, path))
+        entries.append((copy_time(path, stat), stat.st_size, path))
     entries.sort()
 
     removed = 0

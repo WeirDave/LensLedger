@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -17,11 +19,9 @@ class TestBackupHousekeeping(unittest.TestCase):
         self.temporary.cleanup()
 
     def make_backup(self, name: str, size: int = 1024, age_days: float = 0) -> Path:
-        path = self.root / f"{name}.before-write-tags-20260101T000000Z.jpg"
+        made = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=age_days)
+        path = self.root / f"{name}.before-write-tags-{made:%Y%m%dT%H%M%S%fZ}.jpg"
         path.write_bytes(b"x" * size)
-        if age_days:
-            when = time.time() - (age_days * 86400)
-            os.utime(path, (when, when))
         return path
 
     def test_usage_counts_only_safety_copies(self):
@@ -153,3 +153,44 @@ class TestBackupName(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_a_fresh_copy_of_an_old_photo_is_not_pruned(self):
+        from metadata_backups import backup_name, prune
+
+        photo = self.root / "original.jpg"
+        photo.write_bytes(b"x" * 100)
+        long_ago = time.time() - 400 * 86400
+        os.utime(photo, (long_ago, long_ago))
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        copy = self.root / backup_name("original", "before-", stamp, ".jpg")
+        shutil.copy2(photo, copy)
+
+        result = prune(self.root, keep_days=30, max_bytes=None)
+
+        self.assertEqual(result["removed"], 0)
+        self.assertTrue(copy.exists(), "a copy made just now must not be aged by the photo's date")
+
+    def test_size_limit_orders_copies_by_when_they_were_made(self):
+        from metadata_backups import prune
+
+        older = self.make_backup("older", size=1000, age_days=5)
+        newer = self.make_backup("newer", size=1000, age_days=1)
+        # Give the newer copy the older file time, as copy2 of an older photo does.
+        long_ago = time.time() - 900 * 86400
+        os.utime(newer, (long_ago, long_ago))
+
+        prune(self.root, keep_days=None, max_bytes=1000)
+
+        self.assertFalse(older.exists())
+        self.assertTrue(newer.exists())
+
+    def test_a_name_without_a_timestamp_falls_back_to_the_file_time(self):
+        from metadata_backups import copy_time
+
+        path = self.root / "odd.before-.jpg"
+        path.write_bytes(b"x")
+        when = time.time() - 10 * 86400
+        os.utime(path, (when, when))
+
+        self.assertAlmostEqual(copy_time(path), when, delta=2)
+

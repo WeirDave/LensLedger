@@ -229,6 +229,31 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0], 0)
         con.close()
 
+    def test_a_bulk_trash_that_fails_part_way_leaves_every_photo_where_it_was(self):
+        from photo_index import scan_library
+
+        second = self.library / "second.jpg"
+        Image.new("RGB", (32, 24), (200, 10, 10)).save(second, quality=92)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        ids = [int(row[0]) for row in con.execute("SELECT id FROM assets ORDER BY filename")]
+        con.close()
+
+        # The same photo twice makes the batch fail after the first moves.
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/review-bin/batch", {"ids": [ids[0], ids[1], ids[1]]})
+        caught.exception.close()
+
+        self.assertTrue(self.photo.is_file() and second.is_file(), "both photos must be back in the library")
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=1").fetchone()[0], 0)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM review_bin").fetchone()[0], 0)
+        stored = {row[0] for row in con.execute("SELECT path FROM assets")}
+        con.close()
+        self.assertEqual(stored, {str(self.photo.resolve()), str(second.resolve())})
+        bin_files = [path for path in self.photo_search.review_bin_root().rglob("*") if path.is_file()]
+        self.assertEqual(bin_files, [], "nothing may be left stranded in the Review Bin")
+
     def test_one_photo_that_cannot_be_put_back_does_not_strand_the_others(self):
         second, review_ids = self.bin_two_photos()
         Image.new("RGB", (8, 8)).save(second)  # something now sits where it was

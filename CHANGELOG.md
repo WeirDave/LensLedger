@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.2 — 2026-10-26
+
+- A scan no longer empties the index when the photo folder cannot be reached, for example an unplugged drive or a disconnected network share. It stops with a message and leaves the index as it was. The same applies when a folder that has photos indexed suddenly contains none.
+- A subfolder that cannot be read during a scan is counted under **errors** on the **Scan your photos** page, and its photos stay in the index instead of being removed.
+- Safety copies are now aged from when the copy was made, not from the photo's own modified time. Copies of older photos were previously cleared by the next clean-up, so **Undo** and **Restore from safety copy** stopped working before the **Keep photo safety copies for (days)** period ended.
+- Saving the current library after a scan no longer forgets where its database is stored, so a library kept in the application data folder reopens with its own database. Libraries on drives that are not connected stay in the list for reconnecting. **Remove** and **Relocate** on the Settings page keep these records too.
+- A bulk move to the Review Bin that fails part way now puts the photos already moved back in their folders. Moving a single photo is protected the same way.
+- **Report an issue** and **Copy diagnostics** in the navigation menu work again, and **Got it, don't show again** on the People page dismisses its introduction.
+
 ## 1.28.1 — 2026-10-23
 
 - The automatic check for a newer release now runs at most once an hour while LensLedger is in use, instead of once every six hours, so a new release is announced sooner.
