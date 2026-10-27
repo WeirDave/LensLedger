@@ -1373,6 +1373,65 @@ class ServerWorkflowTests(unittest.TestCase):
         finally:
             con.close()
 
+    def merge_two_people_on_the_sample_photo(self, extension=".jpg"):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        target_id = int(con.execute("INSERT INTO people(name) VALUES ('Mara Quillfeather')").lastrowid)
+        source_id = int(con.execute("INSERT INTO people(name) VALUES ('M. Quillfeather')").lastrowid)
+        face_id = int(con.execute(
+            """INSERT INTO face_embeddings(source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,person_id)
+               VALUES ('test',1,?,?,4,?,?)""",
+            (self.asset_id, self.photo.name, bytes(16), source_id),
+        ).lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+               VALUES (?,?,'confirmed',0.9,?,'manual',?)""",
+            (self.asset_id, source_id, face_id, utc_now()),
+        )
+        con.execute("UPDATE assets SET extension=? WHERE id=?", (extension, self.asset_id))
+        con.commit()
+        con.close()
+        with patch.object(
+            self.photo_search.SearchHandler, "_publish_people_metadata",
+            return_value={"path": self.photo, "backup": self.photo, "filename": self.photo.name},
+        ) as publish, patch.object(self.photo_search, "learn_faces", return_value={"suggestions": 0}):
+            self.json_response(self.post(
+                "/api/person/merge",
+                {"target_person_id": target_id, "source_person_ids": [source_id]},
+            ))
+        return target_id, face_id, publish
+
+    def test_merged_faces_stay_assigned_to_the_person_that_was_kept(self):
+        target_id, face_id, _ = self.merge_two_people_on_the_sample_photo()
+
+        con = sqlite3.connect(self.database)
+        try:
+            owner = con.execute("SELECT person_id FROM face_embeddings WHERE id=?", (face_id,)).fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(owner, target_id, "a confirmed face must not fall back to unidentified after a merge")
+
+    def test_merge_rewrites_every_publishable_file_type_not_only_jpeg(self):
+        _, _, publish = self.merge_two_people_on_the_sample_photo(extension=".png")
+
+        self.assertEqual(publish.call_count, 1)
+
+    def test_a_malformed_query_value_gets_an_answer_instead_of_a_dropped_connection(self):
+        for path in ("/people-review?person=%C2%B2", "/?person=%C2%B2", "/?photo=%C2%B2",
+                     "/people/review?person=%C2%B2"):
+            with self.subTest(path=path):
+                response = self.raw_request("GET", path)
+                self.assertIn(response.status, (200, 301, 400, 404), "the server must answer, not hang up")
+
+    def test_a_failure_inside_a_page_is_answered_as_an_error(self):
+        with patch.object(self.photo_search.SearchHandler, "library_status", side_effect=ValueError("bad value")):
+            response = self.raw_request("GET", "/api/library/status")
+        self.assertEqual(response.status, 400)
+        with patch.object(self.photo_search.SearchHandler, "library_status", side_effect=RuntimeError("broken")):
+            response = self.raw_request("GET", "/api/library/status")
+        self.assertEqual(response.status, 500)
+
     def test_possible_duplicate_people_can_be_listed_and_dismissed(self):
         con = sqlite3.connect(self.database)
         left = int(con.execute("INSERT INTO people(name) VALUES ('Katherine Vollmer')").lastrowid)

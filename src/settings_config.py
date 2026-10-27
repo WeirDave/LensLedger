@@ -20,15 +20,8 @@ def settings_file() -> Path:
 
 DEFAULTS: dict[str, object] = {
     "scan": {
-        "ocr_workers": 4,
-        "ocr_batch_size": 50,
         "semantic_batch_size": 16,
         "semantic_model": "ViT-B-32/openai",
-    },
-    "display": {
-        "photos_per_page": 250,
-        "default_sort": "newest",
-        "filmstrip_size": "medium",
     },
     "watch": {
         "enabled": True,

@@ -102,8 +102,6 @@ An incremental library scan that discovers new and changed files and extracts em
 
 Reads visible text in your photos — signs, screenshots, receipts, documents — and makes it searchable. It uses the built-in Windows OCR engine, so it is only available on Windows; on macOS and Linux the section says so, and **Run all scans** and folder watching skip it. You can configure:
 
-- **OCR worker threads** (1–16, default 4) — more workers scan faster but use more CPU
-- **OCR batch size** (10–500, default 50) — photos processed per commit
 - **Only since** date filter — skip photos taken before a specific date, useful for scanning only recent additions
 - **Read photos again that have already been read** — normally a run only picks up photos never read before. Tick this to read everything again, which is what you want after changing something about how text is read. It asks for confirmation first, because on a large library it takes a while.
 
@@ -453,21 +451,11 @@ Manage your library list: add, switch, relocate, or remove libraries. See [Libra
 
 | Setting | Range | Default | Description |
 |---------|-------|---------|-------------|
-| OCR worker threads | 1–16 | 4 | More workers scan faster but use more CPU |
-| OCR batch size | 10–500 | 50 | Photos processed per OCR commit |
 | Meaning search batch | 1–128 | 16 | Images per CLIP encoding batch |
 
 ### Meaning search model
 
 Choose the CLIP model for meaning search. See [Meaning search](#meaning-search-optional).
-
-### Display preferences
-
-| Setting | Options | Default | Description |
-|---------|---------|---------|-------------|
-| Photos per page | 50–1000 | 250 | Number of photos loaded per filmstrip page |
-| Default sort order | Newest / Oldest / Name | Newest first | Initial sort when opening the library |
-| Filmstrip thumbnail size | Small / Medium / Large | Medium | Size of thumbnails in the filmstrip |
 
 ### Metadata publishing
 

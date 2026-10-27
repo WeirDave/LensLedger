@@ -110,19 +110,12 @@ async function deleteModel(modelId,modelName){
 
 function collectSettings(){
   const s=JSON.parse(JSON.stringify(settings));
-  const v=(id)=>{const el=$('#'+id);return el?el.value:undefined};
   const n=(id)=>{const el=$('#'+id);return el?parseInt(el.value,10)||0:0};
   const c=(id)=>{const el=$('#'+id);return el?el.checked:false};
   s.scan=s.scan||{};
-  s.scan.ocr_workers=n('ocrWorkers');
-  s.scan.ocr_batch_size=n('ocrBatchSize');
   s.scan.semantic_batch_size=n('semanticBatchSize');
   const modelRadio=document.querySelector('input[name="semantic_model"]:checked');
   if(modelRadio)s.scan.semantic_model=modelRadio.value;
-  s.display=s.display||{};
-  s.display.photos_per_page=n('photosPerPage');
-  s.display.default_sort=v('defaultSort');
-  s.display.filmstrip_size=v('filmstripSize');
   s.watch=s.watch||{};
   s.watch.enabled=c('watchEnabled');
   s.watch.interval_minutes=n('watchInterval');

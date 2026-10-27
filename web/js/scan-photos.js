@@ -213,6 +213,7 @@ function renderLiveFailures(metricsId, failures) {
 
 async function refreshPhotoBackups() {
   if (!$('photoBackupMetrics')) return;
+  backupsAt = Date.now();
   let info;
   try { info = await fetch('/api/photo-backups/status').then(r => r.json()); }
   catch { return; }
@@ -307,16 +308,52 @@ async function clearPhotoBackups(scope, button) {
 }
 
 
+// One polling loop for the whole page. Every action button calls refresh() to
+// update straight away; that must reschedule the loop, not start another one.
+const POLL_ACTIVE_MS = 700, POLL_IDLE_MS = 4000, POLL_HIDDEN_MS = 15000;
+const DIAGNOSTICS_ACTIVE_MS = 5000, DIAGNOSTICS_IDLE_MS = 30000, BACKUPS_MS = 30000;
+let pollTimer = null, pollInFlight = false, pollQueued = false;
+let diagnosticsCache = null, diagnosticsAt = 0, diagnosticsWhileActive = false, backupsAt = 0;
+
+// Database health and the library counts are the costly part of a poll, so
+// they are refetched less often than the live scan states, and once more as
+// soon as a scan finishes so the final counts show.
+async function currentDiagnostics(active) {
+  const maxAge = active ? DIAGNOSTICS_ACTIVE_MS : DIAGNOSTICS_IDLE_MS;
+  const justFinished = diagnosticsWhileActive && !active;
+  if (!diagnosticsCache || justFinished || Date.now() - diagnosticsAt > maxAge) {
+    diagnosticsCache = await fetch('/api/diagnostics').then(r => r.json());
+    diagnosticsAt = Date.now();
+  }
+  diagnosticsWhileActive = active;
+  return diagnosticsCache;
+}
+
 async function refresh() {
+  if (pollInFlight) { pollQueued = true; return; }
+  clearTimeout(pollTimer);
+  pollInFlight = true;
+  let delay;
+  try { delay = await pollOnce(); }
+  finally { pollInFlight = false; }
+  if (pollQueued) { pollQueued = false; delay = Math.min(delay, POLL_ACTIVE_MS); }
+  pollTimer = setTimeout(refresh, document.hidden ? Math.max(delay, POLL_HIDDEN_MS) : delay);
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+
+async function pollOnce() {
   try {
-    const [diagnostics, locationStatus, ocr, semantic, faceScan, scanAll] = await Promise.all([
-      fetch('/api/diagnostics').then(r => r.json()),
+    const [locationStatus, ocr, semantic, faceScan, scanAll] = await Promise.all([
       fetch('/api/library/status').then(r => r.json()),
       fetch('/api/ocr/status').then(r => r.json()),
       fetch('/api/semantic/status').then(r => r.json()),
       fetch('/api/faces/status').then(r => r.json()),
       fetch('/api/scan-all/status').then(r => r.json()),
     ]);
+    const diagnostics = await currentDiagnostics(
+      scanAll.state === 'running' || locationStatus.state === 'scanning' || ocr.state === 'running'
+      || semantic.state === 'running' || faceScan.state === 'running');
     const scanAllRunning = scanAll.state === 'running';
     const STEP_LABELS = { location: 'photo locations', ocr: 'OCR', semantic: 'meaning search', face: 'face detection' };
     const scanAllSteps = ['location', ...(ocr.available === false ? [] : ['ocr']), ...(semantic.installed ? ['semantic'] : []), ...(faceScan.installed ? ['face'] : [])];
@@ -434,7 +471,7 @@ async function refresh() {
         : '');
     if (!semanticInstalling) setBar('semanticBar', semantic.indexed_this_pass, semanticRunning ? semantic.total : 0);
     renderLiveFailures('semanticMetrics', semantic.failures);
-    refreshPhotoBackups();
+    if (Date.now() - backupsAt > BACKUPS_MS) refreshPhotoBackups();
 
     // Face detection
     const faceInstall = faceScan.install || {};
@@ -469,10 +506,10 @@ async function refresh() {
     if (!faceInstalling) setBar('faceScanBar', faceScan.processed, faceScanRunning ? faceScan.total : 0);
 
     const anyActive = locationScanning || ocrRunning || semanticRunning || semanticInstalling || faceScanRunning || faceInstalling || scanAllRunning;
-    setTimeout(refresh, anyActive ? 700 : 4000);
+    return anyActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
   } catch (error) {
     $('ocrMessage').textContent = error.message;
-    setTimeout(refresh, 4000);
+    return POLL_IDLE_MS;
   }
 }
 

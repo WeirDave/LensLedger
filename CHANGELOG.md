@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.4 — 2026-10-26
+
+- Merging two people keeps the faces already named with the person that remains. They previously fell back to unidentified faces when the merged name was removed. The merge also rewrites the names stored in every supported photo type (JPEG, HEIC, PNG, WebP and TIFF) instead of JPEG only.
+- The **Scan your photos** page refreshes through a single loop. Pressing a start or pause button no longer adds another loop, which multiplied the requests made while a scan ran. Database health and library counts are refreshed every 5 seconds during a scan and every 30 seconds otherwise, safety copy figures every 30 seconds, and a page in a hidden browser tab refreshes every 15 seconds and again as soon as it is shown.
+- Removed the Settings controls **OCR worker threads**, **OCR batch size**, **Photos per page**, **Default sort order** and **Filmstrip thumbnail size**, and the **Display preferences** section that held three of them. Their values were saved but never used. The user manual no longer lists them.
+- The light and dark button on the **Publish** page is handled by the same script as every other page, so the choice is saved under the same key and applies everywhere.
+- A page address with an unusual character where a number is expected, such as a person number, no longer ends the connection without a reply. Any other unexpected error while loading a page is answered with an error message and written to the log.
+
 ## 1.28.3 — 2026-10-26
 
 - A scan no longer empties the index when the photo folder cannot be reached, for example an unplugged drive or a disconnected network share. It stops with a message and leaves the index as it was. The same applies when a folder that has photos indexed suddenly contains none.

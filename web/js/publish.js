@@ -167,7 +167,7 @@ $('publishAll').onclick = async () => {
   }
 };
 
-// Menu, about, and theme (shared pattern)
+// Menu and about (shared pattern); theme.js owns the theme toggle
 function openMenu(){$('menuPanel').classList.add('open');$('menuBackdrop').classList.add('open')}
 function closeMenu(){$('menuPanel').classList.remove('open');$('menuBackdrop').classList.remove('open')}
 $('menuToggle').onclick = e => { e.stopPropagation(); if($('menuPanel').classList.contains('open'))closeMenu();else openMenu(); };
@@ -175,13 +175,6 @@ $('menuClose').onclick = closeMenu; $('menuBackdrop').onclick = closeMenu;
 document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') && !e.target.closest('.menu-toggle')) closeMenu(); });
 document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{closeMenu();if(b.dataset.panel==='about'){const o=document.getElementById('aboutOverlay');if(o)o.classList.add('open')}else if(b.dataset.panel==='guide'||b.dataset.panel==='update')window.location='/?panel='+b.dataset.panel});
 document.getElementById('aboutClose').onclick=document.getElementById('aboutOverlay').onclick=function(e){if(e.target===this||e.target.id==='aboutClose')document.getElementById('aboutOverlay').classList.remove('open')};
-document.querySelector('.theme-toggle')?.addEventListener('click', () => {
-  const html = document.documentElement;
-  const current = html.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  try { localStorage.setItem('theme', next); } catch {}
-});
 
 if ($('classifyPhotos')) {
   $('classifyPhotos').onclick = async () => {

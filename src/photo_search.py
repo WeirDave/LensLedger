@@ -1570,6 +1570,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_bytes(json.dumps(value).encode("utf-8"), "application/json; charset=utf-8", status)
 
     def do_GET(self):
+        try:
+            return self._route_get()
+        except ConnectionError:
+            return None
+        except Exception as exc:
+            self.log_action_failure(exc)
+            status = 400 if isinstance(exc, (ValueError, KeyError)) else 500
+            try:
+                return self.send_json({"error": str(exc)}, status)
+            except OSError:
+                return None
+
+    def _route_get(self):
         if not is_local_host_header(self.headers.get("Host")):
             return self.send_error(403)
         url = urllib.parse.urlparse(self.path)
@@ -1655,7 +1668,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/people-review":
             person = params.get("person", [""])[0]
-            qs = f"?person={int(person)}" if person.isdigit() else ""
+            qs = f"?person={int(person)}" if person.isdecimal() else ""
             self.send_response(301)
             self.send_header("Location", f"/people/review{qs}")
             self.end_headers()
@@ -2020,7 +2033,6 @@ class SearchHandler(BaseHTTPRequestHandler):
             if root.is_dir():
                 libraries.append({"label": root.name or str(root), "path": str(root.resolve())})
         scan = settings.get("scan", {})
-        display = settings.get("display", {})
         watch = settings.get("watch", {})
         ingest = settings.get("ingest", {})
         publish = settings.get("publish", {})
@@ -2037,20 +2049,14 @@ class SearchHandler(BaseHTTPRequestHandler):
 <title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
 {nav_menu("settings", str(self.library_root))}
-<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#face-detection">Face detection</a></li><li><a href="#display-prefs">Display preferences</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#metadata-publishing">Metadata publishing</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
+<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#face-detection">Face detection</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#metadata-publishing">Metadata publishing</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
 <section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div>
 <div class="toggle-row toggle-row-spaced"><label class="toggle-switch"><input type="checkbox" id="showLibraryPicker" {"checked" if startup_cfg.get("show_library_picker") else ""}><span class="slider"></span></label><label for="showLibraryPicker">Ask which library to open at startup</label></div>
 <div class="toggle-row toggle-row-spaced"><label class="toggle-switch"><input type="checkbox" id="terminalTab" {"checked" if startup_cfg.get("terminal_tab", True) is not False else ""}><span class="slider"></span></label><label for="terminalTab">Open the launcher in a Windows Terminal tab</label></div></section>
 <section class="card" id="scan-prefs"><h2>Scan preferences</h2>
-<div class="field"><label for="ocrWorkers">OCR worker threads</label><input type="number" id="ocrWorkers" min="1" max="16" value="{int(scan.get('ocr_workers', 4))}"><span class="hint">More workers scan faster but use more CPU. Default: 4</span></div>
-<div class="field"><label for="ocrBatchSize">OCR batch size</label><input type="number" id="ocrBatchSize" min="10" max="500" value="{int(scan.get('ocr_batch_size', 50))}"><span class="hint">Photos processed per OCR commit. Default: 50</span></div>
 <div class="field"><label for="semanticBatchSize">Meaning search batch</label><input type="number" id="semanticBatchSize" min="1" max="128" value="{int(scan.get('semantic_batch_size', 16))}"><span class="hint">Images per CLIP encoding batch. Default: 16</span></div></section>
 <section class="card" id="meaning-search"><h2>Meaning search model</h2><div id="semanticSetupArea"><p id="semanticSetupMsg">Checking meaning search status…</p><div class="progress-bar" id="semanticInstallBarWrap" hidden><span id="semanticInstallBar"></span></div><div class="semantic-install-actions" id="semanticInstallActions"><button type="button" id="installSemantic">Set up meaning search</button></div></div><p class="model-intro" id="modelIntro" hidden>Choose the CLIP model for meaning search. Better models produce higher quality results but are larger and slower. Changing the model will re-index your photos on the next meaning search run. The selected model is downloaded automatically when you first run meaning search. You can delete unused models to reclaim disk space.</p><div class="model-list" id="modelList"></div></section>
 <section class="card" id="face-detection"><h2>Face detection model</h2><div id="faceSetupArea"><p id="faceSetupMsg">Checking face detection status…</p><div class="progress-bar" id="faceInstallBarWrap" hidden><span id="faceInstallBar"></span></div><div class="semantic-install-actions" id="faceInstallActions"><button type="button" id="installFaceBtn">Set up face detection</button></div></div><div id="faceModelInfo" hidden><p class="model-intro">Face detection uses the InsightFace buffalo_l model for local face recognition. The model runs entirely on this computer; nothing is ever uploaded.</p><div class="model-list" id="faceModelList"></div></div></section>
-<section class="card" id="display-prefs"><h2>Display preferences</h2>
-<div class="field"><label for="photosPerPage">Photos per page</label><input type="number" id="photosPerPage" min="50" max="1000" value="{int(display.get('photos_per_page', 250))}"><span class="hint">Number of photos loaded per filmstrip page. Default: 250</span></div>
-<div class="field"><label for="defaultSort">Default sort order</label><select id="defaultSort"><option value="newest" {"selected" if display.get("default_sort", "newest") == "newest" else ""}>Newest first</option><option value="oldest" {"selected" if display.get("default_sort") == "oldest" else ""}>Oldest first</option><option value="name" {"selected" if display.get("default_sort") == "name" else ""}>By name</option></select></div>
-<div class="field"><label for="filmstripSize">Filmstrip thumbnail size</label><select id="filmstripSize"><option value="small" {"selected" if display.get("filmstrip_size") == "small" else ""}>Small</option><option value="medium" {"selected" if display.get("filmstrip_size", "medium") == "medium" else ""}>Medium</option><option value="large" {"selected" if display.get("filmstrip_size") == "large" else ""}>Large</option></select></div></section>
 <section class="card" id="folder-watching"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
@@ -2187,8 +2193,6 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Reads visible text in your photos &mdash; signs, screenshots, receipts, documents &mdash; and makes it searchable. It uses the built-in Windows OCR engine, so it is only available on Windows; on macOS and Linux the section says so, and <strong>Run all scans</strong> and folder watching skip it.</p>
 <table>
 <tr><th>Setting</th><th>Range</th><th>Default</th><th>Description</th></tr>
-<tr><td>OCR workers</td><td>1&ndash;16</td><td>4</td><td>More workers scan faster but use more CPU</td></tr>
-<tr><td>Batch size</td><td>10&ndash;500</td><td>50</td><td>Photos processed per commit</td></tr>
 <tr><td>Skip photos before</td><td>Date</td><td>&mdash;</td><td>Only process photos taken on or after this date (leave empty to scan everything)</td></tr>
 </table>
 <p>Tick <strong>Read photos again that have already been read</strong> to re-read photos already done, rather than only new ones. It asks first, because on a large library it takes a while.</p>
@@ -2462,19 +2466,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Scan preferences</h3>
 <table>
 <tr><th>Setting</th><th>Range</th><th>Default</th><th>Description</th></tr>
-<tr><td>OCR worker threads</td><td>1&ndash;16</td><td>4</td><td>More workers = faster scanning, more CPU</td></tr>
-<tr><td>OCR batch size</td><td>10&ndash;500</td><td>50</td><td>Photos processed per commit</td></tr>
 <tr><td>Meaning search batch</td><td>1&ndash;128</td><td>16</td><td>Images per CLIP encoding batch</td></tr>
 </table>
 <h3>Meaning search model</h3>
 <p>Choose the CLIP model for meaning search. See <a href="#scanning">Scanning</a> for model details.</p>
-<h3>Display preferences</h3>
-<table>
-<tr><th>Setting</th><th>Options</th><th>Default</th></tr>
-<tr><td>Photos per page</td><td>50&ndash;1000</td><td>250</td></tr>
-<tr><td>Default sort order</td><td>Newest / Oldest / Name</td><td>Newest</td></tr>
-<tr><td>Filmstrip thumbnail size</td><td>Small / Medium / Large</td><td>Medium</td></tr>
-</table>
 <h3>Folder watching</h3>
 <p>Automatically detect new and changed photos without manually running a scan.</p>
 <table>
@@ -2812,7 +2807,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         selected_date = params.get("date", [""])[0]
         scope = params.get("scope", ["all"])[0]
         requested_person = params.get("person", [""])[0]
-        person_id = int(requested_person) if requested_person.isdigit() else None
+        person_id = int(requested_person) if requested_person.isdecimal() else None
         if scope not in {"image", "context", "people", "semantic", "duplicates", "similar", "all"}:
             scope = "image"
         default_sort = "relevance" if (query and scope == "all") else ("oldest" if selected_date else "newest")
@@ -3121,7 +3116,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         items = rows
         requested_id = params.get("selected", [""])[0]
-        selected_id = int(requested_id) if requested_id.isdigit() and any(int(x["id"]) == int(requested_id) for x in items) else (int(items[0]["id"]) if items else None)
+        selected_id = int(requested_id) if requested_id.isdecimal() and any(int(x["id"]) == int(requested_id) for x in items) else (int(items[0]["id"]) if items else None)
         first = (page_number - 1) * PAGE_SIZE + 1 if total else 0
         last = min(page_number * PAGE_SIZE, total)
         if scope == "people" and not person_id:
@@ -3331,7 +3326,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def people_review_page(self, params):
         requested = params.get("person", [""])[0]
-        initial_person_id = int(requested) if requested.isdigit() else None
+        initial_person_id = int(requested) if requested.isdecimal() else None
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>People — review suggestions — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/people-review.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "initialPersonId": initial_person_id, "appVersion": APP_VERSION, "appTagline": APP_TAGLINE})}>
@@ -3514,7 +3509,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         try:
             asset_id = int(params.get("id", [""])[0])
             requested_person = params.get("person_id", [""])[0]
-            focused_person_id = int(requested_person) if requested_person.isdigit() else None
+            focused_person_id = int(requested_person) if requested_person.isdecimal() else None
             with self.db() as con:
                 asset = self.get_active_asset(con, asset_id)
                 source_path = self.library_root / Path(asset["relative_path"])
@@ -4743,7 +4738,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def people_review_queue(self, params):
         requested = params.get("person_id", [""])[0]
-        requested_id = int(requested) if requested.isdigit() else None
+        requested_id = int(requested) if requested.isdecimal() else None
         advance = params.get("advance", [""])[0] == "1"
         with self.db() as con:
             con.execute("DELETE FROM person_review_deferrals WHERE deferred_until<=?", (utc_now(),))
@@ -6420,6 +6415,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "INSERT INTO person_aliases(person_id,alias) VALUES (?,?)",
                     [(target_id, name) for name in retained_names],
                 )
+                con.execute(
+                    f"UPDATE face_embeddings SET person_id=? WHERE person_id IN ({source_placeholders})",
+                    (target_id, *source_ids),
+                )
                 con.execute(f"DELETE FROM people WHERE id IN ({source_placeholders})", source_ids)
 
                 for asset_id in affected_asset_ids:
@@ -6436,7 +6435,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                     active_confirmed = con.execute(
                         f"""SELECT ap.asset_id FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
                                WHERE ap.person_id=? AND ap.state='confirmed' AND a.in_review_bin=0
-                                 AND a.extension IN ('.jpg','.jpeg')
+                                 AND {_PUBLISHABLE_SQL}
                                  AND ap.asset_id IN ({','.join('?' for _ in affected_asset_ids)})""",
                         (target_id, *affected_asset_ids),
                     ).fetchall()
