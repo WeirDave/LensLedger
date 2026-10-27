@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.6 — 2026-10-26
+
+- **Publish** refuses to start while another publish run is going, and its progress is reset when a run ends, including a failed one. Publishing names and **Write all tags** also refuse to run at the same time, each saying which to wait for.
+- **Write all tags** claims itself in the same step that checks it is not already running, so two requests can no longer both start a run. A run that cannot start, for example for lack of disk space, releases its claim.
+- Opening another library is refused while tags are being written or names are being published.
+- **Auto-classify photos after meaning search** skips itself while a classification is already running, and takes the same lock as **Classify photos** while it runs.
+- Restoring a photo from its safety copy marks its confirmed names as not yet published, so **Publish all** offers them again.
+- Merging people no longer counts a photo that cannot carry names as rewritten, and undoing a people batch no longer fails on such a photo.
+- A downloaded update stays available when the helper that installs it cannot be started, and a git update that cannot restart reports that LensLedger needs to be closed and started again.
+
 ## 1.28.5 — 2026-10-26
 
 - Saving **Settings** checks every value first and saves nothing when one is not acceptable. The message names the setting and the allowed range, for example the folder watching **Check interval (minutes)**, which accepts 5 to 1440. Previously a bad value was written to the settings file and the save then failed, which could stop LensLedger starting.

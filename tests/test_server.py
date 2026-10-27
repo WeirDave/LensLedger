@@ -1373,7 +1373,7 @@ class ServerWorkflowTests(unittest.TestCase):
         finally:
             con.close()
 
-    def merge_two_people_on_the_sample_photo(self, extension=".jpg"):
+    def merge_two_people_on_the_sample_photo(self, extension=".jpg", rewrite_result="default"):
         from photo_index import utc_now
 
         con = sqlite3.connect(self.database)
@@ -1394,9 +1394,10 @@ class ServerWorkflowTests(unittest.TestCase):
         con.close()
         with patch.object(
             self.photo_search.SearchHandler, "_publish_people_metadata",
-            return_value={"path": self.photo, "backup": self.photo, "filename": self.photo.name},
+            return_value=({"path": self.photo, "backup": self.photo, "filename": self.photo.name}
+                          if rewrite_result == "default" else rewrite_result),
         ) as publish, patch.object(self.photo_search, "learn_faces", return_value={"suggestions": 0}):
-            self.json_response(self.post(
+            self.last_merge = self.json_response(self.post(
                 "/api/person/merge",
                 {"target_person_id": target_id, "source_person_ids": [source_id]},
             ))
@@ -1524,6 +1525,256 @@ class ServerWorkflowTests(unittest.TestCase):
             self.import_export(self.build_export(schema="newest"))
 
         self.assertEqual(refused.exception.code, 400)
+
+    def confirm_a_person_on_the_sample_photo(self, *, published=False):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Orla Brightwater')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at,published_at)
+               VALUES (?,?,'confirmed',0.9,'manual',?,?)""",
+            (self.asset_id, person_id, utc_now(), utc_now() if published else None),
+        )
+        con.commit()
+        con.close()
+        return person_id
+
+    def wait_until(self, condition, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if condition():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_a_second_publish_is_refused_while_the_first_is_running(self):
+        self.confirm_a_person_on_the_sample_photo()
+        handler = self.photo_search.SearchHandler
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+
+        def slow_publish(handler_self, con, asset_id, *args, **kwargs):
+            calls.append(asset_id)
+            entered.set()
+            release.wait(10)
+            return {"relative_path": self.photo.name, "people": ["Orla Brightwater"]}
+
+        first = {}
+        with patch.object(handler, "_publish_people_metadata", slow_publish):
+            worker = threading.Thread(
+                target=lambda: first.update(self.json_response(self.post("/api/publish/run", {}))))
+            worker.start()
+            self.assertTrue(entered.wait(10), "the first publish should be under way")
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/publish/run", {})
+            self.assertEqual(refused.exception.code, 400)
+            self.assertIn("already running", json.loads(refused.exception.read())["error"])
+            release.set()
+            worker.join(10)
+
+        self.assertEqual(first["published"], 1)
+        self.assertEqual(len(calls), 1, "the refused request must not have published anything")
+        self.assertFalse(handler.publish_lock.locked())
+
+    def test_a_publish_that_fails_part_way_does_not_leave_the_page_waiting(self):
+        handler = self.photo_search.SearchHandler
+        with patch.object(handler, "_publish_run", side_effect=RuntimeError("disk vanished")):
+            with self.assertRaises(urllib.error.HTTPError) as failed:
+                self.post("/api/publish/run", {})
+            self.assertEqual(failed.exception.code, 500)
+            failed.exception.close()
+
+        self.assertFalse(handler.publish_lock.locked(), "a failure must free the lock for the next attempt")
+        self.assertEqual(handler.publish_progress["state"], "idle")
+
+    def test_publishing_names_is_refused_while_tags_are_being_written(self):
+        handler = self.photo_search.SearchHandler
+        with patch.object(handler, "write_tags_job", {"state": "running"}):
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/publish/run", {})
+        self.assertEqual(refused.exception.code, 400)
+        self.assertIn("Tags are being written", json.loads(refused.exception.read())["error"])
+        self.assertFalse(handler.publish_lock.locked())
+
+    def test_two_tag_runs_cannot_both_start_while_the_first_is_still_preparing(self):
+        handler = self.photo_search.SearchHandler
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_start(handler_self, body):
+            entered.set()
+            release.wait(10)
+            return handler_self.send_json({"ok": True, "state": "running", "total": 0}, 202)
+
+        outcome = {}
+        with patch.object(handler, "_start_write_tags_batch", slow_start):
+            worker = threading.Thread(
+                target=lambda: outcome.update(self.json_response(self.post("/api/write-tags/batch", {}))))
+            worker.start()
+            self.assertTrue(entered.wait(10))
+            self.assertEqual(handler.write_tags_job["state"], "running",
+                             "the run is claimed before the slow preparation, not after it")
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/write-tags/batch", {})
+            self.assertEqual(refused.exception.code, 400)
+            self.assertIn("already running", json.loads(refused.exception.read())["error"])
+            release.set()
+            worker.join(10)
+        self.assertTrue(outcome["ok"])
+        handler.write_tags_job = {"state": "idle", "message": ""}
+
+    def test_a_tag_run_that_cannot_start_does_not_leave_itself_marked_running(self):
+        handler = self.photo_search.SearchHandler
+        handler.write_tags_job = {"state": "idle", "message": "before"}
+        with patch.object(handler, "_start_write_tags_batch", side_effect=ValueError("Not enough disk space")):
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/write-tags/batch", {})
+            refused.exception.close()
+
+        self.assertEqual(handler.write_tags_job, {"state": "idle", "message": "before"})
+        with patch.object(handler, "_start_write_tags_batch",
+                          lambda handler_self, body: handler_self.send_json({"ok": True})):
+            self.assertTrue(self.json_response(self.post("/api/write-tags/batch", {}))["ok"])
+        handler.write_tags_job = {"state": "idle", "message": ""}
+
+    def test_tags_cannot_be_written_while_names_are_being_published(self):
+        handler = self.photo_search.SearchHandler
+        self.assertTrue(handler.publish_lock.acquire(blocking=False))
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/write-tags/batch", {})
+        finally:
+            handler.publish_lock.release()
+        self.assertEqual(refused.exception.code, 400)
+        self.assertIn("published", json.loads(refused.exception.read())["error"])
+        self.assertNotEqual(handler.write_tags_job.get("state"), "running")
+
+    def test_another_library_cannot_be_opened_while_tags_are_being_written(self):
+        handler = self.photo_search.SearchHandler
+        other = self.root / "other photos"
+        other.mkdir()
+        with patch.object(handler, "write_tags_job", {"state": "running"}), \
+             patch.object(self.photo_search, "associate_db_path") as associate:
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/library/open", {"path": str(other)})
+        self.assertEqual(refused.exception.code, 400)
+        self.assertIn("written", json.loads(refused.exception.read())["error"])
+        associate.assert_not_called()
+        self.assertEqual(handler.current_library[0], self.library.resolve())
+
+    def test_a_failed_helper_start_leaves_a_downloaded_update_available(self):
+        handler = self.photo_search.SearchHandler
+        available = {"state": "available", "release": {"version": "9.9.9"}}
+
+        def broken_helper(handler_self, extra_args):
+            raise OSError("cannot start helper")
+
+        with patch.object(handler, "update_job", dict(available)), \
+             patch.object(handler, "_spawn_updater_helper", broken_helper), \
+             patch.object(self.photo_search, "is_git_install", return_value=False), \
+             patch.object(self.photo_search, "is_managed_install", return_value=True):
+            with self.assertRaises(urllib.error.HTTPError) as failed:
+                self.post("/api/update/install", {})
+            failed.exception.close()
+            self.assertEqual(handler.update_job["state"], "available",
+                             "the user must be able to try again, not be told no update is ready")
+
+    def test_a_git_update_that_cannot_restart_says_what_to_do(self):
+        handler = self.photo_search.SearchHandler
+        result = {"ok": True, "mode": "git", "previous_version": "0.9.0",
+                  "new_version": "0.9.1", "target": "v0.9.1", "changed": True}
+
+        def broken_helper(handler_self, extra_args):
+            raise OSError("cannot start helper")
+
+        with patch.object(self.photo_search, "is_git_install", return_value=True), \
+             patch.object(self.photo_search, "git_available", return_value=True), \
+             patch.object(self.photo_search, "git_update", return_value=result), \
+             patch.object(self.photo_search, "launcher_restart_marker", return_value=None), \
+             patch.object(handler, "_spawn_updater_helper", broken_helper), \
+             patch.object(handler, "_schedule_shutdown", lambda handler_self: self.fail("must not shut down")), \
+             patch.object(handler, "update_job", {"state": "available"}):
+            with self.assertRaises(urllib.error.HTTPError) as failed:
+                self.post("/api/update/install", {})
+            message = json.loads(failed.exception.read())["error"]
+            self.assertEqual(handler.update_job["state"], "error")
+        self.assertIn("start it again", message)
+
+    def test_restoring_a_photo_makes_its_names_ready_to_publish_again(self):
+        from photo_index import utc_now
+
+        self.confirm_a_person_on_the_sample_photo(published=True)
+        backup_root = self.data / "Metadata Backups"
+        backup_root.mkdir(parents=True, exist_ok=True)
+        backup = backup_root / "sample.before-test-20260101T000000000000Z.jpg"
+        backup.write_bytes(self.photo.read_bytes())
+        con = sqlite3.connect(self.database)
+        con.execute(
+            """INSERT INTO metadata_publications
+               (asset_id,relative_path,backup_path,before_json,after_json,published_at,completed_at)
+               VALUES (?,?,?,'{}','{}',?,?)""",
+            (self.asset_id, self.photo.name, str(backup), utc_now(), utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        self.json_response(self.post("/api/publish/restore", {"id": self.asset_id}))
+
+        con = sqlite3.connect(self.database)
+        try:
+            marked = con.execute(
+                "SELECT published_at FROM asset_people WHERE asset_id=?", (self.asset_id,)
+            ).fetchone()[0]
+        finally:
+            con.close()
+        self.assertIsNone(marked, "the restored file no longer carries the name, so it is pending again")
+
+    def test_undoing_a_batch_ignores_photos_that_could_not_carry_names(self):
+        handler = self.photo_search.SearchHandler
+        backup = self.root / "kept.jpg"
+        original = self.root / "target.jpg"
+        backup.write_bytes(b"before")
+        original.write_bytes(b"after")
+
+        handler._restore_people_batch([None, {"backup": backup, "path": original}, None])
+
+        self.assertEqual(original.read_bytes(), b"before")
+        self.assertFalse(backup.exists())
+
+    def test_a_merge_does_not_count_a_photo_that_could_not_carry_names_as_rewritten(self):
+        self.merge_two_people_on_the_sample_photo(rewrite_result=None)
+
+        self.assertEqual(self.last_merge["published"], 0)
+
+    def run_meaning_search_with_auto_classify(self):
+        handler = self.photo_search.SearchHandler
+        index_result = {"indexed": 0, "errors": 0, "total": 0, "cancelled": False, "failures": []}
+        classify = MagicMock(return_value={"classified": 2, "tags_added": 5})
+        with patch.object(self.photo_search, "semantic_model_cache_info",
+                          return_value={"ViT-B-32/openai": {"downloaded": True}}),              patch.object(self.photo_search, "semantic_encoder_for", return_value=object()),              patch.object(self.photo_search, "build_semantic_index", return_value=index_result),              patch.object(self.photo_search, "get_setting", return_value=True),              patch.object(self.photo_search, "classify_library", classify):
+            self.photo_search._run_semantic_index_job(handler, self.database, 16, "2026-01-01T00:00:00Z")
+        return classify
+
+    def test_auto_classify_after_meaning_search_takes_and_frees_the_classify_lock(self):
+        handler = self.photo_search.SearchHandler
+
+        classify = self.run_meaning_search_with_auto_classify()
+
+        classify.assert_called_once()
+        self.assertFalse(handler.classify_lock.locked())
+        self.assertEqual(handler.classify_job["state"], "complete")
+
+    def test_auto_classify_is_skipped_while_a_classification_is_already_running(self):
+        handler = self.photo_search.SearchHandler
+        self.assertTrue(handler.classify_lock.acquire(blocking=False))
+        try:
+            classify = self.run_meaning_search_with_auto_classify()
+            still_held = handler.classify_lock.locked()
+        finally:
+            handler.classify_lock.release()
+
+        classify.assert_not_called()
+        self.assertTrue(still_held, "the running classification keeps its lock")
 
     def test_possible_duplicate_people_can_be_listed_and_dismissed(self):
         con = sqlite3.connect(self.database)

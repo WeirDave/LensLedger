@@ -1152,15 +1152,26 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
                 "mode": mode,
             }
         if not result["cancelled"] and get_setting("publish", "auto_classify", default=False):
-            classify_action = Action("Auto-classify", "runs automatically after meaning search")
-            try:
-                cls_result = classify_library(database, encoder=encoder)
-                classify_action.finish(
-                    f"{cls_result['classified']:,} photos looked at, "
-                    f"{cls_result['tags_added']:,} tags added"
-                )
-            except Exception as cls_exc:
-                classify_action.failed(str(cls_exc))
+            if not handler_class.classify_lock.acquire(blocking=False):
+                console_log("Auto-classify: skipped because classification is already running")
+            else:
+                classify_action = Action("Auto-classify", "runs automatically after meaning search")
+                handler_class.classify_job = {"state": "running", "message": "Classifying after meaning search…"}
+                try:
+                    cls_result = classify_library(database, encoder=encoder)
+                    classify_action.finish(
+                        f"{cls_result['classified']:,} photos looked at, "
+                        f"{cls_result['tags_added']:,} tags added"
+                    )
+                    handler_class.classify_job = {
+                        "state": "complete",
+                        "message": f"Classified {cls_result['classified']} photos, added {cls_result['tags_added']} tags",
+                    }
+                except Exception as cls_exc:
+                    classify_action.failed(str(cls_exc))
+                    handler_class.classify_job = {"state": "error", "message": str(cls_exc)}
+                finally:
+                    handler_class.classify_lock.release()
     except Exception as exc:
         action.failed(str(exc))
         with handler_class.semantic_lock:
@@ -1517,6 +1528,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     scan_all_job: dict[str, object] = {"state": "idle", "message": ""}
     scan_all_cancel = threading.Event()
     publish_progress: dict[str, object] = {"state": "idle", "done": 0, "total": 0, "current": ""}
+    publish_lock = threading.Lock()
     classify_lock = threading.Lock()
     classify_job: dict[str, object] = {"state": "idle", "message": ""}
     classify_cancel = threading.Event()
@@ -3456,6 +3468,22 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "people": people, "total_photos": total_photos})
 
     def publish_run(self, body):
+        handler = SearchHandler
+        if not handler.publish_lock.acquire(blocking=False):
+            raise ValueError("Publishing is already running")
+        try:
+            # Read under the write-tags lock, which also covers the moment a
+            # tag run claims itself, so the two cannot both start.
+            with handler.write_tags_lock:
+                tags_running = handler.write_tags_job.get("state") == "running"
+            if tags_running:
+                raise ValueError("Tags are being written to the photos. Wait for that to finish before publishing names")
+            return self._publish_run(body)
+        finally:
+            handler.publish_progress = {"state": "idle", "done": 0, "total": 0, "current": ""}
+            handler.publish_lock.release()
+
+    def _publish_run(self, body):
         person_ids = body.get("person_ids")
         with self.db() as con:
             if person_ids:
@@ -4006,7 +4034,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _restore_people_batch(published):
-        for item in reversed(published):
+        # A photo that cannot carry names yields no record to restore.
+        for item in reversed([entry for entry in published if entry]):
             try:
                 shutil.copy2(item["backup"], item["path"])
                 item["backup"].unlink(missing_ok=True)
@@ -4124,6 +4153,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             (stat.st_size, stat.st_mtime_ns, content_hash(source), utc_now(), int(asset["id"])),
         )
         store_embedded_tags(con, int(asset["id"]), *extract_embedded_tags(source))
+        # The names the photo was carrying went with the file it had before, so
+        # they are waiting to be published again.
+        con.execute(
+            "UPDATE asset_people SET published_at=NULL WHERE asset_id=? AND state='confirmed'",
+            (int(asset["id"]),),
+        )
         rebuild_search_row(con, int(asset["id"]))
 
     def settle_interrupted_writes(self, body):
@@ -4476,12 +4511,35 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "state": "cancelling"}, 202)
 
     def write_tags_batch(self, body):
+        handler = SearchHandler
+        # Checking and claiming happen in one step. Choosing the photos and
+        # checking disk space take a while, and two requests that both saw
+        # "not running" in that time would each start a run.
+        with handler.write_tags_lock:
+            if handler.write_tags_job.get("state") == "running":
+                raise ValueError("Tag writing is already running")
+            if handler.publish_lock.locked():
+                raise ValueError("Names are being published to the photos. Wait for that to finish before writing tags")
+            previous = handler.write_tags_job
+            claim = {
+                "state": "running", "message": "Getting ready to write tags…",
+                "total": 0, "done": 0, "written": 0, "up_to_date": 0,
+                "failed": [], "fell_back": [], "incomplete": [], "skipped": [],
+                "sidecars_removed": 0, "started_at": utc_now(),
+            }
+            handler.write_tags_job = claim
+        try:
+            return self._start_write_tags_batch(body)
+        except BaseException:
+            with handler.write_tags_lock:
+                if handler.write_tags_job is claim:
+                    handler.write_tags_job = previous
+            raise
+
+    def _start_write_tags_batch(self, body):
         write_mode = str(body.get("write_mode", "") or "")
         settings = publish_write_settings()
         scope = str(body.get("scope", "all"))
-        with SearchHandler.write_tags_lock:
-            if SearchHandler.write_tags_job.get("state") == "running":
-                raise ValueError("Tag writing is already running")
         with self.db() as con:
             if scope == "classified":
                 asset_ids = [r[0] for r in con.execute(
@@ -6458,9 +6516,11 @@ class SearchHandler(BaseHTTPRequestHandler):
                         (target_id, *affected_asset_ids),
                     ).fetchall()
                     for row in active_confirmed:
-                        published.append(self._publish_people_metadata(
+                        rewritten = self._publish_people_metadata(
                             con, int(row["asset_id"]), source_names, operation="people-merge"
-                        ))
+                        )
+                        if rewritten:
+                            published.append(rewritten)
         except Exception:
             self._restore_people_batch(published)
             raise
@@ -6753,12 +6813,24 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "current_version": APP_VERSION,
                 }
             if not launcher_restart_marker():
-                self._spawn_updater_helper([
-                    "restart-source",
-                    "--current-root", str(install_root),
-                    "--wait-pid", str(os.getpid()),
-                    "--old-window-pid", str(os.getppid()),
-                ])
+                try:
+                    self._spawn_updater_helper([
+                        "restart-source",
+                        "--current-root", str(install_root),
+                        "--wait-pid", str(os.getpid()),
+                        "--old-window-pid", str(os.getppid()),
+                    ])
+                except Exception as exc:
+                    message = (f"LensLedger was updated to {result.get('new_version')} but could not restart "
+                               f"itself ({exc}). Close LensLedger and start it again to use the new version.")
+                    with type(self).update_lock:
+                        type(self).update_job = {
+                            "state": "error",
+                            "message": message,
+                            "current_version": APP_VERSION,
+                            "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                        }
+                    raise ValueError(message) from exc
             self._schedule_shutdown()
             self.send_json({
                 "ok": True,
@@ -6780,6 +6852,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             if type(self).update_job.get("state") != "available":
                 raise ValueError("No verified LensLedger update is ready to install")
             release = dict(type(self).update_job.get("release") or {})
+            available_job = type(self).update_job
             type(self).update_job = {
                 "state": "restarting",
                 "message": f"Installing LensLedger {release.get('version', '')} and restarting…",
@@ -6805,6 +6878,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         except Exception:
             if marker:
                 marker.unlink(missing_ok=True)
+            # Nothing is restarting, so the update has to stay available to try again.
+            with type(self).update_lock:
+                type(self).update_job = available_job
             raise
         self._schedule_shutdown()
         self.send_json({
@@ -7393,6 +7469,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         value = str(body.get("path", "")).strip()
         if not value:
             raise ValueError("choose a photo library folder")
+        with type(self).write_tags_lock:
+            tags_running = type(self).write_tags_job.get("state") == "running"
+        if tags_running:
+            raise ValueError("Tags are being written to the photos in this library. Wait for that to finish, or stop it, before opening another library")
+        if type(self).publish_lock.locked():
+            raise ValueError("Names are being published to the photos in this library. Wait for that to finish before opening another library")
         root = Path(value).resolve()
         if not root.is_dir():
             raise ValueError("that photo library folder does not exist")
