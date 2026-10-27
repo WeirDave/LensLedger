@@ -433,7 +433,7 @@ From **Scan your photos**, click **Create verified database backup**. This creat
 From **Settings > Database**:
 
 - **Export database** — creates a portable ZIP containing the database, face data, and a manifest. Useful for backups or moving to a new machine.
-- **Import database** — restores from a previous export ZIP. File paths are automatically remapped to the current library location.
+- **Import database** — restores from a previous export ZIP. File paths are automatically remapped to the current library location. The index being replaced is first saved to the `Database Backups` folder, and the import is refused while a scan or other job is running.
 
 Your photos are not included in exports — only the LensLedger index is transferred.
 

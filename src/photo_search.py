@@ -57,7 +57,7 @@ from library_config import (
 from folder_watcher import FolderWatcher
 from ingest_pipeline import IngestPipeline
 from settings_config import (
-    AVAILABLE_MODELS, get_setting, load_settings, save_settings,
+    AVAILABLE_MODELS, get_setting, load_settings, save_settings, validate_settings,
 )
 from lensledger_updater import (check_for_update, is_managed_install, managed_install_root,
                                 updates_root, git_available, git_update, is_dev_checkout,
@@ -2452,7 +2452,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>From <a href="/settings">Settings &gt; Database</a>:</p>
 <ul>
 <li><strong>Export database</strong> &mdash; creates a portable ZIP containing the database, face data, and a manifest. Useful for backups or moving to a new machine.</li>
-<li><strong>Import database</strong> &mdash; restores from a previous export ZIP. File paths are automatically remapped to the current library location.</li>
+<li><strong>Import database</strong> &mdash; restores from a previous export ZIP. File paths are automatically remapped to the current library location. The index being replaced is first saved to the Database Backups folder, and the import is refused while a scan or other job is running.</li>
 </ul>
 <div class="tip"><strong>Note:</strong> Your photos are not included in exports &mdash; only the LensLedger index is transferred.</div>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
@@ -2604,6 +2604,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         settings = load_settings()
         settings["ingest"] = config
         save_settings(settings)
+        config = load_settings()["ingest"]
         pipeline = type(self).ingest_pipeline
         if pipeline:
             pipeline.update_config(
@@ -2634,19 +2635,17 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_json(load_settings())
 
     def save_settings_api(self, body):
-        values = body.get("settings")
-        if not isinstance(values, dict):
-            raise ValueError("invalid settings format")
-        save_settings(values)
-        watch_cfg = values.get("watch", {})
+        save_settings(validate_settings(body.get("settings")))
+        saved = load_settings()
+        watch_cfg = saved["watch"]
         watcher = type(self).folder_watcher
         if watcher:
             if watch_cfg.get("enabled"):
-                watcher.update_interval(int(watch_cfg.get("interval_minutes", 5)))
+                watcher.update_interval(int(watch_cfg["interval_minutes"]))
                 watcher.start()
             else:
                 watcher.stop()
-        ingest_cfg = values.get("ingest", {})
+        ingest_cfg = saved["ingest"]
         pipeline = type(self).ingest_pipeline
         if pipeline:
             pipeline.update_config(
@@ -2654,7 +2653,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 destination_folder=str(ingest_cfg.get("destination_folder", "") or pipeline._destination or ""),
                 rules=ingest_cfg.get("rules") if ingest_cfg.get("rules") is not None else pipeline._rules,
                 default_template=str(ingest_cfg.get("default_template", "") or pipeline._default_template),
-                interval_minutes=int(ingest_cfg.get("interval_minutes", 10)),
+                interval_minutes=int(ingest_cfg["interval_minutes"]),
             )
             if ingest_cfg.get("enabled"):
                 pipeline.start()
@@ -2751,6 +2750,11 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def import_database(self, _body):
         import zipfile
+        busy = running_cancellable_jobs(type(self))
+        if type(self).publish_progress.get("state") == "running":
+            busy.append("publishing")
+        if busy:
+            raise ValueError(f"wait for {', '.join(busy)} to finish before importing")
         zip_path = choose_file("Choose a LensLedger export file", "ZIP files", "zip")
         if not zip_path:
             raise ValueError("no file selected")
@@ -2761,9 +2765,24 @@ class SearchHandler(BaseHTTPRequestHandler):
             if "manifest.json" not in names:
                 raise ValueError("not a valid LensLedger export (no manifest.json)")
             manifest = json.loads(zf.read("manifest.json"))
-            schema = manifest.get("schema_version", 0)
+            try:
+                schema = int(manifest.get("schema_version", 0))
+            except (TypeError, ValueError):
+                raise ValueError("not a valid LensLedger export (unreadable schema version)") from None
             if schema > SCHEMA_VERSION:
                 raise ValueError(f"this export uses schema version {schema}, but this version of LensLedger only supports up to {SCHEMA_VERSION}")
+            # Every face file is checked before anything is replaced, so an
+            # export that points outside the Face Data folder changes nothing.
+            face_data_root = (data_root() / "Face Data").resolve()
+            face_files: list[tuple[str, Path]] = []
+            for name in names:
+                if name.startswith("FaceData/") and not name.endswith("/"):
+                    dest = (face_data_root / name[len("FaceData/"):]).resolve()
+                    try:
+                        dest.relative_to(face_data_root)
+                    except ValueError:
+                        raise ValueError("this export contains a file outside the Face Data folder and was not imported") from None
+                    face_files.append((name, dest))
             if "database.sqlite3" in names:
                 db_dest = self.db_path
                 temp_db = db_dest.with_suffix(".import.sqlite3")
@@ -2775,26 +2794,25 @@ class SearchHandler(BaseHTTPRequestHandler):
                     if old_root and old_root != new_root:
                         import sqlite3 as _sqlite3
                         con = _sqlite3.connect(str(temp_db))
-                        con.execute("UPDATE assets SET path=REPLACE(path,?,?)", (old_root, new_root))
-                        old_rel_prefix = ""
-                        con.execute("UPDATE assets SET relative_path=REPLACE(relative_path,?,?)", (old_rel_prefix, ""))
-                        con.commit()
-                        con.close()
-                    backup_existing = db_dest.with_suffix(f".pre-import-{dt.datetime.now().strftime('%Y%m%d%H%M%S')}.sqlite3")
+                        try:
+                            con.execute("UPDATE assets SET path=REPLACE(path,?,?)", (old_root, new_root))
+                            con.commit()
+                        finally:
+                            con.close()
                     if db_dest.is_file():
-                        shutil.copy2(db_dest, backup_existing)
+                        create_verified_database_backup(db_dest)
                     shutil.move(str(temp_db), str(db_dest))
+                    # The replaced database's write-ahead files describe the old
+                    # one; left in place, SQLite would replay them into the new.
+                    for leftover in ("-wal", "-shm"):
+                        db_dest.with_name(db_dest.name + leftover).unlink(missing_ok=True)
                 except Exception:
                     temp_db.unlink(missing_ok=True)
                     raise
-            face_data_root = data_root() / "Face Data"
-            for name in names:
-                if name.startswith("FaceData/") and not name.endswith("/"):
-                    rel = name[len("FaceData/"):]
-                    dest = face_data_root / rel
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(name) as src, open(dest, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
+            for name, dest in face_files:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(name) as src, open(dest, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
         console_log(f"Import database: replaced the index from {Path(zip_path).name} "
                     f"({manifest.get('photo_count', '?')} photos)")
         self.send_json({"ok": True, "message": f"Imported from {Path(zip_path).name} ({manifest.get('photo_count', '?')} photos)"})
@@ -8019,7 +8037,7 @@ def main():
     settings = load_settings()
     watch_cfg = settings.get("watch", {})
     watcher = FolderWatcher(
-        interval_minutes=int(watch_cfg.get("interval_minutes", 30)),
+        interval_minutes=int(watch_cfg["interval_minutes"]),
         scan_fn=watcher_scan,
     )
     SearchHandler.folder_watcher = watcher
@@ -8034,6 +8052,7 @@ def main():
         destination_folder=str(ingest_cfg.get("destination_folder", "")),
         rules=ingest_cfg.get("rules", []),
         default_template=str(ingest_cfg.get("default_template", "")),
+        interval_minutes=int(ingest_cfg["interval_minutes"]),
         on_batch_complete=_after_import,
     )
     SearchHandler.ingest_pipeline = pipeline
@@ -8050,9 +8069,9 @@ def main():
     console_log(f"Library: {root}")
     console_log(f"Database: {database}")
     if watch_cfg.get("enabled"):
-        console_log(f"Folder watcher: enabled (every {int(watch_cfg.get('interval_minutes', 30))} min)")
+        console_log(f"Folder watcher: enabled (every {int(watch_cfg['interval_minutes'])} min)")
     if ingest_cfg.get("enabled"):
-        console_log(f"Auto-import: enabled (every {int(ingest_cfg.get('interval_minutes', 10))} min)")
+        console_log(f"Auto-import: enabled (every {int(ingest_cfg['interval_minutes'])} min)")
     if not args.restarted and not args.no_open:
         browser_timer = threading.Timer(1.0, webbrowser.open, args=(url,))
         browser_timer.daemon = True

@@ -1432,6 +1432,99 @@ class ServerWorkflowTests(unittest.TestCase):
             response = self.raw_request("GET", "/api/library/status")
         self.assertEqual(response.status, 500)
 
+    def test_saving_a_bad_setting_is_refused_without_changing_the_saved_file(self):
+        settings_file = self.data / "settings.json"
+        self.post("/api/settings/save", {"settings": {"watch": {"enabled": False, "interval_minutes": 15}}})
+        before = settings_file.read_text(encoding="utf-8")
+
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.post("/api/settings/save", {"settings": {"watch": {"enabled": True, "interval_minutes": 1}}})
+
+        self.assertEqual(refused.exception.code, 400)
+        self.assertIn("Folder watching check interval", json.loads(refused.exception.read())["error"])
+        self.assertEqual(settings_file.read_text(encoding="utf-8"), before)
+
+    def test_the_settings_page_opens_when_the_saved_file_holds_unusable_values(self):
+        self.data.mkdir(parents=True, exist_ok=True)
+        (self.data / "settings.json").write_text(json.dumps({
+            "watch": {"interval_minutes": "abc"}, "ingest": {"interval_minutes": None},
+            "publish": {"backup_keep_days": "forever", "backup_max_gb": "lots"},
+            "scan": {"semantic_batch_size": []},
+        }), encoding="utf-8")
+
+        self.assertEqual(self.get("/settings").status, 200)
+
+    def build_export(self, name="export.zip", *, extra=None, schema=1):
+        import zipfile
+
+        path = self.root / name
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("manifest.json", json.dumps({
+                "schema_version": schema, "library_root": str(self.library), "photo_count": 1,
+            }))
+            archive.write(self.database, "database.sqlite3")
+            archive.writestr("FaceData/crops/one.txt", "face")
+            for entry in extra or []:
+                archive.writestr(entry, "outside")
+        return path
+
+    def import_export(self, path):
+        with patch.object(self.photo_search, "choose_file", return_value=str(path)):
+            return self.post("/api/settings/import", {})
+
+    def test_an_export_that_reaches_outside_the_face_data_folder_is_not_imported(self):
+        export = self.build_export(extra=["FaceData/../../escaped.txt"])
+        database_before = self.database.read_bytes()
+
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.import_export(export)
+
+        self.assertEqual(refused.exception.code, 400)
+        self.assertFalse((self.root / "escaped.txt").exists())
+        self.assertFalse((self.data / "escaped.txt").exists())
+        self.assertFalse((self.data / "Face Data" / "crops" / "one.txt").exists(),
+                         "nothing from a refused export is written")
+        self.assertEqual(self.database.read_bytes(), database_before)
+
+    def test_import_is_refused_while_a_scan_is_running(self):
+        export = self.build_export()
+        handler = self.photo_search.SearchHandler
+
+        with patch.object(handler, "ocr_job", {"state": "running"}),              patch.object(self.photo_search, "choose_file") as chooser:
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                self.post("/api/settings/import", {})
+
+        self.assertEqual(refused.exception.code, 400)
+        self.assertIn("text recognition", json.loads(refused.exception.read())["error"])
+        chooser.assert_not_called()
+        self.assertTrue(export.is_file())
+
+    def test_import_replaces_the_database_and_clears_the_old_write_ahead_files(self):
+        wal = self.database.with_name(self.database.name + "-wal")
+        shm = self.database.with_name(self.database.name + "-shm")
+        wal.write_bytes(bytes(32))
+        shm.write_bytes(bytes(32))
+
+        result = self.json_response(self.import_export(self.build_export()))
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(wal.exists())
+        self.assertFalse(shm.exists())
+        self.assertTrue((self.data / "Face Data" / "crops" / "one.txt").is_file())
+        self.assertTrue(list((self.data / "Database Backups").glob("*.sqlite3")),
+                        "the database being replaced is backed up first")
+        con = sqlite3.connect(self.database)
+        try:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 1)
+        finally:
+            con.close()
+
+    def test_an_export_with_an_unreadable_schema_version_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.import_export(self.build_export(schema="newest"))
+
+        self.assertEqual(refused.exception.code, 400)
+
     def test_possible_duplicate_people_can_be_listed_and_dismissed(self):
         con = sqlite3.connect(self.database)
         left = int(con.execute("INSERT INTO people(name) VALUES ('Katherine Vollmer')").lastrowid)

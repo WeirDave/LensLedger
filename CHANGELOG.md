@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.5 — 2026-10-26
+
+- Saving **Settings** checks every value first and saves nothing when one is not acceptable. The message names the setting and the allowed range, for example the folder watching **Check interval (minutes)**, which accepts 5 to 1440. Previously a bad value was written to the settings file and the save then failed, which could stop LensLedger starting.
+- Saving settings now changes only the settings it is given and leaves the others as stored. Values in an existing settings file that are damaged or out of range are replaced by their defaults when read, so they can no longer break the Settings page or startup.
+- **Auto-import** now starts with its saved **Check interval (minutes)** instead of always using 10 minutes until the next save.
+- **Import database** is refused while a scan, text recognition, meaning search, face detection, tag writing, classification or publish is running.
+- **Import database** rejects an export that holds a face file outside the Face Data folder, before anything is replaced, and reports an export with an unreadable schema version as invalid.
+- **Import database** saves the index it replaces with a SQLite online backup in the `Database Backups` folder, which includes recent changes still held in the write-ahead file, and removes the old database's leftover write-ahead files after the replacement.
+
 ## 1.28.4 — 2026-10-26
 
 - Merging two people keeps the faces already named with the person that remains. They previously fell back to unidentified faces when the merged name was removed. The merge also rewrites the names stored in every supported photo type (JPEG, HEIC, PNG, WebP and TIFF) instead of JPEG only.
