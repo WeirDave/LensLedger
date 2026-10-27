@@ -365,6 +365,8 @@ A sidecar carries exactly the same information and never modifies an original. T
 
 When a file type's sidecar box is off, LensLedger's own sidecar for a photo of that type is moved to the safety copies the next time tags are embedded in that photo, and cleared with them. A sidecar written by another program, such as Lightroom, is never moved. Neither is one that another file with the same name in that folder also uses: `IMG_0001.jpg` and `IMG_0001.cr2` share `IMG_0001.xmp`.
 
+Writing a sidecar follows the same rules. LensLedger never writes over an `.xmp` file another program created; the photo is listed under **photos could not carry everything** with the reason, and the file stays as it was. When pictures of the same name share one sidecar, the one that cannot carry tags itself (a RAW file, GIF or BMP) keeps its tags there; among equals, the first name alphabetically does. The others are listed the same way, and a JPEG that is embedded still has its tags written into the file. Sidecars are written to a temporary file and swapped in whole, so an interrupted write cannot leave a partial one.
+
 ### Safety features
 
 - A **safety copy** of the whole photo is made before every write, and verified against the original before anything is changed

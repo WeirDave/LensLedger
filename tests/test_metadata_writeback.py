@@ -81,6 +81,80 @@ class TestXmpSidecar(unittest.TestCase):
         self.assertIn("new", content)
         self.assertNotIn("old", content)
 
+    FOREIGN_SIDECAR = ('<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+                    '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0">\n'
+                    '<crs:Exposure2012>+0.35</crs:Exposure2012>\n</x:xmpmeta>')
+
+    def test_a_sidecar_from_another_program_is_not_replaced(self):
+        from xmp_sidecar import SidecarRefused, write_sidecar
+
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_path.write_text(self.FOREIGN_SIDECAR, encoding="utf-8")
+
+        with self.assertRaises(SidecarRefused) as refused:
+            write_sidecar(self.photo, keywords=["new"])
+
+        self.assertIn("another program", str(refused.exception))
+        self.assertEqual(xmp_path.read_text(encoding="utf-8"), self.FOREIGN_SIDECAR)
+
+    def test_a_sidecar_that_cannot_be_read_as_text_is_treated_as_another_programs(self):
+        from xmp_sidecar import SidecarRefused, write_sidecar
+
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_path.write_bytes(b"\xff\xfe\x00\x80 not utf-8")
+
+        with self.assertRaises(SidecarRefused):
+            write_sidecar(self.photo, keywords=["new"])
+
+        self.assertEqual(xmp_path.read_bytes(), b"\xff\xfe\x00\x80 not utf-8")
+
+    def test_an_empty_sidecar_left_by_an_interrupted_write_is_replaced(self):
+        from xmp_sidecar import write_sidecar
+
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_path.write_bytes(b"")
+
+        write_sidecar(self.photo, keywords=["new"])
+
+        self.assertIn("new", xmp_path.read_text(encoding="utf-8"))
+
+    def test_an_interrupted_sidecar_write_leaves_the_old_sidecar_whole(self):
+        import xmp_sidecar
+
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_sidecar.write_sidecar(self.photo, keywords=["old"])
+        before = xmp_path.read_text(encoding="utf-8")
+
+        with patch.object(xmp_sidecar.os, "replace", side_effect=OSError("disk went away")):
+            with self.assertRaises(OSError):
+                xmp_sidecar.write_sidecar(self.photo, keywords=["new"])
+
+        self.assertEqual(xmp_path.read_text(encoding="utf-8"), before)
+        self.assertEqual(sorted(path.name for path in Path(self.tmp.name).iterdir()),
+                         ["test.jpg", "test.xmp"], "no half-written file is left beside the photo")
+
+    def test_a_sidecar_is_owned_by_the_file_that_cannot_carry_tags_itself(self):
+        from photo_search import sidecar_owner
+
+        folder = Path(self.tmp.name)
+        for name in ("IMG_1.jpg", "IMG_1.CR2", "IMG_1.mov", "alone.png", "pair.png", "pair.jpg", "anim.gif", "anim.jpeg"):
+            (folder / name).write_bytes(b"x")
+
+        self.assertEqual(sidecar_owner(folder / "IMG_1.jpg"), folder / "IMG_1.CR2")
+        self.assertEqual(sidecar_owner(folder / "IMG_1.CR2"), folder / "IMG_1.CR2")
+        self.assertEqual(sidecar_owner(folder / "alone.png"), folder / "alone.png")
+        self.assertEqual(sidecar_owner(folder / "pair.png"), folder / "pair.jpg", "among equals the first name owns it")
+        self.assertEqual(sidecar_owner(folder / "pair.jpg"), folder / "pair.jpg")
+        self.assertEqual(sidecar_owner(folder / "anim.jpeg"), folder / "anim.gif")
+
+    def test_a_video_of_the_same_name_does_not_take_the_sidecar(self):
+        from photo_search import sidecar_owner
+
+        folder = Path(self.tmp.name)
+        (folder / "clip.mov").write_bytes(b"x")
+        (folder / "clip.gif").write_bytes(b"x")
+        self.assertEqual(sidecar_owner(folder / "clip.gif"), folder / "clip.gif")
+
     def test_sidecar_carries_a_rating_and_is_still_recognised_as_ours(self):
         import xml.etree.ElementTree as ET
         from xmp_sidecar import write_sidecar, is_lensledger_sidecar
@@ -1088,6 +1162,120 @@ class TestWriteTagsEndpoint(unittest.TestCase):
         self.assertEqual(job["written"], 1)
         sidecar = self.photo.with_suffix(".xmp").read_text(encoding="utf-8")
         self.assertIn(">4</xmp:Rating>", sidecar)
+
+    FOREIGN_SIDECAR = ('<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+                    '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0">\n'
+                    '<crs:Exposure2012>+0.35</crs:Exposure2012>\n</x:xmpmeta>')
+
+    def _tag_count(self):
+        con = sqlite3.connect(self.database)
+        try:
+            return con.execute("SELECT COUNT(*) FROM assets WHERE tags_written IS NOT NULL").fetchone()[0]
+        finally:
+            con.close()
+
+    def test_write_all_tags_leaves_another_programs_sidecar_alone_and_reports_the_photo(self):
+        self._seed_every_category()
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_path.write_text(self.FOREIGN_SIDECAR, encoding="utf-8")
+
+        job = self._run_write_all_tags("sidecar")
+
+        self.assertEqual(job["written"], 0)
+        self.assertEqual([item["path"] for item in job["incomplete"]], [self.photo.name])
+        self.assertIn("another program", job["incomplete"][0]["error"])
+        self.assertEqual(xmp_path.read_text(encoding="utf-8"), self.FOREIGN_SIDECAR)
+        self.assertEqual(self._tag_count(), 0, "nothing was written, so the photo is not recorded as written")
+
+    def test_writing_one_photo_refuses_when_another_programs_sidecar_is_there(self):
+        import urllib.error
+
+        self._seed_every_category()
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_path.write_text(self.FOREIGN_SIDECAR, encoding="utf-8")
+
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.post("/api/write-tags", {"id": self.asset_id, "write_mode": "sidecar"})
+
+        self.assertEqual(refused.exception.code, 400)
+        self.assertIn("another program", json.loads(refused.exception.read())["error"])
+        self.assertEqual(xmp_path.read_text(encoding="utf-8"), self.FOREIGN_SIDECAR)
+
+    def test_a_jpeg_does_not_overwrite_the_sidecar_its_raw_file_keeps_its_tags_in(self):
+        import urllib.error
+        from photo_index import scan_library
+
+        raw = self.library / "2026-08-09 sample.cr2"
+        raw.write_bytes(b"raw placeholder")
+        scan_library(self.library, self.database, quiet=True)
+        con = sqlite3.connect(self.database)
+        raw_id = int(con.execute("SELECT id FROM assets WHERE filename=?", (raw.name,)).fetchone()[0])
+        tag_id = int(con.execute("INSERT INTO tags(name) VALUES ('harbour')").lastrowid)
+        con.execute(
+            "INSERT INTO asset_tags(asset_id, tag_id, source, confidence) VALUES (?, ?, 'semantic_auto', 0.5)",
+            (raw_id, tag_id))
+        con.commit()
+        con.close()
+        self._seed_every_category()
+
+        written = self.json_response(self.post("/api/write-tags", {"id": raw_id, "write_mode": "sidecar"}))
+        shared = self.photo.with_suffix(".xmp")
+        self.assertTrue(written["wrote_sidecar"])
+        self.assertIn("harbour", shared.read_text(encoding="utf-8"))
+
+        job = self._run_write_all_tags("sidecar")
+
+        self.assertEqual(job["written"], 0)
+        self.assertEqual([item["path"] for item in job["incomplete"]], [self.photo.name])
+        self.assertIn(raw.name, job["incomplete"][0]["error"])
+        content = shared.read_text(encoding="utf-8")
+        self.assertIn("harbour", content, "the raw file's tags are still there")
+        self.assertNotIn("sunset", content, "the jpeg did not write over them")
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.post("/api/write-tags", {"id": self.asset_id, "write_mode": "sidecar"})
+        self.assertIn(raw.name, json.loads(refused.exception.read())["error"])
+
+    def test_the_photo_is_still_embedded_when_only_its_sidecar_is_refused_and_the_sidecar_follows_later(self):
+        self._exiftool_or_skip()
+        self._seed_every_category()
+        xmp_path = self.photo.with_suffix(".xmp")
+        xmp_path.write_text(self.FOREIGN_SIDECAR, encoding="utf-8")
+
+        first = self._run_write_all_tags("both")
+
+        self.assertEqual(first["written"], 1)
+        self.assertEqual([item["path"] for item in first["incomplete"]], [self.photo.name])
+        self.assertEqual(xmp_path.read_text(encoding="utf-8"), self.FOREIGN_SIDECAR)
+        self.assertIn("sunset", self.photo_search.SearchHandler._metadata_values(
+            self.photo_search._exiftool_values(self.photo).get("XMP-dc:Subject")))
+
+        # The first run settles what the photo itself carries; once it has,
+        # a run changes nothing in the photo.
+        self._run_write_all_tags("both")
+        xmp_path.unlink()
+        embedded = self.photo.read_bytes()
+        later = self._run_write_all_tags("both")
+
+        self.assertIn("sunset", xmp_path.read_text(encoding="utf-8"), "the sidecar is tried again on the next run")
+        self.assertEqual(later["incomplete"], [])
+        self.assertEqual(self.photo.read_bytes(), embedded, "the photo itself is not rewritten for it")
+
+    def test_a_tag_run_that_crashes_ends_as_an_error_instead_of_staying_running(self):
+        import time
+
+        self._seed_every_category()
+        handler = self.photo_search.SearchHandler
+        with patch.object(self.photo_search, "prune_metadata_backups", side_effect=RuntimeError("disk vanished")):
+            self.json_response(self.post("/api/write-tags/batch", {"scope": "all", "write_mode": "sidecar"}))
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline and handler.write_tags_job.get("state") == "running":
+                time.sleep(0.05)
+
+        job = dict(handler.write_tags_job)
+        self.assertEqual(job["state"], "error")
+        self.assertIn("disk vanished", job["message"])
+        self.assertEqual(job["total"], 1, "what had been done is kept in the status")
+        self.assertEqual(self._run_write_all_tags("sidecar")["state"], "complete", "a new run can start")
 
     def test_writing_one_photo_to_a_sidecar_carries_its_rating(self):
         self._seed_every_category()

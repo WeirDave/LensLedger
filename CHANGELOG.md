@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.28.7 — 2026-10-27
+
+- **Write all tags** and writing tags to one photo no longer write over an `.xmp` sidecar file another program created. The photo is listed under "photos could not carry everything" with the reason, and the file stays as it was. A photo that is also embedded is still written into the file itself.
+- Pictures of the same name that share one sidecar (`IMG_0001.jpg` and `IMG_0001.cr2`) no longer overwrite each other's tags. The picture that cannot carry tags itself, such as a RAW file, GIF or BMP, keeps its tags in the shared sidecar; among equals the first name does. The others are listed with the reason.
+- Sidecar files are written to a temporary file and swapped in whole, so an interruption leaves the earlier sidecar instead of an empty or partial one. An empty sidecar left behind by an earlier interruption is replaced.
+- A **Write all tags** run that stops on an unexpected error now ends as an error with a message, and a new run can be started, instead of staying "running".
+
 ## 1.28.6 — 2026-10-26
 
 - **Publish** refuses to start while another publish run is going, and its progress is reset when a run ends, including a failed one. Publishing names and **Write all tags** also refuse to run at the same time, each saying which to wait for.

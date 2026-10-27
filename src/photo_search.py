@@ -66,7 +66,7 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
-    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
+    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, VIDEO_EXTENSIONS, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
     extract_embedded_rating, extract_embedded_tags, is_cloud_placeholder, record_file_rating,
     refresh_embedded_tags, store_embedded_tags, ocr_assets,
     ocr_is_available, pending_scan_counts, rebuild_search_row, scan_library,
@@ -92,7 +92,7 @@ from semantic_index import (
     search as semantic_search,
     status as semantic_status,
 )
-from xmp_sidecar import is_lensledger_sidecar, write_sidecar
+from xmp_sidecar import SidecarRefused, is_lensledger_sidecar, write_sidecar
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -191,6 +191,44 @@ def retire_sidecar(photo: Path, relative: str) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(sidecar), str(destination))
     return True
+
+
+def sidecar_owner(photo: Path) -> Path:
+    """The one picture whose tags go into the sidecar all same-named pictures share.
+
+    IMG_1.jpg and IMG_1.cr2 both answer to IMG_1.xmp. A file that cannot carry
+    tags itself (a RAW file, a GIF) owns it, since the sidecar is the only place
+    its tags can go; among equals the first name does. Videos are not written to,
+    so they never compete.
+    """
+    stem = photo.stem.casefold()
+    candidates = [photo]
+    try:
+        for sibling in photo.parent.iterdir():
+            if (sibling.name != photo.name and sibling.stem.casefold() == stem
+                    and sibling.suffix.lower() in MEDIA_EXTENSIONS
+                    and sibling.suffix.lower() not in VIDEO_EXTENSIONS):
+                candidates.append(sibling)
+    except OSError:
+        return photo
+    return min(candidates, key=lambda item: (item.suffix.lower() in PUBLISHABLE_EXTENSIONS, item.name.casefold()))
+
+
+def write_photo_sidecar(photo: Path, data: dict) -> Path:
+    """Write the sidecar for one photo, or raise SidecarRefused saying why not."""
+    owner = sidecar_owner(photo)
+    if owner != photo:
+        raise SidecarRefused(
+            f"{photo.name} shares the name {photo.with_suffix('.xmp').name} with {owner.name}, "
+            f"which keeps its tags there, so no sidecar was written for it")
+    return write_sidecar(
+        photo,
+        title=data["subject"],
+        description=data["description"],
+        keywords=data["keywords"],
+        people=data["people"],
+        rating=data["rating"],
+    )
 WEB_ROOT = Path(__file__).parent.parent / "web"
 WEB_ASSET_NAME_RE = re.compile(r"(?:css|js)/[a-z][a-z0-9-]*\.(?:css|js)|img/[a-z][a-z0-9-]*\.(?:png|jpg|svg)")
 WEB_ASSET_CONTENT_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
@@ -2405,6 +2443,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Before starting it works out how much room the safety copies need and refuses if there is not enough, saying how short it is. The run shows progress and <strong>Stop writing</strong> stops it between photos, so nothing is left half-written. Anything a file cannot carry is listed underneath with the reason; a file that cannot hold embedded tags at all gets a sidecar file beside it instead and is named as having done so.</p>
 <h3>Sidecar files</h3>
 <p><a href="/settings#metadata-publishing">Settings &gt; Metadata publishing &gt; Write mode</a> chooses where metadata goes: inside the photos, into <code>.xmp</code> companion files beside them, or both. Sidecar mode carries the same information and never modifies an original, which makes it the safer choice if you would rather your photos were not rewritten.</p>
+<p>An <code>.xmp</code> file another program created is never written over, and when several pictures share one name (<code>IMG_0001.jpg</code> and <code>IMG_0001.cr2</code>) only the one that cannot carry tags itself keeps its tags in the shared sidecar. Photos left out are listed under <strong>could not carry everything</strong> with the reason.</p>
 <h3>Safety features</h3>
 <ul>
 <li>A <strong>safety copy</strong> of the whole photo is made before every write, and checked against the original before anything changes</li>
@@ -4385,17 +4424,17 @@ class SearchHandler(BaseHTTPRequestHandler):
                       "removed_sidecar": False, "written": [], "not_written": []}
 
             if sidecar:
-                sidecar_path = write_sidecar(
-                    path,
-                    title=data["subject"],
-                    description=data["description"],
-                    keywords=data["keywords"],
-                    people=data["people"],
-                    rating=data["rating"],
-                )
-                result["wrote_sidecar"] = True
-                result["sidecar_path"] = str(sidecar_path)
-                console_log(f"Write tags to one photo: sidecar written for {data['asset']['relative_path']}")
+                try:
+                    sidecar_path = write_photo_sidecar(path, data)
+                except SidecarRefused as refused:
+                    if not embed:
+                        raise ValueError(str(refused)) from refused
+                    result["sidecar_refused"] = str(refused)
+                    console_log(f"Write tags to one photo: {data['asset']['relative_path']} — {refused}")
+                else:
+                    result["wrote_sidecar"] = True
+                    result["sidecar_path"] = str(sidecar_path)
+                    console_log(f"Write tags to one photo: sidecar written for {data['asset']['relative_path']}")
 
             if embed:
                 outcome = self._write_embedded_metadata(con, asset_id, data)
@@ -4670,15 +4709,19 @@ class SearchHandler(BaseHTTPRequestHandler):
                             fell_back.append({"path": relative, "error": reason})
                             action.note(f"{relative} — {reason}")
 
+                        sidecar_blocked = False
                         if sidecar:
-                            write_sidecar(
-                                path,
-                                title=data["subject"],
-                                description=data["description"],
-                                keywords=data["keywords"],
-                                people=data["people"],
-                                rating=data["rating"],
-                            )
+                            try:
+                                write_photo_sidecar(path, data)
+                            except SidecarRefused as refused:
+                                incomplete.append({"path": relative, "error": f"sidecar file — {refused}"})
+                                action.note(f"{relative} — {refused}")
+                                if not embed:
+                                    raise _AlreadyWritten from refused
+                                # The photo itself is still written, and is recorded as
+                                # embedded only, so a later run tries the sidecar again.
+                                sidecar_blocked = True
+                                fingerprint = self._write_tags_fingerprint(data, "embedded")
                         if embedded_current:
                             if not sidecar and retire_sidecar(path, relative):
                                 sidecars_removed += 1
@@ -4688,15 +4731,23 @@ class SearchHandler(BaseHTTPRequestHandler):
                                 if not sidecar and retire_sidecar(path, relative):
                                     sidecars_removed += 1
                             except EmbeddingRefused as refused:
+                                if sidecar_blocked:
+                                    incomplete.append({
+                                        "path": relative,
+                                        "error": f"{refused}, and no sidecar file was written either",
+                                    })
+                                    action.failure(relative, f"{refused}; no sidecar file was written either")
+                                    raise _AlreadyWritten from refused
                                 if not sidecar:
-                                    write_sidecar(
-                                        path,
-                                        title=data["subject"],
-                                        description=data["description"],
-                                        keywords=data["keywords"],
-                                        people=data["people"],
-                                        rating=data["rating"],
-                                    )
+                                    try:
+                                        write_photo_sidecar(path, data)
+                                    except SidecarRefused as no_sidecar:
+                                        incomplete.append({
+                                            "path": relative,
+                                            "error": f"{refused}, and the sidecar file was not written — {no_sidecar}",
+                                        })
+                                        action.failure(relative, f"{refused}; {no_sidecar}")
+                                        raise _AlreadyWritten from no_sidecar
                                 reason = f"{refused} — a sidecar file was written next to it instead"
                                 fell_back.append({"path": relative, "error": reason})
                                 action.note(f"{relative} — {reason}")
@@ -4781,7 +4832,22 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "skipped": skipped, "sidecars_removed": sidecars_removed, "started_at": started_at,
                 }
 
-        threading.Thread(target=run, name="LensLedger-write-tags", daemon=True).start()
+        def run_to_the_end():
+            try:
+                run()
+            except BaseException as exc:
+                reason = str(exc) or type(exc).__name__
+                action.failed(reason)
+                with SearchHandler.write_tags_lock:
+                    SearchHandler.write_tags_job = {
+                        **SearchHandler.write_tags_job,
+                        "state": "error",
+                        "message": f"Writing tags stopped part way: {reason}",
+                    }
+                if not isinstance(exc, Exception):
+                    raise
+
+        threading.Thread(target=run_to_the_end, name="LensLedger-write-tags", daemon=True).start()
         self.send_json({"ok": True, "state": "running", "total": total}, 202)
 
     def trash_history(self):

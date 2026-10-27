@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -116,6 +118,10 @@ def _escape(text: str) -> str:
             .replace('"', "&quot;"))
 
 
+class SidecarRefused(Exception):
+    """A sidecar was deliberately not written; the message says why."""
+
+
 def write_sidecar(
     photo_path: Path,
     *,
@@ -125,8 +131,23 @@ def write_sidecar(
     people: list[str] | None = None,
     rating: int = 0,
 ) -> Path:
-    """Write an XMP sidecar file next to the photo. Returns the sidecar path."""
+    """Write an XMP sidecar file next to the photo. Returns the sidecar path.
+
+    An .xmp file another program wrote under that name is never replaced: it
+    holds that program's own settings, and this file would carry only tags.
+    The new file is written beside the old one and swapped in whole, so an
+    interruption leaves either the old sidecar or the new one.
+    """
     xmp_path = photo_path.with_suffix(".xmp")
+    if xmp_path.is_file():
+        try:
+            existing = xmp_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            existing = None
+        # An empty file is what an interrupted write used to leave behind.
+        if existing is None or (existing.strip() and not is_lensledger_sidecar(existing)):
+            raise SidecarRefused(
+                f"{xmp_path.name} was written by another program and was left as it is")
     content = build_xmp(
         title=title,
         description=description,
@@ -134,7 +155,16 @@ def write_sidecar(
         people=people,
         rating=rating,
     )
-    xmp_path.write_text(content, encoding="utf-8")
+    handle, temp_name = tempfile.mkstemp(prefix=f".{xmp_path.stem}-", suffix=".tmp", dir=xmp_path.parent)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="") as temp:
+            temp.write(content)
+            temp.flush()
+            os.fsync(temp.fileno())
+        os.replace(temp_name, xmp_path)
+    except BaseException:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
     return xmp_path
 
 
