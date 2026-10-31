@@ -70,3 +70,20 @@ class MenuIconsAreDrawn(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrashDoesNotDependOnBrowserDialogs(unittest.TestCase):
+    """A browser that has blocked a page's dialogs answers confirm() with
+    Cancel and says nothing, which made the Trash buttons look dead."""
+
+    def test_viewer_trash_asks_inside_the_page(self):
+        source = script("viewer.js")
+        self.assertNotRegex(source, r"confirm\(\s*'Move ")
+        self.assertIn("askConfirm(", source)
+        self.assertEqual(len(re.findall(r"await askConfirm\(", source)), 2)
+
+    def test_viewer_trash_says_so_when_the_photo_has_not_loaded(self):
+        source = script("viewer.js")
+        start = source.index("async function moveToBin")
+        body = source[start:source.index("\n", start)]
+        self.assertIn("has not finished loading", body)

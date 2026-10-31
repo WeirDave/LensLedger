@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.32.1 — 2026-10-31
+
+- **Trash this photo** and **Trash selected** ask for confirmation in a panel inside LensLedger instead of a browser dialog, so they still work when the browser has blocked the page's dialogs.
+- **Trash this photo** says "This photo has not finished loading. Try again in a moment." instead of doing nothing when the photo's details are not loaded.
+- Moving a photo to Trash no longer drops the wrong photo from the filmstrip when the selected photo is not in the list.
+
 ## 1.32.0 — 2026-10-31
 
 - The photo viewer's header shows a **N need tags** button that lists the photos with no tags yet. The same list is available as **Needs tags** in the **Search scope** menu. Folder-derived and hidden tags do not count as tagged.
