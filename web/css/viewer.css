@@ -60,3 +60,11 @@ header{min-height:auto;padding:6px 10px}.top{margin-bottom:4px;gap:6px}.top img{
 ::placeholder{color:var(--text-secondary);opacity:1}
 :focus-visible{outline:2px solid var(--text-heading);outline-offset:2px}
 .publish-note{font-size:12px}.thumb span{font-size:11px}
+.publish-section h2{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--publish-label)}
+.sidebar .row>button{background:var(--btn-secondary);color:var(--btn-secondary-text)}.sidebar .row>button:hover:not(:disabled){background:var(--btn-hover)}
+.sidebar .trash-section{margin-top:14px;padding-top:10px;text-align:left}.sidebar .trash-section .danger{background:transparent;color:var(--danger);border:1px solid var(--border);font-weight:600}.sidebar .trash-section .danger:hover{border-color:var(--danger);background:var(--menu-hover)}
+.info-button{width:24px;height:24px}
+@media(prefers-reduced-motion:reduce){.sidebar,.menu-panel,.menu-backdrop,.about-overlay{transition:none}}
+@media(pointer:coarse),(max-width:768px){form.toolbar button:not(.info-button),form.toolbar select,form.toolbar input,.date-trigger{min-height:44px}.menu-toggle,.theme-toggle{width:44px;height:44px}.sidebar-toggle{width:44px;height:44px}.sidebar .row>button,.sidebar .publish-actions button,.sidebar .trash-section button{min-height:44px}#starRating .star{width:40px;height:40px}#shortcutHint{display:none}}
+@media(max-width:768px){form.toolbar>.search-field{order:0}form.toolbar>.filters-toggle{order:1}form.toolbar>.scope-field{order:2;flex:1 1 100%}form.toolbar>#previousDay{order:3;flex:0 0 auto}form.toolbar>.date-field{order:4;flex:1 1 120px;min-width:120px}form.toolbar>#nextDay{order:5;flex:0 0 auto}form.toolbar>.sort-field{order:6;flex:1 1 110px;min-width:110px}form.toolbar>.rating-field{order:7;flex:1 1 110px;min-width:110px}form.toolbar>button:last-child{order:8;flex:0 0 auto}}
+.scope-field .info-button{top:-6px}

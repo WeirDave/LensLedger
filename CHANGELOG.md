@@ -6,6 +6,15 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.29.1 — 2026-10-31
+
+- In the photo viewer's side panel, **Save subject**, **Add tags** and **Add to event** are now grey, so **Preview & publish** is the only amber button. The "Publish to this photo" heading matches the other section headings.
+- **Trash this photo** moved from the middle of the side panel to the bottom, below Capture details, and is an outlined button instead of a solid one.
+- On touch screens and in windows 768 pixels wide or narrower, the toolbar buttons and fields, the menu, theme and photo details buttons, and the buttons in the side panel are at least 44 pixels tall, and the rating stars are 40 pixels. The keyboard shortcut hint is hidden there.
+- The "i" help buttons are 24 pixels instead of 16.
+- On phones, opening **Filters** now shows Search scope on its own row, then **Day**, the date and **Day**, then Sort, Rating and **View**, without squeezing any field.
+- The side panel and menu slide without animation when the system's reduced-motion setting is on.
+
 ## 1.29.0 — 2026-10-31
 
 - The photo viewer's search bar no longer runs off the right edge in windows about 950 to 1100 pixels wide. The theme button, **View** and the sidebar buttons stay on screen, and the page no longer clips them without a scrollbar.
