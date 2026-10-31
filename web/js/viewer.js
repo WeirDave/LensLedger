@@ -317,7 +317,7 @@ async function openUpdatePanel(){
  check.onclick=async()=>{check.disabled=true;try{await api('/api/update/check',{});title.textContent='Checking for updates…';message.textContent='Contacting GitHub for the latest verified release.';setTimeout(refresh,250)}catch(error){message.textContent=error.message}finally{check.disabled=false}};
  install.onclick=async()=>{if(!confirm('Install the verified update and restart LensLedger now? Your photo library and catalog remain separate and will not be replaced.'))return;install.disabled=true;check.disabled=true;try{const result=await postStoppingJobs('/api/update/install');title.textContent='Installing and restarting…';message.textContent=result.message;location.textContent='Keep this tab open — reconnecting automatically once the new version is ready…';waitForRestart()}catch(error){message.textContent=error.message;install.disabled=false;check.disabled=false}};restart.onclick=async()=>{restart.disabled=true;check.disabled=true;try{const result=await postStoppingJobs('/api/update/restart-source');title.textContent='Restarting…';message.textContent=result.message;location.textContent='Keep this tab open — reconnecting automatically once LensLedger is back…';waitForRestart()}catch(error){message.textContent=error.message;restart.disabled=false;check.disabled=false}};refresh()
 }
-async function watchUpdateBadge(){try{const status=await fetch('/api/update/status').then(response=>response.json());if(status.state==='available'){$('updateMenu').textContent='⬆ Update available · v'+status.release.version;$('updateMenu').classList.add('status-success');return}if(status.state==='checking')setTimeout(watchUpdateBadge,700)}catch(error){}}setTimeout(watchUpdateBadge,100);
+async function watchUpdateBadge(){try{const status=await fetch('/api/update/status').then(response=>response.json());if(status.state==='available'){$('updateMenu').querySelector('span').textContent='Update available · v'+status.release.version;$('updateMenu').classList.add('status-success');return}if(status.state==='checking')setTimeout(watchUpdateBadge,700)}catch(error){}}setTimeout(watchUpdateBadge,100);
 async function postStoppingJobs(path){try{return await api(path,{})}catch(e){const jobs=e.data&&e.data.running_jobs;if(!(jobs&&jobs.length)||!confirm('LensLedger is still busy with '+jobs.join(' and ')+'.\n\nStop it at its next safe point and continue?'))throw e;return await api(path,{stop_running:true})}}
 function metadataText(value){if(Array.isArray(value))return value.join(', ');if(value&&typeof value==='object')return JSON.stringify(value);return value==null?'':String(value)}
 async function previewPublish(){if(!currentDetail?.publishable)return;try{const preview=await api('/api/publish/preview',{id:selectedId,description:$('publishDescription').value});const box=document.createElement('div');const intro=document.createElement('p');intro.textContent='Review every destination below. Nothing has been written yet.';const table=document.createElement('table');table.className='preview-table';const head=document.createElement('tr');['File field','Before','After'].forEach(label=>{const th=document.createElement('th');th.textContent=label;head.append(th)});table.append(head);const keys=[...new Set([...Object.keys(preview.before),...Object.keys(preview.after)])];keys.forEach(key=>{const row=document.createElement('tr');[key,metadataText(preview.before[key]),metadataText(preview.after[key])].forEach(value=>{const cell=document.createElement('td');cell.textContent=value||'—';row.append(cell)});table.append(row)});const bar=document.createElement('div');bar.className='confirm-bar';const note=document.createElement('small');note.textContent='A full safety copy is created before writing, and decoded picture pixels must match afterward.';const buttons=document.createElement('div');buttons.className='confirm-buttons';const cancelButton=document.createElement('button');cancelButton.className='secondary';cancelButton.textContent='Cancel';cancelButton.onclick=()=>$('modalBackdrop').classList.remove('open');const confirmButton=document.createElement('button');confirmButton.textContent='Publish this photo';confirmButton.onclick=async()=>{confirmButton.disabled=true;cancelButton.disabled=true;try{const result=await api('/api/publish',{id:selectedId,description:$('publishDescription').value,expected_after:preview.after});$('modalBackdrop').classList.remove('open');await selectAsset(selectedId);setStatus(result.message)}catch(e){confirmButton.disabled=false;cancelButton.disabled=false;setStatus(e.message,true)}};buttons.append(cancelButton,confirmButton);bar.append(note,buttons);box.append(intro,table,bar);openModal('Publish metadata to '+currentDetail.filename,box);document.querySelector('.modal').classList.add('publish-modal')}catch(e){setStatus(e.message,true)}}
@@ -599,4 +599,31 @@ checkServerVersion();setInterval(checkServerVersion,30000);
   function labelFilters(){const n=activeFilters();filters.textContent=n?'Filters · '+n:'Filters'}
   filters.onclick=()=>{filters.setAttribute('aria-expanded',String(form.classList.toggle('filters-open')))};
   labelFilters();
+})();
+
+(function(){
+  var KEY='ll.sidebarSections',saved={};
+  try{saved=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){saved={}}
+  function persist(){try{localStorage.setItem(KEY,JSON.stringify(saved))}catch(e){}}
+  document.querySelectorAll('#sidebar .section:not(.trash-section)').forEach(function(section){
+    var title=section.querySelector('.section-title'),heading=title&&title.querySelector('h2');
+    if(!heading)return;
+    var label=heading.textContent.trim(),toggle=document.createElement('button'),count=document.createElement('span');
+    toggle.type='button';toggle.className='section-toggle';toggle.textContent=label;
+    count.className='section-count';
+    heading.textContent='';heading.appendChild(toggle);heading.appendChild(count);
+    function set(collapsed){
+      section.classList.toggle('collapsed',collapsed);
+      toggle.setAttribute('aria-expanded',String(!collapsed));
+      if(collapsed)saved[label]=1;else delete saved[label];
+    }
+    function refresh(){
+      var n=0;section.querySelectorAll('.chips:not(#suggestedPeople)').forEach(function(box){n+=box.children.length});
+      count.textContent=n?'· '+n:'';
+    }
+    toggle.onclick=function(){set(!section.classList.contains('collapsed'));persist()};
+    set(!!saved[label]);
+    section.querySelectorAll('.chips').forEach(function(box){new MutationObserver(refresh).observe(box,{childList:true})});
+    refresh();
+  });
 })();

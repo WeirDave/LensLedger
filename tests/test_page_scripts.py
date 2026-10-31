@@ -59,5 +59,14 @@ class RemovedSettingsStayRemoved(unittest.TestCase):
         self.assertNotIn("ocr_batch_size", DEFAULTS["scan"])
 
 
+class MenuIconsAreDrawn(unittest.TestCase):
+    def test_menu_entries_use_svg_icons_not_emoji(self):
+        import photo_search
+
+        menu = photo_search.nav_menu("home", "")
+        self.assertGreaterEqual(menu.count('class="menu-icon"'), 19)
+        self.assertEqual([c for c in menu if ord(c) > 0x2000 and ord(c) not in (0x2014, 0x00b7, 0x2026)], [])
+
+
 if __name__ == "__main__":
     unittest.main()

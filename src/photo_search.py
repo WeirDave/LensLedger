@@ -265,10 +265,41 @@ def bootstrap_attr(values: dict[str, object]) -> str:
     return f'data-ll="{html.escape(json.dumps(values), quote=True)}"'
 
 
+_NAV_ICONS = {
+    "home": '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h4.5V14h4v5.5h4.5V10"/>',
+    "scan": '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+    "people": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.7a3.3 3.3 0 0 1 0 6.1"/><path d="M18 14.3c2 .8 3.5 2.8 3.5 5.7"/>',
+    "tag": '<path d="M3.5 12.5V4.5h8l9 9-8 8z"/><circle cx="7.8" cy="8.8" r="1.1"/>',
+    "archive": '<rect x="3" y="4" width="18" height="4.5" rx="1"/><path d="M5 8.5V19h14V8.5"/><path d="M10 12.5h4"/>',
+    "publish": '<path d="M12 15.5V4"/><path d="m7 8.5 5-4.5 5 4.5"/><path d="M4 15.5V20h16v-4.5"/>',
+    "globe": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3 3.2 3 14.8 0 18-3-3.2-3-14.8 0-18z"/>',
+    "copy": '<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
+    "camera": '<path d="M3.5 8h3.7l1.8-3h6l1.8 3h3.7v11.5h-17z"/><circle cx="12" cy="13.5" r="3.5"/>',
+    "sliders": '<path d="M4 7h9"/><path d="M19 7h1"/><circle cx="16" cy="7" r="2.2"/><path d="M4 17h1"/><path d="M11 17h9"/><circle cx="8" cy="17" r="2.2"/>',
+    "book": '<path d="M4 19V5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5 2.5 2.5 0 0 0 6.5 21H19"/>',
+    "file": '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>',
+    "help": '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.2c-.8.4-1.2.9-1.2 1.8"/><path d="M12 17.2v.01"/>',
+    "bug": '<path d="M9 9h6v6a3 3 0 0 1-6 0z"/><path d="M9 8a3 3 0 0 1 6 0"/><path d="M5 12.5h4"/><path d="M15 12.5h4"/><path d="m6 6 3 2"/><path d="m18 6-3 2"/><path d="m6 19.5 3-2.5"/><path d="m18 19.5-3-2.5"/>',
+    "clipboard": '<path d="M9 4h6v3H9z"/><path d="M8 5.5H6.5a1 1 0 0 0-1 1V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1H16"/>',
+    "update": '<circle cx="12" cy="12" r="9"/><path d="M12 16.5v-9"/><path d="m8.2 11.2 3.8-3.7 3.8 3.7"/>',
+    "restart": '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20.5 4v4.5H16"/>',
+    "terminal": '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 10 3 2.5L7 15"/><path d="M13 15h4"/>',
+    "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.7v.01"/>',
+}
+
+
+def nav_icon(name: str) -> str:
+    return (
+        '<svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        f'{_NAV_ICONS[name]}</svg>'
+    )
+
+
+
 def nav_menu(current_page: str = "", library_root: str = "") -> str:
-    def _link(href, label, page_key):
+    def _link(href, label, page_key, icon):
         active = " active" if current_page == page_key else ""
-        return f'<a class="menu-item{active}" href="{href}">{label}</a>'
+        return f'<a class="menu-item{active}" href="{href}">{nav_icon(icon)}<span>{label}</span></a>'
 
     lib_display = html.escape(library_root) if library_root else ""
     lib_footer = (
@@ -323,39 +354,39 @@ def nav_menu(current_page: str = "", library_root: str = "") -> str:
         f'<span class="menu-panel-title">{APP_NAME}</span>'
         f'<span class="menu-panel-tagline">{APP_TAGLINE}</span>'
         f'<span class="menu-panel-version">v{APP_VERSION}</span>'
-        '<button type="button" class="menu-panel-about-btn" data-panel="about">ℹ About</button>'
+        '<button type="button" class="menu-panel-about-btn" data-panel="about">' + nav_icon("info") + 'About</button>'
         '</div></div>'
         '<button type="button" class="menu-close-btn" id="menuClose">&times;</button>'
         '</div>'
         '<div class="menu-body">'
         '<details class="menu-section" open>'
         '<summary class="menu-section-label">Navigation</summary>'
-        + _link("/", "⌂ Home", "home")
-        + _link("/scan-photos", "\U0001f50e Scan photos", "scan-photos")
-        + _link("/?scope=people", "\U0001f465 People Index", "people-directory")
-        + _link("/people", "\U0001f3f7️ Tag faces", "people")
-        + _link("/people/set-aside", "\U0001f5c3️ Set-aside faces", "set-aside")
-        + _link("/publish", "\U0001f4e4 Publish photos", "publish")
-        + _link("/map", "\U0001f30d Photo map", "map")
-        + _link("/?scope=duplicates", "\U0001f5c2️ Duplicate photos", "duplicates")
-        + _link("/auto-import", "\U0001f4f7 Auto-import photos", "auto-import")
-        + _link("/settings", "⚙ Settings", "settings")
+        + _link("/", "Home", "home", "home")
+        + _link("/scan-photos", "Scan photos", "scan-photos", "scan")
+        + _link("/?scope=people", "People Index", "people-directory", "people")
+        + _link("/people", "Tag faces", "people", "tag")
+        + _link("/people/set-aside", "Set-aside faces", "set-aside", "archive")
+        + _link("/publish", "Publish photos", "publish", "publish")
+        + _link("/map", "Photo map", "map", "globe")
+        + _link("/?scope=duplicates", "Duplicate photos", "duplicates", "copy")
+        + _link("/auto-import", "Auto-import photos", "auto-import", "camera")
+        + _link("/settings", "Settings", "settings", "sliders")
         + '</details>'
         '<div class="menu-divider"></div>'
         '<details class="menu-section">'
         '<summary class="menu-section-label">Help &amp; Support</summary>'
-        '<button type="button" class="menu-item" data-panel="guide">\U0001f4d6 Quick guide</button>'
-        + '<a class="menu-item" href="/manual" target="_blank" rel="noopener">\U0001f4d3 User manual</a>'
-        + '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">❓ Help &amp; support</a>'
-        '<button type="button" class="menu-item" id="reportIssueMenu">🐛 Report an issue</button>'
-        '<button type="button" class="menu-item" id="copyDiagnosticsMenu">\U0001f4cb Copy diagnostics</button>'
-        '<button type="button" class="menu-item" id="updateMenu" data-panel="update">⬆️ Check for updates</button>'
-        '<button type="button" class="menu-item" id="restartServerMenu">🔄 Restart server</button>'
+        '<button type="button" class="menu-item" data-panel="guide">' + nav_icon("book") + '<span>Quick guide</span></button>'
+        + '<a class="menu-item" href="/manual" target="_blank" rel="noopener">' + nav_icon("file") + '<span>User manual</span></a>'
+        + '<a class="menu-item" href="https://github.com/WeirDave/LensLedger/issues" target="_blank" rel="noopener">' + nav_icon("help") + '<span>Help &amp; support</span></a>'
+        '<button type="button" class="menu-item" id="reportIssueMenu">' + nav_icon("bug") + '<span>Report an issue</span></button>'
+        '<button type="button" class="menu-item" id="copyDiagnosticsMenu">' + nav_icon("clipboard") + '<span>Copy diagnostics</span></button>'
+        '<button type="button" class="menu-item" id="updateMenu" data-panel="update">' + nav_icon("update") + '<span>Check for updates</span></button>'
+        '<button type="button" class="menu-item" id="restartServerMenu">' + nav_icon("restart") + '<span>Restart server</span></button>'
         '</details>'
         '<div class="menu-divider"></div>'
         '<details class="menu-section">'
         '<summary class="menu-section-label">Advanced</summary>'
-        + _link("/dev-tools", "🛠 Dev tools", "dev-tools")
+        + _link("/dev-tools", "Dev tools", "dev-tools", "terminal")
         + '</details>'
         + lib_footer
         + '</div></nav>'

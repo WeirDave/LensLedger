@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.31.0 — 2026-10-31
+
+- Menu entries on every page have drawn line icons instead of emoji. The icons follow the light and dark themes.
+- In the photo viewer, the side-panel headings (**Primary subject**, **Photo tags**, **People in this photo**, **Event / folder tags**, **Hidden tags**) collapse and expand their sections. A collapsed section shows how many items it holds, and each section's state is remembered.
+- The × on a tag chip has a larger clickable area, about 44 pixels on touch screens.
+
 ## 1.30.1 — 2026-10-31
 
 - The slide-in menu on every page can no longer be reached with the Tab key while it is closed. Opening it moves keyboard focus to its close button, and closing it returns focus to the menu button, which also reports whether the menu is open.
