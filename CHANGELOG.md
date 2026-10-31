@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.32.0 — 2026-10-31
+
+- The photo viewer's header shows a **N need tags** button that lists the photos with no tags yet. The same list is available as **Needs tags** in the **Search scope** menu. Folder-derived and hidden tags do not count as tagged.
+
 ## 1.31.0 — 2026-10-31
 
 - Menu entries on every page have drawn line icons instead of emoji. The icons follow the light and dark themes.

@@ -89,3 +89,7 @@ form.toolbar input,form.toolbar select,.date-trigger,.sidebar input,.sidebar tex
 .chip button::after{content:"";position:absolute;inset:-6px}
 @media(pointer:coarse),(max-width:768px){#sidebar .section-toggle{min-height:44px}.chip button::after{inset:-14px -8px}}
 @media(prefers-reduced-motion:reduce){#sidebar .section-toggle::before{transition:none}}
+.needs-tags{display:inline-flex;align-items:center;margin-left:14px;padding:4px 11px;border:1px solid var(--field-border);border-radius:999px;color:var(--accent-text);font-size:12px;font-weight:600;line-height:1.3;text-decoration:none;white-space:nowrap}
+.needs-tags:hover{border-color:var(--accent);background:var(--menu-hover)}
+@media(max-width:768px){.needs-tags{margin-left:auto;margin-right:2px}}
+@media(pointer:coarse),(max-width:768px){.needs-tags{min-height:44px;padding:0 14px}}

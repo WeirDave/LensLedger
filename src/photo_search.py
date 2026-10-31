@@ -444,6 +444,26 @@ def asset_rating(con: sqlite3.Connection, relative_path: str) -> int:
     return int(row[0]) if row else 0
 
 
+# A photo counts as described once it has a subject, tags from its own
+# metadata, or a confirmed person. Tags inferred from the folder name do not
+# count, and neither do tags the user has hidden for that photo.
+UNTAGGED_CLAUSE = """NOT EXISTS (
+    SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id
+    WHERE at.asset_id=a.id
+      AND at.source IN ('subject','asset_rule','embedded_xmp','embedded_people','person')
+      AND NOT EXISTS (
+          SELECT 1 FROM asset_tag_exclusions e
+          WHERE e.relative_path=a.relative_path AND e.tag=t.name
+      )
+)"""
+
+
+def count_untagged(con: sqlite3.Connection) -> int:
+    return int(con.execute(
+        f"SELECT COUNT(*) FROM assets a WHERE a.in_review_bin=0 AND {UNTAGGED_CLAUSE}"
+    ).fetchone()[0])
+
+
 def attach_ratings(con: sqlite3.Connection, items: list[dict]) -> list[dict]:
     """Add each photo's star rating (0 when unrated) for the filmstrip."""
     if not items:
@@ -2908,7 +2928,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         scope = params.get("scope", ["all"])[0]
         requested_person = params.get("person", [""])[0]
         person_id = int(requested_person) if requested_person.isdecimal() else None
-        if scope not in {"image", "context", "people", "semantic", "duplicates", "similar", "all"}:
+        if scope not in {"image", "context", "people", "semantic", "duplicates", "similar", "untagged", "all"}:
             scope = "image"
         default_sort = "relevance" if (query and scope == "all") else ("oldest" if selected_date else "newest")
         sort = params.get("sort", [default_sort])[0]
@@ -2974,7 +2994,13 @@ class SearchHandler(BaseHTTPRequestHandler):
         # stay as only the base filters (review-bin state, selected date)
         # for that case, and search_everything_scope builds its own
         # MATCH/EXISTS queries independently.
-        if tokens and scope not in {"all", "people", "semantic", "duplicates", "similar"}:
+        if scope == "untagged":
+            clauses.append(UNTAGGED_CLAUSE)
+            for token in tokens:
+                pattern = like_pattern(token)
+                clauses.append("(a.filename LIKE ? ESCAPE '\\' OR a.folder LIKE ? ESCAPE '\\')")
+                values.extend([pattern, pattern])
+        elif tokens and scope not in {"all", "people", "semantic", "duplicates", "similar"}:
             sources = "('subject','asset_rule','embedded_xmp','embedded_people','person')" if scope == "image" else "('folder_rule')"
             for token in tokens:
                 pattern = like_pattern(token)
@@ -3110,8 +3136,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         trash_count = 0
         review_count = 0
         unidentified_faces_count = 0
+        untagged_count = 0
         try:
             with self.db() as con:
+                untagged_count = count_untagged(con)
                 trash_count = int(con.execute(
                     "SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL"
                 ).fetchone()[0])
@@ -3229,6 +3257,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             view_label = f'Exact duplicates: “{query}”' if query else "Exact duplicates"
         elif scope == "similar":
             view_label = f'Similar photos: “{query}”' if query else "Similar photos"
+        elif scope == "untagged":
+            view_label = f'Photos that need tags: “{query}”' if query else "Photos that need tags"
         elif query:
             view_label = f'Search: “{query}”'
         elif selected_date:
@@ -3252,7 +3282,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         scope_options = "".join(
             f'<option value="{value}"{" selected" if scope == value else ""}>{label}</option>'
-            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("duplicates", "Exact duplicates"), ("similar", "Similar photos"), ("all", "Everything"))
+            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("duplicates", "Exact duplicates"), ("similar", "Similar photos"), ("untagged", "Needs tags"), ("all", "Everything"))
         )
         sort_options = "".join(
             f'<option value="{value}"{" selected" if sort == value else ""}>{label}</option>'
@@ -3275,10 +3305,15 @@ class SearchHandler(BaseHTTPRequestHandler):
             for n in range(1, 6)
         )
         gallery_mode = scope == "people" and not person_id
+        needs_tags_link = (
+            f'<a class="needs-tags" href="/?scope=untagged">{untagged_count:,} need{"s" if untagged_count == 1 else ""} tags</a>'
+            if untagged_count and scope != "untagged" else ""
+        )
         stage_empty_text = (
             "Choose a photo from the filmstrip" if items else
             "No photo in this library is stored more than once" if scope == "duplicates" and not query else
             "No photos in this library look alike" if scope == "similar" and not query else
+            "Every photo in this library has tags" if scope == "untagged" and not query else
             "No photos match this search"
         )
         gallery_cards = []
@@ -3383,7 +3418,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         search_placeholder = (
             "Filter people by name, alias, or group" if gallery_mode else
             "Try: sunset over water, dog playing in snow" if scope == "semantic" else
-            "Folder or file name (optional)" if scope in {"duplicates", "similar"} else
+            "Folder or file name (optional)" if scope in {"duplicates", "similar", "untagged"} else
             "Try: birthday, beach, John, cake" if scope == "everything" else
             "Subject, person, object, or visible text"
         )
@@ -3402,7 +3437,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "page": page_number, "hasMore": has_more,
         })}>
 <a href="#stage" class="skip-nav">Skip to photos</a>
-<header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
+<header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span>{needs_tags_link}<button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
 <form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><button type="button" class="secondary filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="viewerToolbar">Filters</button><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker" aria-label="Search scope">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><label class="rating-field optional">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label><button>View</button></form></header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">

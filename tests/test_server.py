@@ -84,6 +84,27 @@ class ServerWorkflowTests(unittest.TestCase):
         self.environment.stop()
         self.temporary.cleanup()
 
+    def test_photos_without_tags_are_counted_and_listed(self):
+        from photo_index import connect, set_source_tags
+
+        page = self.get("/").read().decode("utf-8")
+        self.assertIn('href="/?scope=untagged">1 needs tags</a>', page)
+        listed = self.json_response(self.get("/api/library/items?scope=untagged"))
+        self.assertEqual([item["id"] for item in listed["items"]], [self.asset_id])
+        self.assertEqual(self.json_response(self.get("/api/library/items?scope=untagged&q=nomatch"))["items"], [])
+
+        con = connect(self.database)
+        set_source_tags(con, self.asset_id, "folder_rule", ["photos"])
+        con.commit()
+        self.assertIn("1 needs tags", self.get("/").read().decode("utf-8"))
+
+        set_source_tags(con, self.asset_id, "asset_rule", ["beach"])
+        con.commit()
+        con.close()
+        page = self.get("/").read().decode("utf-8")
+        self.assertNotIn("needs-tags", page.split("</header>")[0])
+        self.assertEqual(self.json_response(self.get("/api/library/items?scope=untagged"))["items"], [])
+
     def get(self, path: str):
         return urllib.request.urlopen(self.base_url + path, timeout=10)
 
