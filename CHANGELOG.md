@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.30.0 — 2026-10-31
+
+- In the photo viewer, **Preview & publish**, **Restore last publish** and the status message are in a bar pinned to the bottom of the side panel, so they stay visible without scrolling. The photo description box stays in the "Publish to this photo" section.
+- The photo gets more room: the side panel is 32% of the window width (320 to 430 pixels) instead of a fixed 430, and the filmstrip is 134 pixels tall instead of 158. At 1024 by 768 the photo area grows from 594 by 490 to 696 by 514 pixels.
+- On phones, the photo details panel has a **Close details** bar at its top, focus moves into the panel when it opens and back to the button when it closes, and the opening button reads "Details" instead of an "i" symbol.
+- Fields in the side panel and the toolbar use 16 pixel text and 44 pixel height on touch screens and in windows 768 pixels wide or narrower, which stops phone browsers zooming the page when a field is tapped. The **Capture details** heading is 44 pixels tall there.
+- Several colours meet contrast limits: the photo date and status text in the light theme, the **Trash this photo** text in the dark theme, empty rating stars, and the borders of fields in the viewer.
+- The side panel's section headings no longer carry the numbers 1 to 4.
+- The active item in the menu is shown with a tinted background and an outline instead of a thick left border, on every page. The publish section has a plain green border instead of a thick left one.
+- The menu panel follows the visible screen height on phones.
+
 ## 1.29.1 — 2026-10-31
 
 - In the photo viewer's side panel, **Save subject**, **Add tags** and **Add to event** are now grey, so **Preview & publish** is the only amber button. The "Publish to this photo" heading matches the other section headings.

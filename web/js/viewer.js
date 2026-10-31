@@ -589,6 +589,9 @@ checkServerVersion();setInterval(checkServerVersion,30000);
   new MutationObserver(syncSidebar).observe(sidebar,{attributes:true,attributeFilter:['class']});
   narrow.addEventListener('change',syncSidebar);
   syncSidebar();
+  const closeBtn=$('sidebarClose');
+  toggle.addEventListener('click',()=>{syncSidebar();if(sidebar.classList.contains('open')&&narrow.matches)closeBtn.focus()});
+  closeBtn.onclick=()=>{sidebar.classList.remove('open');$('sidebarBackdrop').classList.remove('open');syncSidebar();toggle.focus()};
   const form=$('viewerToolbar'),filters=$('filtersToggle');
   function activeFilters(){
     return [$('datePicker').value!=='',$('scopePicker').value!=='all',form.elements.sort.value!=='newest',$('ratingFilter').value!=='0'].filter(Boolean).length;
