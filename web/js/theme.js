@@ -181,3 +181,27 @@ document.addEventListener('DOMContentLoaded', function() {
   var diagnostics = document.getElementById('copyDiagnosticsMenu');
   if (diagnostics) diagnostics.addEventListener('click', function() { copyDiagnostics(); });
 });
+
+(function(){
+  document.addEventListener('DOMContentLoaded', function() {
+    var panel = document.getElementById('menuPanel');
+    var toggle = document.getElementById('menuToggle');
+    if (!panel || !toggle) return;
+    toggle.setAttribute('aria-controls', 'menuPanel');
+    var wasOpen = false;
+    function sync() {
+      var open = panel.classList.contains('open');
+      panel.inert = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+      if (open && !wasOpen) {
+        var first = panel.querySelector('.menu-close-btn') || panel.querySelector('a, button');
+        if (first) first.focus();
+      } else if (!open && wasOpen && panel.contains(document.activeElement)) {
+        toggle.focus();
+      }
+      wasOpen = open;
+    }
+    new MutationObserver(sync).observe(panel, {attributes: true, attributeFilter: ['class']});
+    sync();
+  });
+})();

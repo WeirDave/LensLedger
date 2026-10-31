@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.30.1 — 2026-10-31
+
+- The slide-in menu on every page can no longer be reached with the Tab key while it is closed. Opening it moves keyboard focus to its close button, and closing it returns focus to the menu button, which also reports whether the menu is open.
+- The menu is labelled "Main menu" and the photo viewer's filmstrip is labelled "Photos" for screen readers.
+
 ## 1.30.0 — 2026-10-31
 
 - In the photo viewer, **Preview & publish**, **Restore last publish** and the status message are in a bar pinned to the bottom of the side panel, so they stay visible without scrolling. The photo description box stays in the "Publish to this photo" section.
