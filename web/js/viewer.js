@@ -254,7 +254,7 @@ async function selectAsset(id){
     if(d.media_type==='raw'){
       const raw=document.createElement('div');raw.className='raw-preview';raw.innerHTML='<strong>RAW photo</strong>LensLedger indexed this original file.<br>A browser preview is not available yet.';stage.prepend(raw);
     }else{
-      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;stage.prepend(media);initZoom(media);if(d.all_faces&&d.all_faces.length)renderClickableFaces(media,d.all_faces);else renderFocusedFace(media,d.focused_person_face);
+      const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;else media.alt=d.embedded_metadata?.description||d.filename||'Selected photo';stage.prepend(media);initZoom(media);if(d.all_faces&&d.all_faces.length)renderClickableFaces(media,d.all_faces);else renderFocusedFace(media,d.focused_person_face);
     }
     $('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';personPicker?.reset();$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'Only this selected photo will be changed, and only after you approve the preview.':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderRating(d.rating||0);renderEmbeddedMetadata(d.embedded_metadata);setStatus('');
   }catch(e){setStatus(e.message,true)}
@@ -578,3 +578,22 @@ function checkServerVersion(){
 }
 checkServerVersion();setInterval(checkServerVersion,30000);
 {const _p=new URLSearchParams(location.search).get('panel');if(_p)openMenuPanel(_p)}
+
+(function(){
+  const sidebar=$('sidebar'),toggle=$('sidebarToggle'),narrow=matchMedia('(max-width:768px)');
+  function syncSidebar(){
+    const open=sidebar.classList.contains('open');
+    sidebar.inert=narrow.matches&&!open;
+    toggle.setAttribute('aria-expanded',String(open));
+  }
+  new MutationObserver(syncSidebar).observe(sidebar,{attributes:true,attributeFilter:['class']});
+  narrow.addEventListener('change',syncSidebar);
+  syncSidebar();
+  const form=$('viewerToolbar'),filters=$('filtersToggle');
+  function activeFilters(){
+    return [$('datePicker').value!=='',$('scopePicker').value!=='all',form.elements.sort.value!=='newest',$('ratingFilter').value!=='0'].filter(Boolean).length;
+  }
+  function labelFilters(){const n=activeFilters();filters.textContent=n?'Filters · '+n:'Filters'}
+  filters.onclick=()=>{filters.setAttribute('aria-expanded',String(form.classList.toggle('filters-open')))};
+  labelFilters();
+})();

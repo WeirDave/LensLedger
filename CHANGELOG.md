@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.29.0 — 2026-10-31
+
+- The photo viewer's search bar no longer runs off the right edge in windows about 950 to 1100 pixels wide. The theme button, **View** and the sidebar buttons stay on screen, and the page no longer clips them without a scrollbar.
+- **Sort** and **Rating** are no longer hidden in narrower windows. At 960 pixels wide and below, the search bar shows a **Filters** button that opens Scope, the day and date controls, Sort, Rating and **View**. The button shows a count of the filters in use, such as "Filters · 2".
+- The header is shorter, so the photo gets more room: the logo is smaller and the header is about 20 pixels shorter on a desktop window and about 120 pixels shorter on a phone. On narrow screens the filmstrip row is sized to the thumbnails, and the page height follows the visible screen height.
+- Screen reader and keyboard improvements in the viewer: the previous and next photo buttons have names, the photo has alt text, the status line and the undo message are announced, the search scope, subject, tag, event tag and batch tag fields have names, the **Filters** and photo details buttons report whether they are open, and the photo details panel cannot be reached with Tab on narrow screens while it is closed. Focused controls show a visible outline.
+- Button and placeholder text is easier to read: the main buttons are darker in both themes, placeholder text uses the secondary text colour, the publish note is 12 pixels, and filmstrip captions are 11 pixels.
+
 ## 1.28.7 — 2026-10-27
 
 - **Write all tags** and writing tags to one photo no longer write over an `.xmp` sidecar file another program created. The photo is listed under "photos could not carry everything" with the reason, and the file stays as it was. A photo that is also embedded is still written into the file itself.
