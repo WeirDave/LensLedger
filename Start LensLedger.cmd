@@ -27,7 +27,7 @@ REM a required package is missing -- an install made before a package joined
 REM requirements.txt would otherwise never get it (HEIC photos need
 REM pillow_heif). Existing healthy installations skip this step without
 REM contacting the network.
-python -c "import PIL, pillow_heif" >nul 2>&1
+python -c "import PIL, pillow_heif; assert int(PIL.__version__.split(chr(46))[0]) >= 13" >nul 2>&1
 if errorlevel 1 (
     echo Preparing LensLedger for first use...
     python -m pip install -r requirements.txt
@@ -83,7 +83,7 @@ for /l %%n in (1,1,100000) do (
         echo Restarting LensLedger...
         for /l %%w in (1,1,600) do if exist "%LENSLEDGER_RESTART_MARKER%" ping -n 2 127.0.0.1 >nul
         del "%LENSLEDGER_RESTART_MARKER%" >nul 2>&1
-        python -c "import PIL, pillow_heif" >nul 2>&1
+        python -c "import PIL, pillow_heif; assert int(PIL.__version__.split(chr(46))[0]) >= 13" >nul 2>&1
         if errorlevel 1 python -m pip install -r requirements.txt
         cls
         set "RESTART_FLAG=--restarted"

@@ -2,7 +2,7 @@
 #
 # The lines below are installed on first launch by Start LensLedger.cmd
 # (python -m pip install -r requirements.txt).
-Pillow>=12.3,<13
+Pillow>=13.0,<14
 pillow-heif>=1.5,<2
 
 # Optional features. Their packages are commented out so the first-launch

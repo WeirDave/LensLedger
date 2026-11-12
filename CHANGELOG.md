@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.32.3 — 2026-11-12
+
+- Pillow, the image library LensLedger uses to read photos, is updated to version 13. Version 13 fixes the security vulnerabilities published against Pillow 12 and earlier, including several rated critical, in image decoders such as TIFF, GIF, BMP and PDF handling.
+- **Start LensLedger.cmd** now installs Pillow 13 on the next launch if an older version is installed. Installations that already have Pillow 13 start without contacting the network.
+
 ## 1.32.2 — 2026-11-12
 
 - The browser tab for the main search page shows the version number (for example "LensLedger v1.32.2") instead of the tagline.
