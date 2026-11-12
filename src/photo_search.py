@@ -3424,7 +3424,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         )
         viewer_hidden_class = " viewer-hidden" if gallery_mode else ""
         page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{"People Index — " if gallery_mode else ""}{APP_NAME} — {APP_TAGLINE}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}">
+<title>{"People Index — " if gallery_mode else ""}{APP_NAME} v{APP_VERSION}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/person-picker.css')}"><link rel="stylesheet" href="{asset_url('css/viewer.css')}">
 <script src="{asset_url('js/theme.js')}"></script></head><body class="{body_class}" {bootstrap_attr({
             "items": items, "personDirectory": people_directory, "csrf": self.csrf_token,
             "currentLibrary": str(self.library_root), "viewedPersonId": person_id,

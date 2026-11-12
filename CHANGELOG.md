@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.32.2 — 2026-11-12
+
+- The browser tab for the main search page shows the version number (for example "LensLedger v1.32.2") instead of the tagline.
+
 ## 1.32.1 — 2026-10-31
 
 - **Trash this photo** and **Trash selected** ask for confirmation in a panel inside LensLedger instead of a browser dialog, so they still work when the browser has blocked the page's dialogs.
