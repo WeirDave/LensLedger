@@ -355,7 +355,7 @@ async function deferPerson() {
 }
 
 async function trashPhoto(card, item) {
-  if (!confirm('Move "' + item.filename + '" to Trash?\n\nIt will leave the photo library and disappear from search.')) return;
+  if (!await askConfirm('Move to Trash?', ['Move “' + item.filename + '” to Trash?', 'It will leave the photo library and disappear from search. You can undo right away or restore it later from the Trash.'], 'Move to Trash')) return;
   try {
     const result = await api('/api/review-bin', { id: item.id });
     card.remove();

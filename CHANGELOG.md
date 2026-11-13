@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.32.4 — 2026-11-12
+
+- The trash button on photos in the People review pages (suggestions, unidentified faces and the enlarged face view) asks for confirmation in a "Move to Trash?" panel inside LensLedger instead of a browser dialog, so it still works when the browser has blocked the page's dialogs. The panel has **Cancel** and **Move to Trash**; pressing Escape or clicking outside it cancels.
+
 ## 1.32.3 — 2026-11-12
 
 - Pillow, the image library LensLedger uses to read photos, is updated to version 13. Version 13 fixes the security vulnerabilities published against Pillow 12 and earlier, including several rated critical, in image decoders such as TIFF, GIF, BMP and PDF handling.

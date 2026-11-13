@@ -87,3 +87,24 @@ class TrashDoesNotDependOnBrowserDialogs(unittest.TestCase):
         start = source.index("async function moveToBin")
         body = source[start:source.index("\n", start)]
         self.assertIn("has not finished loading", body)
+
+    def test_review_pages_trash_asks_inside_the_page(self):
+        for name, expected in (("faces-review.js", 2), ("people-review.js", 1)):
+            source = script(name)
+            self.assertNotRegex(source, r"confirm\(\s*'Move ", name)
+            self.assertEqual(len(re.findall(r"await askConfirm\(", source)), expected, name)
+
+    def test_review_pages_load_the_shared_dialog(self):
+        from pathlib import Path as _Path
+        server = (_Path(__file__).resolve().parent.parent / "src" / "photo_search.py").read_text(encoding="utf-8")
+        for title in ("<title>People — review suggestions — {APP_NAME}</title>", "<title>People — {APP_NAME}</title><link rel=\"icon\""):
+            page = server[server.index(title):]
+            page = page[:page.index("</body>")]
+            self.assertIn("css/confirm-dialog.css", page, title)
+            self.assertIn("js/confirm-dialog.js", page, title)
+            self.assertLess(page.index("js/confirm-dialog.js"), page.index("-review.js"), title)
+
+    def test_shared_dialog_does_not_use_browser_dialogs(self):
+        source = script("confirm-dialog.js")
+        self.assertIn("showModal()", source)
+        self.assertNotRegex(source, r"(?<![\w.])(confirm|alert|prompt)\(")
