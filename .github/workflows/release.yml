@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   tests:
@@ -15,8 +15,11 @@ jobs:
   release:
     needs: tests
     runs-on: ubuntu-latest
+    # Only this job publishes, so only this job can write to the repository.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Verify release version and notes
         run: |
@@ -70,7 +73,7 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: LensLedger ${{ env.TAG }}
           body_path: docs/releases/${{ env.TAG }}.md

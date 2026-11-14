@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.34.2 — 2026-11-14
+
+- Photos whose embedded metadata block declares XML entities are no longer read for embedded tags, so a crafted photo cannot make that block expand into something very large. Ordinary metadata is read as before.
+- Finding similar photos no longer uses a Pillow call that is deprecated and scheduled for removal in Pillow 14. Results are unchanged.
+- The release and test workflows use fixed commits of the actions they run, and the release workflow can write to the repository only in the step that publishes the release.
+- Removed two functions nothing called.
+
 ## 1.34.1 — 2026-11-14
 
 - Changes that arrive from a page on another website are refused. Every request that changes something now has to come from LensLedger's own address, in addition to the request token it already needed.

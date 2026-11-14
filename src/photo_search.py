@@ -76,10 +76,7 @@ from product import APP_NAME, APP_TAGLINE, APP_VERSION
 
 _STARTUP_VERSION = APP_VERSION
 _STARTED_AT = dt.datetime.now(dt.timezone.utc).isoformat()
-from semantic_classify import (
-    classify_library,
-    get_asset_classifications,
-)
+from semantic_classify import classify_library
 from semantic_index import (
     BUILD_MODES as SEMANTIC_BUILD_MODES,
     SUPPORTED_MODELS as SEMANTIC_SUPPORTED_MODELS,
@@ -4782,7 +4779,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         if rating:
             fields.append(rating)
         payload = json.dumps(fields, ensure_ascii=False)
-        return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+        return hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()
 
     @staticmethod
     def _tags_already_written(asset, fingerprint: str, path: Path) -> bool:

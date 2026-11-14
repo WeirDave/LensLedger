@@ -353,17 +353,6 @@ def content_hash(path: Path) -> str:
         return ""
 
 
-def get_library_id(db_path: Path) -> str | None:
-    try:
-        con = sqlite3.connect(str(db_path), timeout=5)
-        con.row_factory = sqlite3.Row
-        row = con.execute("SELECT value FROM library_metadata WHERE key='library_id'").fetchone()
-        con.close()
-        return str(row["value"]) if row else None
-    except (sqlite3.Error, OSError):
-        return None
-
-
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(
@@ -679,7 +668,7 @@ def visual_hash(path: Path) -> str:
                 image.draft("L", (128, 128))
             image = ImageOps.exif_transpose(image)
             small = image.convert("L").resize((9, 8), Image.LANCZOS)
-            pixels = list(small.getdata())
+            pixels = small.tobytes()
     except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
         return ""
     bits = 0

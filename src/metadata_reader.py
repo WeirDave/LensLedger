@@ -45,6 +45,10 @@ def _xmp_fields(image: Image.Image) -> dict[str, str]:
         start = payload.find(b"<")
         if start < 0:
             continue
+        # A metadata block has no use for entity definitions; declaring them
+        # is how an XML bomb is built, so such a block is not read.
+        if b"<!DOCTYPE" in payload or b"<!ENTITY" in payload:
+            continue
         try:
             root = ET.fromstring(payload[start:])
         except ET.ParseError:

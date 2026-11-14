@@ -160,16 +160,3 @@ def clear_classifications(db_path: Path) -> int:
     with connect(db_path) as con:
         cursor = con.execute("DELETE FROM asset_tags WHERE source='semantic_auto'")
         return cursor.rowcount
-
-
-def get_asset_classifications(db_path: Path, asset_id: int) -> list[dict]:
-    """Return the semantic_auto tags for a single asset."""
-    with connect(db_path) as con:
-        rows = con.execute(
-            """SELECT t.name, at.confidence
-               FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-               WHERE at.asset_id = ? AND at.source = 'semantic_auto'
-               ORDER BY at.confidence DESC""",
-            (asset_id,),
-        ).fetchall()
-    return [{"tag": r["name"], "confidence": r["confidence"]} for r in rows]
