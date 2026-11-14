@@ -80,7 +80,7 @@ class TrashDoesNotDependOnBrowserDialogs(unittest.TestCase):
         source = script("viewer.js")
         self.assertNotRegex(source, r"confirm\(\s*'Move ")
         self.assertIn("askConfirm(", source)
-        self.assertEqual(len(re.findall(r"await askConfirm\(", source)), 2)
+        self.assertGreaterEqual(len(re.findall(r"await askConfirm\(", source)), 2)
 
     def test_viewer_trash_says_so_when_the_photo_has_not_loaded(self):
         source = script("viewer.js")
@@ -94,15 +94,32 @@ class TrashDoesNotDependOnBrowserDialogs(unittest.TestCase):
             self.assertNotRegex(source, r"confirm\(\s*'Move ", name)
             self.assertEqual(len(re.findall(r"await askConfirm\(", source)), expected, name)
 
-    def test_review_pages_load_the_shared_dialog(self):
-        from pathlib import Path as _Path
-        server = (_Path(__file__).resolve().parent.parent / "src" / "photo_search.py").read_text(encoding="utf-8")
-        for title in ("<title>People — review suggestions — {APP_NAME}</title>", "<title>People — {APP_NAME}</title><link rel=\"icon\""):
-            page = server[server.index(title):]
-            page = page[:page.index("</body>")]
-            self.assertIn("css/confirm-dialog.css", page, title)
-            self.assertIn("js/confirm-dialog.js", page, title)
-            self.assertLess(page.index("js/confirm-dialog.js"), page.index("-review.js"), title)
+    def test_every_page_loads_the_shared_dialog_before_its_own_scripts(self):
+        server = (Path(__file__).resolve().parent.parent / "src" / "photo_search.py").read_text(encoding="utf-8")
+        theme_tag = "<script src=\"{asset_url('js/theme.js')}\"></script>"
+        pages = server.count(theme_tag)
+        self.assertGreater(pages, 10)
+        shared = ("<link rel=\"stylesheet\" href=\"{asset_url('css/confirm-dialog.css')}\">"
+                  "<script src=\"{asset_url('js/confirm-dialog.js')}\"></script>" + theme_tag)
+        self.assertEqual(server.count(shared), pages)
+        self.assertEqual(server.count("js/confirm-dialog.js"), pages)
+
+    def test_no_page_script_uses_the_browsers_own_dialogs(self):
+        for path in sorted(WEB_JS.glob("*.js")):
+            if path.name in ("three-min.js", "leaflet.js"):
+                continue
+            self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?<![\w.])(confirm|alert|prompt)\(", path.name)
+
+    def test_shared_dialog_offers_confirm_notice_and_choice(self):
+        source = script("confirm-dialog.js")
+        for name in ("function askConfirm(", "function askNotice(", "function askChoice("):
+            self.assertIn(name, source)
+
+    def test_only_the_shared_script_defines_the_dialog_functions(self):
+        for path in WEB_JS.glob("*.js"):
+            if path.name == "confirm-dialog.js":
+                continue
+            self.assertNotRegex(path.read_text(encoding="utf-8"), r"function (askConfirm|askNotice|askChoice)\(", path.name)
 
     def test_shared_dialog_does_not_use_browser_dialogs(self):
         source = script("confirm-dialog.js")

@@ -57,11 +57,13 @@ function renderGroups(){
     del.title='Delete group';
     del.onclick=function(e){
       e.stopPropagation();
-      if(!confirm('Delete the group "'+g.name+'"? People in this group won\'t be deleted, just the group itself.'))return;
-      api('/api/group/delete',{group_id:g.id}).then(function(){
-        if(selectedGroupName===g.name)selectedGroupName=null;
-        return loadData();
-      }).then(function(){toast('Deleted "'+g.name+'"')}).catch(function(err){setStatus(err.message,true)});
+      askConfirm('Delete the group?',['Delete the group "'+g.name+'"? People in this group won\'t be deleted, just the group itself.'],'Delete group').then(function(ok){
+        if(!ok)return;
+        return api('/api/group/delete',{group_id:g.id}).then(function(){
+          if(selectedGroupName===g.name)selectedGroupName=null;
+          return loadData();
+        }).then(function(){toast('Deleted "'+g.name+'"')}).catch(function(err){setStatus(err.message,true)});
+      });
     };
     item.append(icon,nameSpan,countSpan,del);
     item.onclick=function(){

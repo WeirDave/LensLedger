@@ -100,7 +100,7 @@ async function pollDownload(){
 }
 
 async function deleteModel(modelId,modelName){
-  if(!confirm('Delete the downloaded model "'+modelName+'"? You can re-download it later by selecting it and running meaning search.'))return;
+  if(!await askConfirm('Delete the downloaded model?',['Delete the downloaded model "'+modelName+'"?','You can re-download it later by selecting it and running meaning search.'],'Delete'))return;
   const res=await post('/api/semantic/delete-model',{model:modelId});
   if(res.error){toast(res.error,true);return}
   if(modelCache[modelId])modelCache[modelId]={downloaded:false,size_mb:0};
@@ -145,7 +145,7 @@ async function saveSettings(){
 }
 
 async function switchLibrary(path){
-  if(!confirm('Switch to this library? Your current library will remain in the list.'))return;
+  if(!await askConfirm('Switch library?',['Switch to this library? Your current library will remain in the list.'],'Switch',false))return;
   const res=await post('/api/library/open',{path});
   if(res.error){toast(res.error,true);return}
   currentRoot=path;
@@ -157,13 +157,10 @@ async function addLibrary(){
   const res=await post('/api/library/browse',{});
   if(res.error){toast(res.error,true);return}
   if(!res.path)return;
-  const dbChoice=prompt(
-    'Where should the database be stored?\n\n'
-    +'1) Inside the photo library folder (default — index travels with your photos)\n'
-    +'2) Application data folder (keeps photos folder clean)\n\n'
-    +'Enter 1 or 2:','1');
-  if(!dbChoice)return;
-  const dbLocation=dbChoice.trim()==='2'?'appdata':'library';
+  const dbLocation=await askChoice('Where should the database be stored?',[res.path],[
+    {label:'Inside the photo library folder',detail:'Default. The index travels with your photos.',value:'library'},
+    {label:'Application data folder',detail:'Keeps the photo library folder clean.',value:'appdata'}]);
+  if(!dbLocation)return;
   const addRes=await post('/api/library/add',{path:res.path,db_location:dbLocation});
   if(addRes.error){toast(addRes.error,true);return}
   const exists=libraries.some(l=>l.path.replace(/\\/g,'/').toLowerCase()===res.path.replace(/\\/g,'/').toLowerCase());
@@ -176,7 +173,7 @@ async function relocateLibrary(oldPath){
   const res=await post('/api/library/browse',{});
   if(res.error){toast(res.error,true);return}
   if(!res.path)return;
-  if(!confirm('Move library from:\n'+oldPath+'\n\nTo:\n'+res.path+'\n\nThis updates the database to point at the new location. Your photos must already be at the new path.'))return;
+  if(!await askConfirm('Move library?',['Move library from:',oldPath,'To:',res.path,'This updates the database to point at the new location. Your photos must already be at the new path.'],'Move library',false))return;
   const result=await post('/api/library/relocate',{old_path:oldPath,new_path:res.path});
   if(result.error){toast(result.error,true);return}
   const oldNorm=oldPath.replace(/\\/g,'/').toLowerCase();
@@ -187,7 +184,7 @@ async function relocateLibrary(oldPath){
 }
 
 async function removeLibrary(path){
-  if(!confirm('Remove this library from the list? Your photos and index data are not deleted.'))return;
+  if(!await askConfirm('Remove library?',['Remove this library from the list? Your photos and index data are not deleted.'],'Remove'))return;
   const res=await post('/api/settings/remove-library',{path});
   if(res.error){toast(res.error,true);return}
   libraries=libraries.filter(l=>l.path.replace(/\\/g,'/').toLowerCase()!==path.replace(/\\/g,'/').toLowerCase());
@@ -308,7 +305,7 @@ async function checkSemanticStatus(){
 
 $('#installSemantic').onclick=async(e)=>{
   e.preventDefault();
-  if(!confirm('This downloads and installs the local meaning-search model software (roughly 1–2 GB) and may take several minutes. It runs entirely on this computer and nothing is uploaded. Continue?'))return;
+  if(!await askConfirm('Install meaning search?',['This downloads and installs the local meaning-search model software (roughly 1–2 GB) and may take several minutes. It runs entirely on this computer and nothing is uploaded.'],'Download and install',false))return;
   const btn=$('#installSemantic');
   btn.disabled=true;
   try{
@@ -400,7 +397,7 @@ async function checkFaceStatus(){
 
 $('#installFaceBtn').onclick=async(e)=>{
   e.preventDefault();
-  if(!confirm('This downloads and installs the local face-detection model software (roughly 500 MB) and may take several minutes. It runs entirely on this computer and nothing is uploaded. Continue?'))return;
+  if(!await askConfirm('Install face detection?',['This downloads and installs the local face-detection model software (roughly 500 MB) and may take several minutes. It runs entirely on this computer and nothing is uploaded.'],'Download and install',false))return;
   const btn=$('#installFaceBtn');
   btn.disabled=true;
   try{

@@ -274,7 +274,7 @@ async function refreshPhotoBackups() {
     restore.textContent = 'Put back the originals';
     const status = document.createElement('span');
     const settle = async action => {
-      if (action === 'restore' && !confirm(`Put back the originals of ${interrupted.length.toLocaleString()} photos from their safety copies?`)) return;
+      if (action === 'restore' && !await askConfirm('Put back the originals?', [`Put back the originals of ${interrupted.length.toLocaleString()} photos from their safety copies?`], 'Put back originals', false)) return;
       keep.disabled = restore.disabled = true;
       status.textContent = action === 'restore' ? 'Putting back the originals…' : 'Saving…';
       try {
@@ -537,7 +537,7 @@ $('pauseLocation').onclick = async () => {
 
 $('startOcr').onclick = async () => {
   const rescan = $('ocrRescan').checked;
-  if (rescan && !confirm('Read every photo again, including ones already done? This can take a long time on a large library.')) return;
+  if (rescan && !await askConfirm('Read every photo again?', ['Read every photo again, including ones already done?', 'This can take a long time on a large library.'], 'Read again', false)) return;
   $('startOcr').disabled = true;
   try { await api('/api/ocr/start', { since: $('ocrSince').value, workers: 4, rescan }); refresh(); }
   catch (error) { $('ocrMessage').textContent = error.message; $('startOcr').disabled = false; }
@@ -554,8 +554,8 @@ async function startSemantic(mode, button) {
 }
 $('startSemantic').onclick = () => startSemantic('new', $('startSemantic'));
 $('fillSemantic').onclick = () => startSemantic('missing', $('fillSemantic'));
-$('rescanSemantic').onclick = () => {
-  if (!confirm('Read every photo again from scratch, including ones already indexed? This can take a long time on a large library.')) return;
+$('rescanSemantic').onclick = async () => {
+  if (!await askConfirm('Read every photo again?', ['Read every photo again from scratch, including ones already indexed?', 'This can take a long time on a large library.'], 'Read again', false)) return;
   startSemantic('all', $('rescanSemantic'));
 };
 $('pauseSemantic').onclick = async () => {
@@ -650,8 +650,8 @@ if ($('prunePhotoBackups')) {
   $('prunePhotoBackups').onclick = () => clearPhotoBackups('retention', $('prunePhotoBackups'));
 }
 if ($('clearPhotoBackups')) {
-  $('clearPhotoBackups').onclick = () => {
-    if (!confirm('Delete every safety copy? Writes already made to your photos can no longer be undone afterwards. Your photos themselves are not touched.')) return;
+  $('clearPhotoBackups').onclick = async () => {
+    if (!await askConfirm('Delete every safety copy?', ['Writes already made to your photos can no longer be undone afterwards. Your photos themselves are not touched.'], 'Delete safety copies')) return;
     clearPhotoBackups('all', $('clearPhotoBackups'));
   };
 }

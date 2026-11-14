@@ -145,7 +145,7 @@ function restartServer(stopRunning) {
       notice.append(' ', stop);
     }
   }
-  if (!stopRunning && !confirm('Restart LensLedger now?\n\nThe server stops and starts again, and this page reloads when it is back.')) return;
+  function proceed() {
   fetch('/api/version', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(before) {
     say(stopRunning ? 'Stopping the running job, then restarting LensLedger…' : 'Restarting LensLedger…');
     return fetch('/api/restart', {
@@ -169,6 +169,10 @@ function restartServer(stopRunning) {
       }).catch(function() { setTimeout(poll, 700); });
     })();
   }).catch(function(error) { say(error.message, error.running); });
+  }
+  var approved = stopRunning ? Promise.resolve(true)
+    : askConfirm('Restart LensLedger now?', ['The server stops and starts again, and this page reloads when it is back.'], 'Restart', false);
+  approved.then(function(ok) { if (ok) proceed(); });
 }
 
 document.addEventListener('DOMContentLoaded', function() {

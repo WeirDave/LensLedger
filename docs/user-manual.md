@@ -165,6 +165,7 @@ Use the scope selector next to the search box to choose what to search:
 - **Meaning** — semantic search with natural language queries (requires meaning search setup)
 - **Exact duplicates** — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, with the likely original first (names marked as a copy, such as `IMG_0001 (copy).jpg`, go last). A bar separates one set from the next, and each photo is labelled with its place in its set, such as "1 of 2". Type part of a folder or file name to narrow the sets. Ctrl+click the extra copies and choose **Trash selected** to move them to the review bin. Also reachable from the menu as **Duplicate photos**.
 - **Similar photos** — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Sets are shown like exact duplicates, with the largest file first. Matching compares the pattern of light and dark in each picture, so a colour and a black-and-white version of the same shot also match, and so can two plain pictures with the same layout. Look through each set before trashing anything; similar is not identical. Videos and RAW files are not compared. A library indexed by an earlier version is fingerprinted on its next scan, which takes a while the first time.
+- **Needs tags** — photos that have no tags yet, newest first. Text typed in the search field narrows the list by file or folder name. Folder-derived and hidden tags do not count as tags. The **N need tags** button in the header (for example "11 need tags") opens the same list; it is hidden when every photo has tags.
 
 ### Sorting
 
@@ -194,6 +195,8 @@ The filmstrip at the bottom shows photo thumbnails. Scroll horizontally or drag 
 ## Viewing and Editing Photo Metadata
 
 Click a photo in the filmstrip to see it in the main viewer area. The sidebar on the right shows editable metadata.
+
+Each heading in the sidebar (**Primary subject**, **Photo tags**, **People in this photo**, **Event / folder tags**, **Hidden tags**) collapses and expands its section. A collapsed section shows how many items it holds, and LensLedger remembers which sections you left open. A short line under each heading explains what the section is for. **Preview & publish** and **Restore last publish** stay in a bar at the bottom of the sidebar, so they are always in view. On a phone, the **Details** button opens the sidebar and the **Close details** bar at its top closes it.
 
 ### Star ratings
 
@@ -391,6 +394,7 @@ The review bin is a safe staging area for photos you want to remove. Photos are 
 - Click the trash icon on any photo
 - Use batch selection (Ctrl+click or Shift+click thumbnails) and click **Trash selected**
 - An **Undo** toast appears after trashing: 12 seconds for one photo, 30 seconds for a batch. **Undo** on a batch puts every photo back at once; any that cannot be put back (something now sits at its old location, or the file is gone) are named, and stay in **Trash & restore**.
+- **Trash this photo**, **Trash selected** and the trash buttons on the People review pages first ask in a **Move to Trash?** panel with **Cancel** and **Move to Trash**. Pressing Escape or clicking outside the panel cancels. Every other confirmation in LensLedger (switching or removing a library, installing an update, merging people, deleting safety copies and similar) also appears as a panel inside the page rather than a browser dialog, so it still works when the browser has blocked the page's dialogs.
 
 ### Managing the review bin
 
@@ -569,3 +573,5 @@ Override the data directory by setting the `LENSLEDGER_DATA_DIR` environment var
 ### Updates
 
 LensLedger checks for updates from GitHub automatically. When a new version is available, an update badge appears in the navigation menu. If you're running from a managed installation, updates can be downloaded and installed automatically. If you're running from source code, a banner appears when the on-disk code is newer than the running server, with a **Restart** button to load the new version.
+
+**Start LensLedger.cmd** installs Pillow 13, the image library LensLedger uses to read photos, on the next launch if an older version is installed. An installation that already has it starts without contacting the network.

@@ -47,6 +47,16 @@ class TheReleaseZipCarriesTheWholeApp(unittest.TestCase):
         )
         self.assertEqual(missing, [], f"modules the updater would accept a ZIP without: {missing}")
 
+    def test_the_updater_refuses_a_download_that_lacks_a_page_script_or_asset(self):
+        from lensledger_updater import REQUIRED_FILES
+
+        missing = sorted(
+            path.relative_to(REPOSITORY).as_posix()
+            for folder in ("web", "assets") for path in (REPOSITORY / folder).rglob("*")
+            if path.is_file() and path.relative_to(REPOSITORY).as_posix() not in REQUIRED_FILES
+        )
+        self.assertEqual(missing, [], f"files the updater would accept a ZIP without: {missing}")
+
     def test_the_web_assets_and_tools_are_in_the_zip(self):
         arguments = zip_arguments()
         for needed in ("web/js/viewer.js", "web/css/viewer.css", "tools/ExifTool/ExifTool.exe", "assets/lensledger-logo.png"):

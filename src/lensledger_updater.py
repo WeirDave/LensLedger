@@ -46,6 +46,14 @@ REQUIRED_FILES = {
     "web/js/release-changelog.js", "web/js/release-changelog.css",
     "web/css/map.css", "web/js/map.js", "web/css/people-review.css", "web/js/people-review.js",
     "web/css/scan-photos.css", "web/js/scan-photos.js",
+    "assets/lensledger-favicon.png", "web/css/auto-import.css", "web/css/confirm-dialog.css",
+    "web/css/dev-tools.css", "web/css/faces-review.css", "web/css/group-manager.css", "web/css/leaflet.css",
+    "web/css/manual.css", "web/css/person-picker.css", "web/css/publish.css", "web/css/reconnect.css",
+    "web/css/settings.css", "web/css/theme.css", "web/img/filmstrip.png", "web/js/alpha-bar.js",
+    "web/js/auto-import.js", "web/js/confirm-dialog.js", "web/js/dev-tools.js", "web/js/faces-review.js",
+    "web/js/group-manager.js", "web/js/leaflet.js", "web/js/lightbox-zoom.js", "web/js/manual.js",
+    "web/js/person-picker.js", "web/js/publish.js", "web/js/reconnect.js", "web/js/set-aside.js",
+    "web/js/settings.js", "web/js/theme.js", "web/js/three-min.js",
 }
 FORBIDDEN_ROOT_NAMES = {
     ".git", "Face Data", "Libraries", "Metadata Backups", "Database Backups",

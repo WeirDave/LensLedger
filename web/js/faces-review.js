@@ -640,7 +640,7 @@ async function trashPhoto(card, face) {
     const result = await api('/api/review-bin', { id: face.asset_id });
     card.remove();
     showTrashUndo(result.review_id, face.filename);
-  } catch (error) { alert(error.message); }
+  } catch (error) { askNotice('Something went wrong', [error.message]); }
 }
 
 function showTrashUndo(reviewId, name) {
@@ -648,7 +648,7 @@ function showTrashUndo(reviewId, name) {
   t.replaceChildren(document.createTextNode('Moved ' + name + ' to Trash. '));
   const b = document.createElement('button');
   b.textContent = 'Undo';
-  b.onclick = async () => { try { await api('/api/review-bin/restore', { review_id: reviewId }); location.reload(); } catch (e) { alert(e.message); } };
+  b.onclick = async () => { try { await api('/api/review-bin/restore', { review_id: reviewId }); location.reload(); } catch (e) { askNotice('Something went wrong', [e.message]); } };
   t.append(b);
   t.style.display = 'block';
   setTimeout(() => t.style.display = 'none', 12000);
@@ -701,7 +701,7 @@ $('lightboxTrash').onclick = async () => {
     else removeMatchItem(face.face_id);
     showTrashUndo(result.review_id, face.filename);
     checkEmpty();
-  } catch (error) { alert(error.message); }
+  } catch (error) { askNotice('Something went wrong', [error.message]); }
 };
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) closeLarge(); };
 $('introDismiss').onclick = () => {
@@ -870,7 +870,7 @@ $('unskipAll').onclick = async () => {
     updateProgress();
     loadMore();
   } catch (error) {
-    alert(error.message);
+    askNotice('Something went wrong', [error.message]);
   } finally {
     $('unskipAll').disabled = false;
   }

@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.33.1 — 2026-11-13
+
+- Confirmations and error messages on every page appear in a panel inside LensLedger instead of a browser dialog, so they still work when the browser has blocked the page's dialogs. This covers **Scan your photos** (putting back originals, reading every photo again for text or meaning search, deleting every safety copy), **Settings** (deleting a model, switching, moving or removing a library, installing meaning search or face detection), **Manage groups** (deleting a group), **Restart** in the menu, merging people, installing an update, restoring a photo from its safety backup, stopping a running job to continue, **Empty trash** and **Delete** in **Trash & restore**, and the failure messages after trashing photos.
+- Adding a library in **Settings** asks where to store its database with two buttons, **Inside the photo library folder** and **Application data folder**, instead of a typed 1 or 2.
+- The manual describes the **Needs tags** search scope and the **N need tags** button, the collapsible side-panel sections, the **Preview & publish** bar, the **Details** and **Close details** buttons on phones, the **Move to Trash?** panel, and the Pillow 13 install on launch.
+- An update is refused if the downloaded release lacks any page script, stylesheet or image, not only the Python files and a few web files.
+
 ## 1.33.0 — 2026-11-13
 
 - The photo viewer's side panel has one **Add tags** box under **Photo tags**. The **Add to** menu below it chooses **This photo** or **Every photo in this folder**, which replaces the separate box that was under **Event / folder tags**. The menu returns to **This photo** after each add, so folder-wide additions are always deliberate.
@@ -1111,6 +1118,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - Overview stats on the Scan page now have tooltips explaining what each number means.
 - Face detection model loading no longer dumps raw debug output to the console (Applied providers, model ignore, find model, set det-size lines).
 - Renamed "Ingested" to "Imported" in auto-import stats, status page, and console output.
+
+## 0.63.7 — 2026-08-28
+
+- The auto-import status and page say "Imported" instead of "Ingested".
 
 ## 0.63.6 — 2026-08-28
 
