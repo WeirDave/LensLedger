@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.41.2 — 2026-11-14
+
+- **Taken from** and **Taken until** in the **Filters** panel now accept a year (`2015`) or a month (`2015-06`) as well as a full date. Previously anything other than `YYYY-MM-DD` was ignored without any message and the filter had no effect. **Taken until** includes the whole year or month typed.
+
 ## 1.41.1 — 2026-11-14
 
 - The **Filters** panel now has an **Apply filters** button, and a **Clear filters** button while any filter is active. **Type**, **Shape** and **Location** apply as soon as they are chosen; the other fields apply with **Apply filters** or Enter.

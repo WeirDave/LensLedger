@@ -2579,7 +2579,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Filters</h3>
 <p>Choose <strong>Filters</strong> beside the search box to open the panel of filters (Date and Rating are in it too). The button shows how many filters are active, and the panel opens by itself when one of the filters below is in use. Narrow any search further: Every filter combines with the others and with every search scope, including Meaning search, Exact duplicates and Needs tags:</p>
 <ul>
-<li><strong>Taken from</strong> and <strong>Taken until</strong> &mdash; a range of dates, typed as <code>YYYY-MM-DD</code>. Either can be left empty. The single date picker still shows one day.</li>
+<li><strong>Taken from</strong> and <strong>Taken until</strong> &mdash; a range of dates, typed as <code>YYYY-MM-DD</code>, or just a year (<code>2015</code>) or a month (<code>2015-06</code>). <strong>Taken until</strong> includes the whole year or month typed. Either can be left empty. The single date picker still shows one day.</li>
 <li><strong>People (all of them)</strong> &mdash; select one or more people; only photos in which every one of them is confirmed are shown. Hold Ctrl to select several.</li>
 <li><strong>Type</strong> &mdash; photos, videos or RAW files.</li>
 <li><strong>Shape</strong> &mdash; landscape, portrait or square, judged from the picture&rsquo;s size after any rotation the camera recorded.</li>

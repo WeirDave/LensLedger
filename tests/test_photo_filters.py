@@ -24,6 +24,20 @@ class FilterParsingTests(unittest.TestCase):
         )
         self.assertTrue(filters.active)
 
+    def test_a_year_or_a_month_fills_in_the_whole_period(self):
+        from photo_filters import parse_filters
+
+        def span(start, end):
+            filters = parse_filters({"from": [start], "to": [end]})
+            return filters.from_date, filters.to_date
+
+        self.assertEqual(span("2015", "2015"), ("2015-01-01", "2015-12-31"))
+        self.assertEqual(span("2016-02", "2016-02"), ("2016-02-01", "2016-02-29"))
+        self.assertEqual(span("2015-12", "2015-12"), ("2015-12-01", "2015-12-31"))
+        self.assertEqual(span("2015-6-5", "2015/06/05"), ("2015-06-05", "2015-06-05"))
+        self.assertEqual(span("2015-13", "2015-02-30"), ("", ""))
+        self.assertEqual(span("15", "last year"), ("", ""))
+
     def test_nothing_set_means_not_active_and_no_conditions(self):
         from photo_filters import filter_clauses, parse_filters
 
@@ -83,6 +97,12 @@ class FilterQueryTests(unittest.TestCase):
                          ["2021-07-09 tall.jpg", "2022-01-05 square.jpg"])
         self.assertEqual(self.names(**{"from": "2022-01-06"}), ["2022-02-01 clip.mp4"])
         self.assertEqual(self.names(to="2021-07-04"), ["2021-07-04 wide.jpg"])
+
+    def test_taken_until_a_bare_year_includes_that_whole_year(self):
+        self.assertEqual(self.names(to="2020"), [])
+        self.assertEqual(len(self.names(to="2021")), 2)
+        self.assertEqual(len(self.names(to="2022")), 4)
+        self.assertEqual(len(self.names(**{"from": "2022"})), 2)
 
     def test_folder_is_a_literal_substring(self):
         self.assertEqual(len(self.names(folder="Summer")), 2)

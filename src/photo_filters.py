@@ -34,11 +34,26 @@ def _like(value: str) -> str:
     return "%" + _LIKE_ESCAPE_RE.sub(r"\\\1", value) + "%"
 
 
-def _valid_date(value: str) -> str:
+_PARTIAL_DATE_RE = re.compile(r"^(\d{4})(?:[-/.](\d{1,2})(?:[-/.](\d{1,2}))?)?$")
+
+
+def _valid_date(value: str, end: bool = False) -> str:
+    """A full date, or a year or year and month widened to the first day
+    (or, with ``end``, the last day) of that period. Anything else is ""."""
+    match = _PARTIAL_DATE_RE.match(value.strip())
+    if not match:
+        return ""
+    year, month, day = (int(part) if part else None for part in match.groups())
     try:
-        dt.date.fromisoformat(value)
-        return value
-    except ValueError:
+        if month is None:
+            return dt.date(year, 12, 31).isoformat() if end else dt.date(year, 1, 1).isoformat()
+        if day is None:
+            if end:
+                following = dt.date(year + 1, 1, 1) if month == 12 else dt.date(year, month + 1, 1)
+                return (following - dt.timedelta(days=1)).isoformat()
+            return dt.date(year, month, 1).isoformat()
+        return dt.date(year, month, day).isoformat()
+    except (ValueError, OverflowError):
         return ""
 
 
@@ -72,7 +87,7 @@ def parse_filters(params: dict[str, list[str]]) -> Filters:
                 people.append(int(part))
     return Filters(
         from_date=_valid_date(one("from")),
-        to_date=_valid_date(one("to")),
+        to_date=_valid_date(one("to"), end=True),
         people=people[:12],
         kind=one("kind") if one("kind") in KINDS else "",
         camera=one("camera")[:80],
