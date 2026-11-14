@@ -2528,7 +2528,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Tick <strong>Read photos again that have already been read</strong> to re-read photos already done, rather than only new ones. It asks first, because on a large library it takes a while.</p>
 <h3>Meaning search (optional)</h3>
 <p>Uses a local AI vision model (CLIP) to search photos by natural language descriptions like &ldquo;a birthday cake&rdquo; or &ldquo;sunset over water.&rdquo; Requires a one-time model download.</p>
-<p><strong>Searching for how someone looks.</strong> Choose <strong>Meaning</strong> as the search scope, open <strong>More filters</strong>, select the person under <strong>People (all of them)</strong> and describe what to find, such as &ldquo;beard&rdquo;, &ldquo;bald head&rdquo; or &ldquo;wearing glasses&rdquo;.Photos are then ranked by how well that person&rsquo;s face matches the description as well as by the whole picture, so a small detail still counts in a wide shot. Faces are prepared for this automatically after face detection, and at the end of a meaning search run, once meaning search is set up. The person needs confirmed photos (see People). Plain descriptions such as &ldquo;bald head&rdquo; work best; the model matches the overall look, not exact detail. Without a person selected, the search matches the whole photo only.</p>
+<p><strong>Searching for how someone looks.</strong> Choose <strong>Meaning (AI)</strong> under the search box, open <strong>Filters</strong>, select the person under <strong>People (all of them)</strong> and describe what to find, such as &ldquo;beard&rdquo;, &ldquo;bald head&rdquo; or &ldquo;wearing glasses&rdquo;.Photos are then ranked by how well that person&rsquo;s face matches the description as well as by the whole picture, so a small detail still counts in a wide shot. Faces are prepared for this automatically after face detection, and at the end of a meaning search run, once meaning search is set up. The person needs confirmed photos (see People). Plain descriptions such as &ldquo;bald head&rdquo; work best; the model matches the overall look, not exact detail. Without a person selected, the search matches the whole photo only.</p>
 <table>
 <tr><th>Model</th><th>Size</th><th>Quality</th></tr>
 <tr><td>ViT-B-32</td><td>~400 MB</td><td>Good general quality, fast</td></tr>
@@ -2555,14 +2555,15 @@ class SearchHandler(BaseHTTPRequestHandler):
 
 <section class="manual-section" id="searching">
 <h2>4. Searching and Browsing</h2>
-<p>The <a href="/">home page</a> is the main photo browser with a search toolbar and scrollable filmstrip.</p>
+<p>The <a href="/">home page</a> is the main photo browser. A search, a filter or a special view fills the whole screen with a grid of the photos that match; more load as you scroll. Choose a photo in the grid to open it in the viewing screen, where the filmstrip along the bottom still lists every match. Choose <strong>Back to results</strong> (or press <strong>Esc</strong>) to return to the grid at the same place.</p>
 <h3>Search scopes</h3>
+<p>The buttons under the search box choose where a search looks: <strong>Everything</strong> (default), <strong>Photo contents</strong>, <strong>Folder &amp; event</strong> and <strong>Meaning (AI)</strong>. The <strong>Special views</strong> menu next to them opens People, Exact duplicates, Similar photos and Needs tags. <strong>Sort</strong> is at the right of the same row. Choosing a button, a special view or a sort order applies it straight away; type in the search box and choose <strong>Search</strong> (or press Enter) to search for words.</p>
 <ul>
 <li><strong>Everything</strong> (default) &mdash; searches all sources combined</li>
-<li><strong>Visible image tags</strong> &mdash; subjects, objects, people, and OCR text</li>
-<li><strong>Day/event context</strong> &mdash; folder-derived tags</li>
+<li><strong>Photo contents</strong> &mdash; subjects, objects, people, and OCR text</li>
+<li><strong>Folder &amp; event</strong> &mdash; folder-derived tags</li>
 <li><strong>People</strong> &mdash; browse and filter by recognized people (shows a card grid)</li>
-<li><strong>Meaning</strong> &mdash; semantic search with natural language (requires meaning search)</li>
+<li><strong>Meaning (AI)</strong> &mdash; semantic search with natural language (requires meaning search)</li>
 <li><strong>Similar photos</strong> &mdash; photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Sets are shown like exact duplicates, with the largest file first. Matching compares the pattern of light and dark in each picture, so a colour and a black-and-white version of the same shot also match, and so can two plain pictures with the same layout. Look through each set before trashing anything; similar is not identical. Videos and RAW files are not compared. A library indexed by an earlier version is fingerprinted on its next scan, which takes a while the first time.</li>
 <li><strong>Needs tags</strong> &mdash; photos that have no tags yet, newest first. Text typed in the search field narrows the list by file or folder name. Folder-derived and hidden tags do not count as tags. The <strong>N need tags</strong> button in the header (for example &ldquo;11 need tags&rdquo;) opens the same list; it is hidden when every photo has tags.</li>
 <li><strong>Exact duplicates</strong> &mdash; photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, likely original first; a bar separates the sets and each photo is labelled with its place in its set, such as "1 of 2". Ctrl+click the extra copies and choose <strong>Trash selected</strong> to move them to the review bin, or choose <strong>Keep best copies</strong> at the top of the page: it shows how many sets and how much space are involved, keeps the photo listed first in each set, and moves the other copies to the review bin, where each can be put back. Ratings, tags, subjects, notes and confirmed people on the other copies, and the tags their folders gave them, are copied onto the photo that stays. The sets are remembered between visits and only recalculated when the library changes. Also in the menu as <strong>Duplicate photos</strong>.</li>
@@ -2574,9 +2575,9 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Filename A&ndash;Z</strong> &mdash; alphabetical</li>
 </ul>
 <h3>Rating filter</h3>
-<p>Use the <strong>Rating</strong> menu next to Sort to show only photos with at least one to five stars, or <strong>★★★★★ only</strong>. It combines with search, the date filter, People, <strong>More filters</strong> and Meaning search.</p>
-<h3>More filters</h3>
-<p>Choose <strong>More filters</strong> next to the Rating menu to narrow any search further. Every filter combines with the others and with every search scope, including Meaning search, Exact duplicates and Needs tags:</p>
+<p>Open <strong>Filters</strong> and use the <strong>Rating</strong> menu to show only photos with at least one to five stars, or <strong>★★★★★ only</strong>. It combines with search, the date filter, People, the other filters and Meaning search.</p>
+<h3>Filters</h3>
+<p>Choose <strong>Filters</strong> beside the search box to open the panel of filters (Date and Rating are in it too). The button shows how many filters are active, and the panel opens by itself when one of the filters below is in use. Narrow any search further: Every filter combines with the others and with every search scope, including Meaning search, Exact duplicates and Needs tags:</p>
 <ul>
 <li><strong>Taken from</strong> and <strong>Taken until</strong> &mdash; a range of dates, typed as <code>YYYY-MM-DD</code>. Either can be left empty. The single date picker still shows one day.</li>
 <li><strong>People (all of them)</strong> &mdash; select one or more people; only photos in which every one of them is confirmed are shown. Hold Ctrl to select several.</li>
@@ -2586,11 +2587,11 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Camera</strong> &mdash; part of the camera make or model, such as <code>Canon</code> or <code>iPhone 14</code>.</li>
 <li><strong>Folder contains</strong> &mdash; part of a folder name.</li>
 </ul>
-<p>Camera, shape and size come from the photos themselves. A library indexed by an earlier version reads them on its next scan, which takes a little while the first time; videos and RAW files have no camera or shape and are left out when those filters are used. Each active filter appears as a button under the toolbar; choose it to remove that filter.</p>
+<p>Camera, shape and size come from the photos themselves. A library indexed by an earlier version reads them on its next scan, which takes a little while the first time; videos and RAW files have no camera or shape and are left out when those filters are used. Each active filter, including the date and the rating, appears as a button under the toolbar; choose it to remove that filter.</p>
 <h3>Collections</h3>
 <p>A collection remembers a search and its filters under a name. Set up a search, then choose <strong>Save as collection&hellip;</strong> under the toolbar (or <strong>Collections</strong> in the toolbar), type a name and choose <strong>Save current search</strong>. Choose <strong>Collections</strong> at any time to open a saved one or delete it. A collection stores the search, not the photos, so photos added later that match it appear in it. Saving under a name that is already used replaces that collection. Each library keeps its own collections, up to 100.</p>
 <h3>Date filtering</h3>
-<p>Click the date filter button to open a calendar picker. Use <strong>Previous day</strong> / <strong>Next day</strong> buttons to navigate between days with photos.</p>
+<p>Open <strong>Filters</strong>, then click the <strong>Date</strong> button to open a calendar picker. Use the <strong>&#9664;</strong> / <strong>&#9654;</strong> buttons either side of it to navigate between days with photos.</p>
 <p>A photo&rsquo;s date is the date it was taken, read from the camera&rsquo;s EXIF data. When a photo has none, LensLedger uses a date in the file or folder name (<code>2024-07-04 Party</code>, <code>IMG_20240704_120000.jpg</code>) and, failing that, the date an editor last saved it. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.</p>
 <p>Videos and camera RAW files are dated the same way, from the date recorded inside the file, then a date in the name. MP4, MOV, M4V and 3GP videos use the day they were shot (an iPhone records the local day; other cameras record the UTC day, which can be the next day for a late-evening video, so a date in the file name is preferred over it). RAW files covered are DNG, CR2, CR3, NEF, ARW, ORF, RW2 and RAF; AVI, WMV, MPG and MKV videos are dated from their names only.</p>
 <h3>Filmstrip</h3>
@@ -2600,7 +2601,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 
 <section class="manual-section" id="viewing">
 <h2>5. Viewing and Editing Photo Metadata</h2>
-<p>Click a photo in the filmstrip to view it. The sidebar shows editable metadata.</p>
+<p>Click a photo in the results grid or the filmstrip to view it. The sidebar shows editable metadata.</p>
 <p>Each heading in the sidebar (<strong>Primary subject</strong>, <strong>Photo tags</strong>, <strong>People in this photo</strong>, <strong>Event / folder tags</strong>, <strong>Hidden tags</strong>) collapses and expands its section. A collapsed section shows how many items it holds, and LensLedger remembers which sections you left open. A short line under each heading explains what the section is for. <strong>Preview &amp; publish</strong> and <strong>Restore last publish</strong> stay in a bar at the bottom of the sidebar, so they are always in view. On a phone, the <strong>Details</strong> button opens the sidebar and the <strong>Close details</strong> bar at its top closes it.</p>
 <h3>Star ratings</h3>
 <p>Rate the photo from one to five stars with the stars under its file name, or press <strong>1</strong>&ndash;<strong>5</strong>. Press <strong>0</strong>, or the same number again, to clear the rating. With several photos selected, the number keys and the <strong>Rate selected&hellip;</strong> menu in the batch bar rate all of them at once. Rated photos show their stars on the filmstrip.</p>
@@ -3582,9 +3583,25 @@ class SearchHandler(BaseHTTPRequestHandler):
         )
         has_more = last < total
 
-        scope_options = "".join(
+        search_scopes = (
+            ("all", "Everything", "Searches every source at once"),
+            ("image", "Photo contents", "Subjects, objects, people, and text found in the picture"),
+            ("context", "Folder &amp; event", "Tags taken from folder names, such as Birthday or Vacation 2019"),
+            ("semantic", "Meaning (AI)", "Describe what a photo looks like, such as sunset over water. Needs the one-time model install on the Scan page"),
+        )
+        special_views = (
+            ("people", "People"), ("duplicates", "Exact duplicates"),
+            ("similar", "Similar photos"), ("untagged", "Needs tags"),
+        )
+        scope_pills = "".join(
+            f'<button type="button" class="scope-pill{" active" if scope == value else ""}" role="radio" '
+            f'aria-checked="{"true" if scope == value else "false"}" data-scope="{value}" '
+            f'title="{html.escape(hint, quote=True)}">{label}</button>'
+            for value, label, hint in search_scopes
+        )
+        special_view_options = '<option value="">Special views…</option>' + "".join(
             f'<option value="{value}"{" selected" if scope == value else ""}>{label}</option>'
-            for value, label in (("image", "Visible image tags"), ("context", "Day/event context"), ("people", "People"), ("semantic", "Meaning (optional)"), ("duplicates", "Exact duplicates"), ("similar", "Similar photos"), ("untagged", "Needs tags"), ("all", "Everything"))
+            for value, label in special_views
         )
         sort_options = "".join(
             f'<option value="{value}"{" selected" if sort == value else ""}>{label}</option>'
@@ -3721,7 +3738,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 + '</div>'
             )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
-        body_class = "people-gallery-mode" if gallery_mode else ""
+        results_mode = not gallery_mode and not params.get("selected", [""])[0].isdecimal()
+        body_class = "people-gallery-mode" if gallery_mode else ("results-mode" if results_mode else "")
         people_names = {int(person["id"]): str(person["name"]) for person in filter_people}
         kept_pairs = [(key, value) for key, values in params.items() for value in values
                       if key not in ("page", "selected")]
@@ -3732,6 +3750,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             return "/?" + urllib.parse.urlencode(pairs) if pairs else "/"
 
         filter_chips = []
+        if selected_date:
+            filter_chips.append((f"On {selected_date}", url_without("date")))
+        if min_rating:
+            filter_chips.append((f"Rated {'★' * min_rating}{'+' if min_rating < 5 else ''}", url_without("rating")))
         if filters.from_date:
             filter_chips.append((f"From {filters.from_date}", url_without("from")))
         if filters.to_date:
@@ -3776,8 +3798,25 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'{html.escape(str(person["name"]))}</option>'
             for person in filter_people
         )
+        date_field_html = (
+            '<div class="date-field"><span class="field-label">Date</span><div class="date-controls">'
+            '<button type="button" class="secondary" id="previousDay" aria-label="Previous day">◀</button>'
+            f'<button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else "Any date"}</button>'
+            f'<input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}">'
+            '<button type="button" class="secondary" id="nextDay" aria-label="Next day">▶</button></div>'
+            '<div class="date-popover" id="datePopover"><div class="date-popover-head">'
+            '<button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button>'
+            '<select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select>'
+            '<button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div>'
+            '<div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>'
+            '<div class="date-days" id="calDays"></div><div class="date-popover-actions">'
+            '<button type="button" class="secondary" id="calToday">Today</button>'
+            '<button type="button" class="secondary" id="calClear">Clear</button></div></div></div>'
+        )
         filter_panel_html = (
-            f'<div class="filter-panel" id="filterPanel"{"" if filters.active else " hidden"}>'
+            f'<div class="filter-panel" id="filterPanel"{"" if filters.active and not gallery_mode else " hidden"}>'
+            + date_field_html
+            + f'<label class="rating-field">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label>'
             f'<label>Taken from<input name="from" value="{html.escape(filters.from_date, quote=True)}" placeholder="YYYY-MM-DD" inputmode="numeric" maxlength="10"></label>'
             f'<label>Taken until<input name="to" value="{html.escape(filters.to_date, quote=True)}" placeholder="YYYY-MM-DD" inputmode="numeric" maxlength="10"></label>'
             + (f'<label>People (all of them)<select name="people" multiple size="4">{people_options}</select></label>'
@@ -3789,7 +3828,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'<label>Folder contains<input name="folder" value="{html.escape(filters.folder, quote=True)}" placeholder="Part of a folder name"></label>'
             "</div>"
         )
-        more_filters_label = f"More filters ({len(filter_chips)})" if filter_chips else "More filters"
+        more_filters_label = f"Filters ({len(filter_chips)})" if filter_chips else "Filters"
         filter_controls_html = (
             f'<button type="button" class="secondary" id="moreFilters" aria-expanded="{"true" if filters.active else "false"}" '
             f'aria-controls="filterPanel">{more_filters_label}</button>'
@@ -3797,7 +3836,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'{"Collections (" + str(collection_count) + ")" if collection_count else "Collections"}</button>'
         )
         if gallery_mode:
-            filter_controls_html = filter_panel_html = ""
+            filter_controls_html = ""
         search_placeholder = (
             "Filter people by name, alias, or group" if gallery_mode else
             "Try: sunset over water, dog playing in snow" if scope == "semantic" else
@@ -3824,9 +3863,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         })}>
 <a href="#stage" class="skip-nav">Skip to photos</a>
 <header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span>{needs_tags_link}{keep_best_button}<button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
-<form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><button type="button" class="secondary filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="viewerToolbar">Filters</button><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker" aria-label="Search scope">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><label class="rating-field optional">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label>{filter_controls_html}<button>View</button>{filter_panel_html}</form>{filter_chips_html}</header>
+<form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<input type="hidden" name="scope" id="scopePicker" value="{scope}">
+<div class="search-row"><label class="search-field"><span class="visually-hidden">Search</span><input type="search" name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}" autocomplete="off"></label><button class="search-submit">Search</button>{filter_controls_html}</div>
+<div class="scope-row"><div class="scope-pills" role="radiogroup" aria-label="Search in">{scope_pills}</div><label class="view-field"><span class="visually-hidden">Special views</span><select id="viewPicker" aria-label="Special views">{special_view_options}</select></label><label class="sort-field">Sort<select name="sort" id="sortPicker">{sort_options}</select></label></div>
+{filter_panel_html}</form>{filter_chips_html}</header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
-{people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">
+{people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><button type="button" class="secondary back-to-results" id="backToResults">← Back to results</button><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">
 <button type="button" class="sidebar-close" id="sidebarClose">Close details</button>
 <div class="file-date" id="assetDate"></div><div class="file-name" id="assetName"></div><div class="folder" id="assetFolder"></div>
 <div class="rating-row"><div class="star-rating" id="starRating" role="radiogroup" aria-label="Rating">{star_buttons}</div><button type="button" class="shortcut-hint" id="shortcutHint" title="Keyboard shortcuts">Keys: 1–5 rate · 0 clears · ?</button></div>

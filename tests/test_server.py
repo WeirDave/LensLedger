@@ -215,7 +215,7 @@ class ServerWorkflowTests(unittest.TestCase):
     def test_viewer_map_and_asset_endpoints(self):
         with self.get("/") as response:
             page = response.read().decode("utf-8")
-        self.assertIn("Search scope", page)
+        self.assertIn('aria-label="Search in"', page)
         self.assertIn('href="/map"', page)
 
         detail = self.json_response(self.get(f"/api/asset?id={self.asset_id}"))
@@ -298,6 +298,32 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(self.listed("scope=all&shape=portrait&kind=video"), [])
         self.assertEqual(self.listed("scope=all&to=not-a-date&kind=video"), ["2026-04-02 clip.mp4"],
                          "an invalid date is ignored, not an error")
+
+    def test_a_search_opens_as_a_results_grid_until_a_photo_is_chosen(self):
+        self.add_filter_photos()
+        grid = self.get("/?scope=all&q=sample").read().decode("utf-8")
+        self.assertRegex(grid, r'<body class="results-mode"')
+        self.assertIn('id="backToResults"', grid)
+        chosen = self.get(f"/?scope=all&q=sample&selected={self.asset_id}").read().decode("utf-8")
+        self.assertNotIn("results-mode", chosen.split("<body", 1)[1].split(">", 1)[0],
+                         "a link that names a photo opens it in the viewer")
+        people = self.get("/?scope=people").read().decode("utf-8")
+        self.assertNotIn("results-mode", people.split("<body", 1)[1].split(">", 1)[0])
+
+    def test_the_toolbar_offers_plain_search_scopes_and_special_views(self):
+        page = self.get("/?scope=duplicates").read().decode("utf-8")
+        for label in ("Everything", "Photo contents", "Folder &amp; event", "Meaning (AI)"):
+            self.assertIn(f">{label}</button>", page)
+        self.assertIn('<option value="duplicates" selected>Exact duplicates</option>', page)
+        self.assertIn('name="scope" id="scopePicker" value="duplicates"', page)
+        self.assertNotIn('class="scope-pill active"', page, "a special view leaves every search scope unselected")
+
+    def test_date_and_rating_appear_as_removable_filter_chips(self):
+        self.add_filter_photos()
+        page = self.get("/?scope=all&date=2026-04-02&rating=3").read().decode("utf-8")
+        self.assertIn("On 2026-04-02", page)
+        self.assertIn("Rated ★★★+", page)
+        self.assertIn("Filters (2)", page)
 
     def test_the_page_shows_active_filters_as_chips_that_remove_themselves(self):
         self.add_filter_photos()
@@ -2528,7 +2554,7 @@ class ServerWorkflowTests(unittest.TestCase):
         ):
             with self.get("/?scope=semantic&q=blue+scene") as response:
                 page = response.read().decode("utf-8")
-        self.assertIn("Meaning (optional)", page)
+        self.assertIn("Meaning (AI)", page)
         self.assertIn("Try: sunset over water, dog playing in snow", page)
         self.assertIn(self.photo.name, page)
 
@@ -2861,7 +2887,7 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(result["override"], "")
         with self.get("/") as response:
             page = response.read().decode("utf-8")
-        self.assertIn("Search scope", page)
+        self.assertIn('aria-label="Search in"', page)
 
         try:
             self.post("/api/dev/set", {"mode": "bogus"})

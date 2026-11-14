@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.41.0 — 2026-11-14
+
+- **Search results now fill the screen as a grid of photos.** A search, filter, date, rating or special view shows large thumbnails of every match; choose one to open it in the viewing screen, and use **Back to results** or **Esc** to return to the grid at the same place. The home page opens as a grid of the newest photos.
+- **The search toolbar was reorganised.** The search box has its own row with **Search**, **Filters** and **Collections**. The scope menu became buttons (**Everything**, **Photo contents**, **Folder & event**, **Meaning (AI)**) with **People**, **Exact duplicates**, **Similar photos** and **Needs tags** under **Special views**. Sort sits in the same row, and scope, special view and sort apply as soon as they are chosen.
+- **Filters** (formerly "More filters") now holds the date, rating and every other filter in one panel, and the date and rating appear as removable buttons under the toolbar with the other active filters.
+- The toolbar now fits phone screens without being cut off.
+- Fixed: scrolling for more results with a type, shape, location, camera, folder, date-range or people filter active loaded photos that did not match the filter.
+
 ## 1.40.0 — 2026-11-14
 
 - **Videos now show a picture from the video in the thumbnail strip** instead of a plain "VIDEO" label, with a small play button over it so they stay easy to tell from photos. A video whose picture cannot be read on the computer keeps the label.

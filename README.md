@@ -264,7 +264,7 @@ python -m pip install "open_clip_torch>=3.3,<4" "torch>=2.13,<3"
 python src\semantic_index.py --db C:\path\to\library.sqlite3 build
 ```
 
-Either way, once installed, select **Meaning (optional)** as the search scope
+Either way, once installed, select **Meaning (AI)** under the search box
 and describe a scene, object, or idea. Image vectors, search text, and results
 remain on the computer. The first build may download the selected OpenCLIP
 model weights from their upstream host.
