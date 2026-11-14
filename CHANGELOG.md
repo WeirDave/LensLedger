@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.32.5 — 2026-11-13
+
+- **Publish all** on the Publish photos page follows the sidecar choices in Settings under Metadata publishing. A file type set to a sidecar file gets an `.xmp` file with its confirmed names and the photo itself is not changed. A file type set to embed and sidecar is written into the photo and its sidecar. A file type set to neither is listed as not written, with the reason, and its names stay unpublished.
+- An `.xmp` file created by another program is not replaced by **Publish all**. The photo is listed as not written, with the reason.
+
 ## 1.32.4 — 2026-11-12
 
 - The trash button on photos in the People review pages (suggestions, unidentified faces and the enlarged face view) asks for confirmation in a "Move to Trash?" panel inside LensLedger instead of a browser dialog, so it still works when the browser has blocked the page's dialogs. The panel has **Cancel** and **Move to Trash**; pressing Escape or clicking outside it cancels.

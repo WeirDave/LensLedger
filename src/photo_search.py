@@ -2503,7 +2503,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Restore last publish</strong> puts a photo back. It is offered only while the safety copy still exists &mdash; once copies are cleared, that write can no longer be undone</li>
 </ul>
 <h3>Auto-publishing</h3>
-<p>When you confirm people in <a href="/people">People</a>, their names are saved to the database. Use <a href="/publish">Publish photos</a> to write the metadata to your JPEG files.</p>
+<p>When you confirm people in <a href="/people">People</a>, their names are saved to the database. Use <a href="/publish">Publish photos</a> to write the names to your photos. <strong>Publish all</strong> follows the choices in <a href="/settings#metadata-publishing">Settings</a>: a file type set to a sidecar file gets an <code>.xmp</code> file and the photo itself is not changed, and one set to neither is listed as not written.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -3522,7 +3522,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <header><div class="topbar"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><strong>{APP_NAME}</strong><small>Publish photos</small></div><span class="version">v{APP_VERSION}</span><span class="top-spacer"></span><span class="progress" id="globalProgress"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div></header>
 {nav_menu("publish", str(self.library_root))}
 <main>
-<p class="intro">Names confirmed in People are saved to the database instantly, but the JPEG metadata on disk is updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created for every file before writing.</p>
+<p class="intro">Names confirmed in People are saved to the database instantly, but the files on disk are updated here. Publishing writes person names into each photo&#x27;s XMP and IPTC tags, or into its sidecar file when Settings says so for that file type, so other apps (Lightroom, Google Photos, etc.) can read them. A safety backup is created before a photo itself is written.</p>
 <section class="card" id="writeTagsSection">
 <h3>Write tags to photos</h3>
 <p>Write all accumulated metadata (auto-classified tags, people, subject, and any text found in the picture) to your photos. Choose whether that goes inside the photo files or into companion sidecar files in <a href="/settings#metadata-publishing">Settings</a>. Anything a particular file cannot carry is listed below the button rather than dropped.</p>
@@ -3617,6 +3617,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "published": 0, "total": 0})
             return
         action = Action("Publish people metadata", f"{total:,} photos with names not yet written")
+        write_settings = publish_write_settings()
         SearchHandler.publish_progress = {"state": "running", "done": 0, "total": total, "current": ""}
         published = 0
         failed: list[dict] = []
@@ -3625,7 +3626,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             current_path = ""
             try:
                 with self.db() as con:
-                    result = self._publish_people_metadata(con, asset_id)
+                    result = self._publish_people_per_settings(con, asset_id, write_settings)
                     if result:
                         published += 1
                         current_path = result['relative_path']
@@ -3852,6 +3853,45 @@ class SearchHandler(BaseHTTPRequestHandler):
             return []
         text = str(value).strip()
         return [text] if text else []
+
+    def _publish_people_to_sidecar(self, con: sqlite3.Connection, asset_id: int):
+        """Write a photo's tags to its sidecar file and mark its names published.
+
+        Nothing inside the photo changes, so there is no safety copy to make.
+        Raises SidecarRefused when the sidecar cannot be written.
+        """
+        data = self._gather_write_tags_data(con, int(asset_id))
+        write_photo_sidecar(data["path"], data)
+        con.execute(
+            "UPDATE asset_people SET published_at=? WHERE asset_id=? AND state='confirmed'",
+            (utc_now(), asset_id),
+        )
+        return {"path": data["path"], "filename": data["asset"]["filename"],
+                "relative_path": data["asset"]["relative_path"], "people": data["people"]}
+
+    def _publish_people_per_settings(self, con: sqlite3.Connection, asset_id: int, settings: dict):
+        """Publish one photo's names the way Settings says that file type is written.
+
+        Returns the result dict, or raises ValueError saying why nothing was written.
+        """
+        asset = self.get_active_asset(con, int(asset_id))
+        suffix = Path(asset["relative_path"]).suffix
+        embed, sidecar = write_plan(suffix, "", settings)
+        if not embed and not sidecar:
+            raise ValueError(f"{suffix or 'This file type'} files are set to get neither embedded tags "
+                             "nor a sidecar file in Settings")
+        if not embed:
+            try:
+                return self._publish_people_to_sidecar(con, asset_id)
+            except SidecarRefused as refused:
+                raise ValueError(f"sidecar file — {refused}") from refused
+        result = self._publish_people_metadata(con, asset_id)
+        if result and sidecar:
+            try:
+                self._publish_people_to_sidecar(con, asset_id)
+            except SidecarRefused as refused:
+                raise ValueError(f"the names were written into the photo, but the sidecar file was not — {refused}") from refused
+        return result
 
     def _publish_people_metadata(self, con: sqlite3.Connection, asset_id: int,
                                  remove_names=(), review_action_id=None,

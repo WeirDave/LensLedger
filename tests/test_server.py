@@ -1569,6 +1569,62 @@ class ServerWorkflowTests(unittest.TestCase):
             time.sleep(0.02)
         return False
 
+    def save_publish_settings(self, **values):
+        from settings_config import load_settings, save_settings
+        settings = load_settings()
+        settings["publish"] = {**settings.get("publish", {}), **values}
+        save_settings(settings)
+
+    def published_at(self):
+        con = sqlite3.connect(self.database)
+        try:
+            return con.execute("SELECT published_at FROM asset_people WHERE asset_id=?", (self.asset_id,)).fetchone()[0]
+        finally:
+            con.close()
+
+    def test_publish_all_writes_a_sidecar_and_leaves_the_photo_alone_in_sidecar_only_mode(self):
+        self.confirm_a_person_on_the_sample_photo()
+        self.save_publish_settings(embed=False, sidecar_types={"jpeg": True})
+        before = self.photo.read_bytes()
+        result = self.json_response(self.post("/api/publish/run", {}))
+        self.assertEqual((result["published"], result["total"], result.get("failed")), (1, 1, []))
+        self.assertEqual(self.photo.read_bytes(), before, "sidecar-only mode must not rewrite the photo")
+        sidecar = self.photo.with_suffix(".xmp")
+        self.assertTrue(sidecar.is_file())
+        self.assertIn("Orla Brightwater", sidecar.read_text(encoding="utf-8"))
+        self.assertIsNotNone(self.published_at())
+
+    def test_publish_all_writes_both_when_settings_ask_for_both(self):
+        self.confirm_a_person_on_the_sample_photo()
+        self.save_publish_settings(embed=True, sidecar_types={"jpeg": True})
+        before = self.photo.read_bytes()
+        result = self.json_response(self.post("/api/publish/run", {}))
+        self.assertEqual((result["published"], result.get("failed")), (1, []))
+        self.assertNotEqual(self.photo.read_bytes(), before, "embedding should still rewrite the photo")
+        self.assertIn("Orla Brightwater", self.photo.with_suffix(".xmp").read_text(encoding="utf-8"))
+
+    def test_publish_all_reports_a_file_type_set_to_neither(self):
+        self.confirm_a_person_on_the_sample_photo()
+        self.save_publish_settings(embed=False, sidecar_types={"jpeg": False})
+        before = self.photo.read_bytes()
+        result = self.json_response(self.post("/api/publish/run", {}))
+        self.assertEqual(result["published"], 0)
+        self.assertIn("neither", result["failed"][0]["reason"])
+        self.assertEqual(self.photo.read_bytes(), before)
+        self.assertFalse(self.photo.with_suffix(".xmp").exists())
+        self.assertIsNone(self.published_at())
+
+    def test_publish_all_does_not_replace_another_programs_sidecar(self):
+        self.confirm_a_person_on_the_sample_photo()
+        self.save_publish_settings(embed=False, sidecar_types={"jpeg": True})
+        foreign = self.photo.with_suffix(".xmp")
+        foreign.write_text("<x:xmpmeta xmlns:x='adobe:ns:meta/'>another program</x:xmpmeta>", encoding="utf-8")
+        result = self.json_response(self.post("/api/publish/run", {}))
+        self.assertEqual(result["published"], 0)
+        self.assertIn("sidecar", result["failed"][0]["reason"])
+        self.assertIn("another program", foreign.read_text(encoding="utf-8"))
+        self.assertIsNone(self.published_at())
+
     def test_a_second_publish_is_refused_while_the_first_is_running(self):
         self.confirm_a_person_on_the_sample_photo()
         handler = self.photo_search.SearchHandler
@@ -1596,7 +1652,8 @@ class ServerWorkflowTests(unittest.TestCase):
 
         self.assertEqual(first["published"], 1)
         self.assertEqual(len(calls), 1, "the refused request must not have published anything")
-        self.assertFalse(handler.publish_lock.locked())
+        self.assertTrue(self.wait_until(lambda: not handler.publish_lock.locked()),
+                        "the lock is released once the response has been sent")
 
     def test_a_publish_that_fails_part_way_does_not_leave_the_page_waiting(self):
         handler = self.photo_search.SearchHandler
