@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.33.2 — 2026-11-13
+
+- Meaning search is faster, especially on large libraries and when paging through results. It no longer reads and decodes the whole meaning index on every search; the index is held in memory and read again only after it changes. Results are unchanged.
+
 ## 1.33.1 — 2026-11-13
 
 - Confirmations and error messages on every page appear in a panel inside LensLedger instead of a browser dialog, so they still work when the browser has blocked the page's dialogs. This covers **Scan your photos** (putting back originals, reading every photo again for text or meaning search, deleting every safety copy), **Settings** (deleting a model, switching, moving or removing a library, installing meaning search or face detection), **Manage groups** (deleting a group), **Restart** in the menu, merging people, installing an update, restoring a photo from its safety backup, stopping a running job to continue, **Empty trash** and **Delete** in **Trash & restore**, and the failure messages after trashing photos.

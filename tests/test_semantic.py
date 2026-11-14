@@ -71,6 +71,67 @@ class SemanticIndexTests(unittest.TestCase):
             self.assertGreater(ocean[0][1], ocean[1][1])
 
 
+    def test_numpy_and_python_paths_return_the_same_ranking(self):
+        import semantic_index
+        from photo_index import scan_library
+        from semantic_index import build_index, clear_matrix_cache, search
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            library = root / "photos"
+            library.mkdir()
+            for name, color in (
+                ("beach.jpg", "blue"), ("document.jpg", "white"), ("dog.jpg", "brown")
+            ):
+                Image.new("RGB", (12, 8), color).save(library / name)
+            database = root / "library.sqlite3"
+            self.assertEqual(scan_library(library, database), 0)
+            build_index(database, FakeEncoder())
+
+            with_numpy = search(database, "ocean vacation", encoder=FakeEncoder())
+            original = semantic_index.np
+            try:
+                semantic_index.np = None
+                clear_matrix_cache(database)
+                without_numpy = search(database, "ocean vacation", encoder=FakeEncoder())
+            finally:
+                semantic_index.np = original
+                clear_matrix_cache(database)
+
+            self.assertEqual(
+                [asset_id for asset_id, _ in with_numpy],
+                [asset_id for asset_id, _ in without_numpy],
+            )
+            for (_, numpy_score), (_, python_score) in zip(with_numpy, without_numpy):
+                self.assertAlmostEqual(numpy_score, python_score, places=5)
+
+    def test_cached_matrix_reloads_after_the_table_changes(self):
+        from photo_index import scan_library
+        from semantic_index import build_index, search
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            library = root / "photos"
+            library.mkdir()
+            for name, color in (
+                ("beach.jpg", "blue"), ("document.jpg", "white"), ("dog.jpg", "brown")
+            ):
+                Image.new("RGB", (12, 8), color).save(library / name)
+            database = root / "library.sqlite3"
+            self.assertEqual(scan_library(library, database), 0)
+            build_index(database, FakeEncoder())
+
+            # Populate the in-memory cache, then change the table out from under it.
+            self.assertEqual(len(search(database, "ocean vacation", encoder=FakeEncoder())), 3)
+            con = sqlite3.connect(database)
+            con.execute(
+                "DELETE FROM semantic_embeddings WHERE asset_id IN "
+                "(SELECT id FROM assets WHERE filename='dog.jpg')"
+            )
+            con.commit()
+            con.close()
+            self.assertEqual(len(search(database, "ocean vacation", encoder=FakeEncoder())), 2)
+
     def test_encode_errors_store_actual_reason(self):
         from photo_index import connect, scan_library
         from semantic_index import build_index
