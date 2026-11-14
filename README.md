@@ -53,6 +53,8 @@ Windows, as it uses the built-in Windows OCR engine.
 - Full-text search across paths, dates, subjects, tags, people, and OCR
 - Optional local meaning search across image content using an opt-in OpenCLIP model
 - One-to-five star ratings from the keyboard, with a rating filter to show only your best shots
+- Combinable filters (date range, several people at once, type, shape, camera, location, folder) and saved collections that remember a search
+- One-step **Keep best copies** for exact duplicates, which carries tags, ratings and people over to the photo that stays
 - Staged edits that remain in LensLedger until explicitly published
 - Field-by-field metadata preview before JPEG writes
 - Timestamped safety copies and decoded-pixel verification after publication

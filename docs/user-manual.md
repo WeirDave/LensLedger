@@ -176,7 +176,25 @@ Use the scope selector next to the search box to choose what to search:
 
 ### Rating filter
 
-Use the **Rating** menu next to Sort to show only photos with at least one to five stars, or **★★★★★ only**. It combines with search, the date filter and People. It does not apply to Meaning search.
+Use the **Rating** menu next to Sort to show only photos with at least one to five stars, or **★★★★★ only**. It combines with search, the date filter, People, **More filters** and Meaning search.
+
+### More filters
+
+Choose **More filters** next to the Rating menu to narrow any search further. Every filter combines with the others and with every search scope, including Meaning search, Exact duplicates and Needs tags:
+
+- **Taken from** and **Taken until** — a range of dates, typed as `YYYY-MM-DD`. Either can be left empty. The single date picker still shows one day.
+- **People (all of them)** — select one or more people; only photos in which every one of them is confirmed are shown. Hold Ctrl to select several.
+- **Type** — photos, videos or RAW files.
+- **Shape** — landscape, portrait or square, judged from the picture's size after any rotation the camera recorded.
+- **Location** — photos that have a GPS location, or that have none.
+- **Camera** — part of the camera make or model, such as `Canon` or `iPhone 14`.
+- **Folder contains** — part of a folder name.
+
+Camera, shape and size come from the photos themselves. A library indexed by an earlier version reads them on its next scan, which takes a little while the first time; videos and RAW files have no camera or shape and are left out when those filters are used. Each active filter appears as a button under the toolbar; choose it to remove that filter.
+
+### Collections
+
+A collection remembers a search and its filters under a name. Set up a search, then choose **Save as collection…** under the toolbar (or **Collections** in the toolbar), type a name and choose **Save current search**. Choose **Collections** at any time to open a saved one or delete it. A collection stores the search, not the photos, so photos added later that match it appear in it. Saving under a name that is already used replaces that collection. Each library keeps its own collections, up to 100.
 
 ### Date filtering
 

@@ -46,7 +46,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 # An opening tag is matched on its own and its closing tag is looked for after
@@ -81,6 +81,9 @@ EXIF_DATE_RE = re.compile(r"^\s*(?P<year>\d{4})[:-](?P<month>\d{2})[:-](?P<day>\
 CAPTURE_DATE_VERSION = 2
 # Raised whenever the visual hash changes, so unchanged photos are re-hashed once.
 VISUAL_HASH_VERSION = 1
+# Raised whenever the camera, size and shape details read from a photo change,
+# so unchanged photos are read once more.
+FACETS_VERSION = 1
 
 
 SCHEMA = """
@@ -214,6 +217,14 @@ CREATE INDEX IF NOT EXISTS idx_face_embeddings_asset ON face_embeddings(asset_id
 -- The full-file hash of photos that share a quick fingerprint, kept with the
 -- size and modification time it was computed for, so exact-duplicate checks
 -- never read a photo twice.
+CREATE TABLE IF NOT EXISTS saved_searches (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    query_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS asset_full_hashes (
     asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
     size_bytes INTEGER NOT NULL,
@@ -465,6 +476,11 @@ def _configure_connection(con: sqlite3.Connection) -> sqlite3.Connection:
         con.execute("ALTER TABLE assets ADD COLUMN visual_hash TEXT NOT NULL DEFAULT ''")
     if "visual_scanned" not in columns:
         con.execute("ALTER TABLE assets ADD COLUMN visual_scanned INTEGER NOT NULL DEFAULT 0")
+    for name, kind in (("camera_make", "TEXT NOT NULL DEFAULT ''"), ("camera_model", "TEXT NOT NULL DEFAULT ''"),
+                       ("width", "INTEGER NOT NULL DEFAULT 0"), ("height", "INTEGER NOT NULL DEFAULT 0"),
+                       ("facets_scanned", "INTEGER NOT NULL DEFAULT 0")):
+        if name not in columns:
+            con.execute(f"ALTER TABLE assets ADD COLUMN {name} {kind}")
     publication_columns = {row[1] for row in con.execute("PRAGMA table_info(metadata_publications)")}
     if "completed_at" not in publication_columns:
         con.execute("ALTER TABLE metadata_publications ADD COLUMN completed_at TEXT")
@@ -686,6 +702,36 @@ def visual_hash(path: Path) -> str:
         for column in range(8):
             bits = (bits << 1) | (1 if pixels[row * 9 + column] > pixels[row * 9 + column + 1] else 0)
     return f"{bits:016x}"
+
+
+def extract_facets(path: Path) -> dict[str, object]:
+    """Camera make and model and the picture's size as shown (after any
+    rotation the camera recorded). Empty for videos, RAW files and anything
+    that cannot be opened: those simply take no part in these filters."""
+    facets: dict[str, object] = {"camera_make": "", "camera_model": "", "width": 0, "height": 0}
+    if media_type(path) != "image":
+        return facets
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+            exif = image.getexif()
+            if int(exif.get(0x0112) or 1) in (5, 6, 7, 8):
+                width, height = height, width
+            facets["camera_make"] = str(exif.get(0x010F) or "").replace("\x00", "").strip()[:80]
+            facets["camera_model"] = str(exif.get(0x0110) or "").replace("\x00", "").strip()[:80]
+            facets["width"], facets["height"] = int(width), int(height)
+    except (OSError, ValueError, SyntaxError, TypeError, Image.DecompressionBombError):
+        pass
+    return facets
+
+
+def store_facets(con: sqlite3.Connection, asset_id: int, path: Path) -> None:
+    facets = extract_facets(path)
+    con.execute(
+        "UPDATE assets SET camera_make=?, camera_model=?, width=?, height=?, facets_scanned=? WHERE id=?",
+        (facets["camera_make"], facets["camera_model"], facets["width"], facets["height"],
+         FACETS_VERSION, asset_id),
+    )
 
 
 def capture_date_for(path: Path) -> str | None:
@@ -1142,7 +1188,7 @@ def scan_library(
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
     known = {row["relative_path"]: row for row in con.execute(
         "SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, "
-        "location_scanned, tags_scanned, date_scanned, visual_scanned, in_review_bin FROM assets"
+        "location_scanned, tags_scanned, date_scanned, visual_scanned, facets_scanned, in_review_bin FROM assets"
     )}
     seen: set[str] = set()
     counts: dict[str, int | bool | list] = {
@@ -1190,6 +1236,10 @@ def scan_library(
                     )
                     if counts["unchanged"] % 500 == 0:
                         con.commit()
+                if not placeholder and old["facets_scanned"] < FACETS_VERSION:
+                    store_facets(con, int(old["id"]), path)
+                    if counts["unchanged"] % 500 == 0:
+                        con.commit()
                 if (not placeholder and old["tags_scanned"] < EMBEDDED_TAGS_VERSION
                         and path.suffix.lower() in EMBEDDED_TAG_EXTENSIONS):
                     refresh_embedded_tags(con, int(old["id"]), path)
@@ -1233,6 +1283,7 @@ def scan_library(
             asset_id = int(con.execute("SELECT id FROM assets WHERE relative_path = ?", (rel_text,)).fetchone()[0])
             if not placeholder:
                 refresh_embedded_tags(con, asset_id, path)
+                store_facets(con, asset_id, path)
             folder_names = [r[0] for r in con.execute("SELECT tag FROM folder_tags WHERE folder = ?", (folder,))]
             if not folder_names:
                 inferred = infer_tags(folder)

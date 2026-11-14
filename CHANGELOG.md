@@ -6,6 +6,17 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.38.0 — 2026-11-14
+
+- **More filters** on the home page, next to the Rating menu: a date range, several people at once (only photos where all of them are confirmed), type (photos, videos, RAW files), shape (landscape, portrait, square), location (has or has none), camera make or model, and part of a folder name. They combine with each other and with every search scope.
+- Each active filter shows as a button under the toolbar; choosing it removes that filter.
+- **Collections** save a search and its filters under a name. **Save as collection…** appears under the toolbar when a filter is active, and **Collections** in the toolbar opens, saves and deletes them. Each library keeps its own, up to 100.
+- Meaning search now respects the date, rating, people and other filters. Before, it ignored them.
+- A search that matches more than about 32,000 photos no longer fails with an error.
+- Camera make and model and the picture's size are read from photos during a scan. A library indexed by an earlier version reads them on its next scan.
+- **Keep best copies** honours the filters in view.
+- The manual and the README describe filters and collections.
+
 ## 1.37.0 — 2026-11-14
 
 - The **Exact duplicates** view has a **Keep best copies** button at the top of the page. It shows how many sets of identical photos are in view and how much space the extra copies use, and after confirmation keeps the photo listed first in each set and moves the other copies to the Review Bin, where each can be put back. At most 1,000 copies move per run; running it again continues.

@@ -279,6 +279,103 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn('<option value="similar" selected>Similar photos</option>', page)
         self.assertIn("Similar photos • 1–2 of 2", page)
 
+    def add_filter_photos(self):
+        from photo_index import scan_library
+
+        Image.new("RGB", (30, 60), (200, 100, 10)).save(self.library / "2026-03-01 tall.jpg", quality=92)
+        (self.library / "2026-04-02 clip.mp4").write_bytes(b"\x00" * 64)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+
+    def listed(self, query: str):
+        return [item["filename"] for item in self.json_response(self.get("/api/library/items?" + query))["items"]]
+
+    def test_filters_combine_and_apply_to_the_photo_list(self):
+        self.add_filter_photos()
+        self.assertEqual(self.listed("scope=all&shape=portrait"), ["2026-03-01 tall.jpg"])
+        self.assertEqual(self.listed("scope=all&kind=video"), ["2026-04-02 clip.mp4"])
+        self.assertEqual(self.listed("scope=all&from=2026-03-15"), ["2026-08-09 sample.jpg", "2026-04-02 clip.mp4"])
+        self.assertEqual(self.listed("scope=all&from=2026-03-15&kind=image"), ["2026-08-09 sample.jpg"])
+        self.assertEqual(self.listed("scope=all&shape=portrait&kind=video"), [])
+        self.assertEqual(self.listed("scope=all&to=not-a-date&kind=video"), ["2026-04-02 clip.mp4"],
+                         "an invalid date is ignored, not an error")
+
+    def test_the_page_shows_active_filters_as_chips_that_remove_themselves(self):
+        self.add_filter_photos()
+        page = self.get("/?scope=all&kind=video&folder=Trip&rating=0").read().decode("utf-8")
+        self.assertIn('id="moreFilters"', page)
+        self.assertIn('id="filterPanel">', page, "the panel starts open when a filter is active")
+        self.assertIn('class="filter-chip" href="/?scope=all&amp;folder=Trip&amp;rating=0"', page)
+        self.assertIn('class="filter-chip" href="/?scope=all&amp;kind=video&amp;rating=0"', page)
+        self.assertIn('id="saveCollection"', page)
+        plain = self.get("/").read().decode("utf-8")
+        self.assertIn('id="filterPanel" hidden>', plain)
+        self.assertNotIn('class="filter-chips"', plain)
+
+    def test_meaning_search_respects_the_other_filters(self):
+        self.add_filter_photos()
+        con = sqlite3.connect(self.database)
+        ids = {row[0]: int(row[1]) for row in con.execute("SELECT filename, id FROM assets")}
+        con.close()
+        ranked = [(ids["2026-08-09 sample.jpg"], 0.9), (ids["2026-03-01 tall.jpg"], 0.8)]
+        status = {"indexed": 2, "pending": 0, "model": "m", "available": True, "errors": 0}
+        with patch.object(self.photo_search, "semantic_search", return_value=ranked), \
+             patch.object(self.photo_search, "semantic_status", return_value=status):
+            everything = self.listed("scope=semantic&q=anything")
+            portraits = self.listed("scope=semantic&q=anything&shape=portrait")
+            recent = self.json_response(self.get("/api/library/items?scope=semantic&q=anything&from=2026-06-01"))
+        self.assertEqual(everything, ["2026-08-09 sample.jpg", "2026-03-01 tall.jpg"])
+        self.assertEqual(portraits, ["2026-03-01 tall.jpg"])
+        self.assertEqual((recent["total"], [item["filename"] for item in recent["items"]]),
+                         (1, ["2026-08-09 sample.jpg"]))
+
+    def test_a_search_matching_more_than_thirty_two_thousand_photos_still_works(self):
+        con = sqlite3.connect(self.database)
+        rows = [(f"bulk/{number}.jpg", f"bulk/{number}.jpg", "bulk", f"{number}.jpg", ".jpg", "image", 1, 1, 1, 1,
+                 "2020-01-01", "now") for number in range(33_000)]
+        con.executemany(
+            """INSERT INTO assets(path, relative_path, folder, filename, extension, media_type, size_bytes, mtime_ns,
+                                  metadata_scanned, location_scanned, capture_date, indexed_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+        con.execute(
+            "INSERT INTO search_fts(asset_id, path, folder, tags, ocr_text, caption) "
+            "SELECT id, relative_path, folder, 'zebra', '', '' FROM assets WHERE folder='bulk'")
+        con.commit()
+        con.close()
+
+        for sort in ("newest", "relevance"):
+            result = self.json_response(self.get(f"/api/library/items?scope=all&q=zebra&sort={sort}"))
+            self.assertEqual(result["total"], 33_000, sort)
+            self.assertEqual(len(result["items"]), self.photo_search.PAGE_SIZE, sort)
+
+    def test_collections_are_saved_listed_opened_and_deleted(self):
+        saved = self.json_response(self.post("/api/collections/save", {
+            "name": "Tall ones", "query": "scope=all&shape=portrait&page=2&selected=5"}))
+        self.assertEqual(saved["replaced"], False)
+        listed = self.json_response(self.get("/api/collections"))["collections"]
+        self.assertEqual([(entry["name"], entry["url"]) for entry in listed],
+                         [("Tall ones", "/?scope=all&shape=portrait")])
+
+        page = self.get("/").read().decode("utf-8")
+        self.assertIn(">Collections (1)</button>", page)
+
+        removed = self.json_response(self.post("/api/collections/delete", {"id": saved["id"]}))
+        self.assertTrue(removed["ok"])
+        self.assertEqual(self.json_response(self.get("/api/collections"))["collections"], [])
+
+    def test_saving_an_empty_search_is_refused_with_a_reason(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/collections/save", {"name": "Empty", "query": "page=3"})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertIn("nothing to save", json.loads(caught.exception.read())["error"])
+        caught.exception.close()
+
+    def test_keep_best_honours_the_filters_in_view(self):
+        copy, _copy_id = self.make_duplicate_set()
+        none_match = self.json_response(self.post("/api/duplicates/keep-best/preview", {"kind": "video"}))
+        self.assertEqual(none_match["sets"], 0)
+        matching = self.json_response(self.post("/api/duplicates/keep-best/preview", {"kind": "image"}))
+        self.assertEqual(matching["sets"], 1)
+
     def make_duplicate_set(self):
         from photo_index import scan_library
 

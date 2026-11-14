@@ -45,6 +45,10 @@ from face_learning import (
 from face_math import EmbeddingSet, modal_dimension, numpy_available, ranked_groups
 from publish_failures import REPAIRABLE_SUFFIXES, explain_failure
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
+from photo_filters import (
+    LOCATIONS, KINDS, SHAPES, collection_query, delete_collection, filter_clauses, keep_matching_ids,
+    list_collections, parse_filters, save_collection,
+)
 from photo_duplicates import (
     cached_groups, find_exact_duplicate_groups, library_has_identical_file, merge_into_keeper,
     plan_keep_best, plan_token,
@@ -528,23 +532,26 @@ def search_everything_scope(
     if not matches:
         return [], 0
 
+    # The matches go into a temporary table instead of an IN (?,?,...) list,
+    # which SQLite refuses once a search matches more than about 32,000 photos.
+    con.execute("CREATE TEMP TABLE IF NOT EXISTS _match_ids(id INTEGER PRIMARY KEY)")
+    con.execute("DELETE FROM _match_ids")
+    con.executemany("INSERT OR IGNORE INTO _match_ids(id) VALUES (?)", ((asset_id,) for asset_id, _date in matches))
+
     if sort != "relevance":
-        matching_ids = [asset_id for asset_id, _capture_date in matches]
-        placeholders = ",".join("?" for _ in matching_ids)
         rows = con.execute(
             f"""SELECT id,filename,folder,capture_date,media_type FROM assets AS a
-                WHERE id IN ({placeholders}) ORDER BY {order} LIMIT ? OFFSET ?""",
-            [*matching_ids, PAGE_SIZE, (page_number - 1) * PAGE_SIZE],
+                WHERE id IN (SELECT id FROM _match_ids) ORDER BY {order} LIMIT ? OFFSET ?""",
+            [PAGE_SIZE, (page_number - 1) * PAGE_SIZE],
         ).fetchall()
         return [dict(row) for row in rows], total
 
     dates_by_id = dict(matches)
     scores: dict[int, float] = {}
-    placeholders = ",".join("?" for _ in matches)
     for asset_id, rank in con.execute(
-        f"SELECT search_fts.asset_id, search_fts.rank FROM search_fts "
-        f"WHERE search_fts MATCH ? AND search_fts.asset_id IN ({placeholders})",
-        [match_expr, *dates_by_id],
+        "SELECT search_fts.asset_id, search_fts.rank FROM search_fts "
+        "WHERE search_fts MATCH ? AND search_fts.asset_id IN (SELECT id FROM _match_ids)",
+        [match_expr],
     ):
         scores[int(asset_id)] = float(rank)
     # Best FTS matches first; ids that matched only via the person-name
@@ -932,6 +939,8 @@ ACTION_LABELS = {
     "/api/review-bin": "Move a photo to the Review Bin",
     "/api/review-bin/batch": "Move photos to the Review Bin",
     "/api/duplicates/keep-best": "Keep the best copy of each duplicate set",
+    "/api/collections/save": "Save a collection",
+    "/api/collections/delete": "Delete a collection",
     "/api/review-bin/restore": "Restore from the Review Bin",
     "/api/review-bin/restore-batch": "Restore photos from the Review Bin",
     "/api/review-bin/delete": "Delete from the Review Bin",
@@ -1867,6 +1876,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.library_options()
         if url.path == "/api/library/reconnect-options":
             return self.reconnect_options()
+        if url.path == "/api/collections":
+            return self.collections_api()
         if url.path == "/api/library/items":
             return self.library_items_api(params)
         if url.path == "/api/map/points":
@@ -2146,6 +2157,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.save_settings_api(body)
             if route == "/api/settings/remove-library":
                 return self.remove_library(body)
+            if route == "/api/collections/save":
+                return self.save_collection_api(body)
+            if route == "/api/collections/delete":
+                return self.delete_collection_api(body)
             if route == "/api/duplicates/keep-best/preview":
                 return self.keep_best_preview(body)
             if route == "/api/duplicates/keep-best":
@@ -2505,7 +2520,21 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Filename A&ndash;Z</strong> &mdash; alphabetical</li>
 </ul>
 <h3>Rating filter</h3>
-<p>Use the <strong>Rating</strong> menu next to Sort to show only photos with at least one to five stars, or <strong>★★★★★ only</strong>. It combines with search, the date filter and People. It does not apply to Meaning search.</p>
+<p>Use the <strong>Rating</strong> menu next to Sort to show only photos with at least one to five stars, or <strong>★★★★★ only</strong>. It combines with search, the date filter, People, <strong>More filters</strong> and Meaning search.</p>
+<h3>More filters</h3>
+<p>Choose <strong>More filters</strong> next to the Rating menu to narrow any search further. Every filter combines with the others and with every search scope, including Meaning search, Exact duplicates and Needs tags:</p>
+<ul>
+<li><strong>Taken from</strong> and <strong>Taken until</strong> &mdash; a range of dates, typed as <code>YYYY-MM-DD</code>. Either can be left empty. The single date picker still shows one day.</li>
+<li><strong>People (all of them)</strong> &mdash; select one or more people; only photos in which every one of them is confirmed are shown. Hold Ctrl to select several.</li>
+<li><strong>Type</strong> &mdash; photos, videos or RAW files.</li>
+<li><strong>Shape</strong> &mdash; landscape, portrait or square, judged from the picture&rsquo;s size after any rotation the camera recorded.</li>
+<li><strong>Location</strong> &mdash; photos that have a GPS location, or that have none.</li>
+<li><strong>Camera</strong> &mdash; part of the camera make or model, such as <code>Canon</code> or <code>iPhone 14</code>.</li>
+<li><strong>Folder contains</strong> &mdash; part of a folder name.</li>
+</ul>
+<p>Camera, shape and size come from the photos themselves. A library indexed by an earlier version reads them on its next scan, which takes a little while the first time; videos and RAW files have no camera or shape and are left out when those filters are used. Each active filter appears as a button under the toolbar; choose it to remove that filter.</p>
+<h3>Collections</h3>
+<p>A collection remembers a search and its filters under a name. Set up a search, then choose <strong>Save as collection&hellip;</strong> under the toolbar (or <strong>Collections</strong> in the toolbar), type a name and choose <strong>Save current search</strong>. Choose <strong>Collections</strong> at any time to open a saved one or delete it. A collection stores the search, not the photos, so photos added later that match it appear in it. Saving under a name that is already used replaces that collection. Each library keeps its own collections, up to 100.</p>
 <h3>Date filtering</h3>
 <p>Click the date filter button to open a calendar picker. Use <strong>Previous day</strong> / <strong>Next day</strong> buttons to navigate between days with photos.</p>
 <p>A photo&rsquo;s date is the date it was taken, read from the camera&rsquo;s EXIF data. When a photo has none, LensLedger uses a date in the file or folder name (<code>2024-07-04 Party</code>, <code>IMG_20240704_120000.jpg</code>) and, failing that, the date an editor last saved it. Libraries indexed by an earlier version pick up the EXIF dates on their next scan.</p>
@@ -3126,7 +3155,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         return query, selected_date, scope, person_id, sort, page_number, near_point, min_rating
 
     def fetch_matching_photos(self, con, query, selected_date, scope, person_id, sort, page_number, near_point=None,
-                              min_rating=0):
+                              min_rating=0, filters=None):
         """Fetch one page of matching photos for the image/context/all/
         semantic scopes, or a specific person's confirmed photos.
 
@@ -3144,6 +3173,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         rating_clauses, rating_values = rating_place_filters(min_rating, near_point)
         clauses.extend(rating_clauses)
         values.extend(rating_values)
+        filter_sql, filter_values = filter_clauses(filters)
+        clauses.extend(filter_sql)
+        values.extend(filter_values)
         if scope == "people" and person_id:
             clauses.append("""EXISTS (
                 SELECT 1 FROM asset_people ap
@@ -3202,9 +3234,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         if scope == "semantic":
             if not query:
                 return [], 0, selected_date
-            ranked = semantic_search(type(self).db_path, query, PAGE_SIZE, (page_number - 1) * PAGE_SIZE)
-            ranked_ids = [asset_id for asset_id, _score in ranked]
             total = int(semantic_status(type(self).db_path)["indexed"])
+            if len(clauses) > 1:
+                # Narrowed by a date, rating, person or other filter: rank every
+                # indexed photo, keep those that pass, then page what is left.
+                everything = semantic_search(type(self).db_path, query, max(total, 1), 0)
+                passing = keep_matching_ids(con, [asset_id for asset_id, _score in everything],
+                                            base_where, values)
+                narrowed = [asset_id for asset_id, _score in everything if asset_id in passing]
+                total = len(narrowed)
+                ranked_ids = narrowed[(page_number - 1) * PAGE_SIZE:page_number * PAGE_SIZE]
+            else:
+                ranked = semantic_search(type(self).db_path, query, PAGE_SIZE, (page_number - 1) * PAGE_SIZE)
+                ranked_ids = [asset_id for asset_id, _score in ranked]
             items: list[dict] = []
             if ranked_ids:
                 placeholders = ",".join("?" for _ in ranked_ids)
@@ -3246,11 +3288,26 @@ class SearchHandler(BaseHTTPRequestHandler):
         ).fetchall()
         return attach_ratings(con, [dict(row) for row in rows]), total, selected_date
 
+    def collections_api(self):
+        with self.db() as con:
+            self.send_json({"collections": list_collections(con)})
+
+    def save_collection_api(self, body):
+        with self.db() as con:
+            collection_id, replaced = save_collection(con, body.get("name", ""), body.get("query", ""))
+        self.send_json({"ok": True, "id": collection_id, "replaced": replaced})
+
+    def delete_collection_api(self, body):
+        with self.db() as con:
+            removed = delete_collection(con, int(body["id"]))
+        self.send_json({"ok": removed})
+
     def library_items_api(self, params):
         """JSON pagination endpoint: the filmstrip calls this while
         scrolling to fetch additional pages after the first, which is
         rendered directly into the full page."""
         query, selected_date, scope, person_id, sort, page_number, near_point, min_rating = self.parse_photo_query(params)
+        filters = parse_filters(params)
         if scope == "people" and not person_id:
             return self.send_json({"error": "this scope has no photo pages to fetch"}, 400)
         try:
@@ -3261,6 +3318,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                         raise ValueError("That person is no longer available")
                 items, total, selected_date = self.fetch_matching_photos(
                     con, query, selected_date, scope, person_id, sort, page_number, near_point, min_rating,
+                    filters,
                 )
         except (sqlite3.Error, RuntimeError, ValueError) as exc:
             return self.send_json({"error": str(exc)}, 400)
@@ -3289,13 +3347,16 @@ class SearchHandler(BaseHTTPRequestHandler):
             if known:
                 return self.reconnection_page()
             return self.onboarding_page()
-        has_params = any(params.get(k) for k in ("q", "scope", "sort", "person", "date", "rating"))
+        has_params = any(params.get(k) for k in (
+            "q", "scope", "sort", "person", "date", "rating", "from", "to", "people", "kind", "camera",
+            "shape", "gps", "folder"))
         if not has_params and get_setting("startup", "show_library_picker", default=False):
             known = load_all_known_libraries()
             accessible = [lib for lib in known if lib["accessible"]]
             if len(accessible) > 1:
                 return self.library_picker_page()
         query, selected_date, scope, person_id, sort, page_number, near_point, min_rating = self.parse_photo_query(params)
+        filters = parse_filters(params)
 
         error = ""
         rows: list[dict] = []
@@ -3309,9 +3370,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         review_count = 0
         unidentified_faces_count = 0
         untagged_count = 0
+        filter_people: list[dict] = []
+        collection_count = 0
         try:
             with self.db() as con:
                 untagged_count = count_untagged(con)
+                filter_people = [dict(row) for row in con.execute(
+                    "SELECT id,name FROM people ORDER BY name COLLATE NOCASE")]
+                collection_count = int(con.execute("SELECT COUNT(*) FROM saved_searches").fetchone()[0])
                 trash_count = int(con.execute(
                     "SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL"
                 ).fetchone()[0])
@@ -3410,6 +3476,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                         }
                     rows, total, selected_date = self.fetch_matching_photos(
                         con, query, selected_date, scope, person_id, sort, page_number, near_point, min_rating,
+                        filters,
                     )
         except (sqlite3.Error, RuntimeError, ValueError) as exc:
             error = str(exc)
@@ -3443,7 +3510,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "oldest": "Oldest photos",
                 "name": "Filename order",
             }.get(sort, "Photos")
-        if min_rating and not (scope == "people" and not person_id) and scope != "semantic":
+        if min_rating and not (scope == "people" and not person_id):
             view_label += f" rated {'★' * min_rating}{'+' if min_rating < 5 else ''}"
         summary = (
             f"{view_label} • {total:,}" if scope == "people" and not person_id
@@ -3592,6 +3659,82 @@ class SearchHandler(BaseHTTPRequestHandler):
             )
         person_hidden = f'<input type="hidden" name="person" value="{person_id}">' if person_id else ""
         body_class = "people-gallery-mode" if gallery_mode else ""
+        people_names = {int(person["id"]): str(person["name"]) for person in filter_people}
+        kept_pairs = [(key, value) for key, values in params.items() for value in values
+                      if key not in ("page", "selected")]
+
+        def url_without(*dropped_keys, keep_people=()):
+            pairs = [(key, value) for key, value in kept_pairs if key not in dropped_keys]
+            pairs += [("people", str(person)) for person in keep_people]
+            return "/?" + urllib.parse.urlencode(pairs) if pairs else "/"
+
+        filter_chips = []
+        if filters.from_date:
+            filter_chips.append((f"From {filters.from_date}", url_without("from")))
+        if filters.to_date:
+            filter_chips.append((f"To {filters.to_date}", url_without("to")))
+        for person in filters.people:
+            remaining = [other for other in filters.people if other != person]
+            filter_chips.append((people_names.get(person, "Unknown person"),
+                                 url_without("people", keep_people=remaining)))
+        if filters.kind:
+            filter_chips.append((KINDS[filters.kind], url_without("kind")))
+        if filters.shape:
+            filter_chips.append((SHAPES[filters.shape], url_without("shape")))
+        if filters.gps:
+            filter_chips.append((LOCATIONS[filters.gps], url_without("gps")))
+        if filters.camera:
+            filter_chips.append((f"Camera: {filters.camera}", url_without("camera")))
+        if filters.folder:
+            filter_chips.append((f"Folder: {filters.folder}", url_without("folder")))
+        filter_chips_html = (
+            '<div class="filter-chips" id="filterChips">'
+            + "".join(
+                f'<a class="filter-chip" href="{html.escape(link, quote=True)}" '
+                f'title="Remove this filter">{html.escape(label)} <span aria-hidden="true">×</span></a>'
+                for label, link in filter_chips
+            )
+            + '<button type="button" class="secondary" id="saveCollection">Save as collection…</button></div>'
+            if filter_chips and not gallery_mode else ""
+        )
+
+        def choice(name, label, options, current):
+            return (
+                f'<label>{label}<select name="{name}"><option value="">Any</option>'
+                + "".join(
+                    f'<option value="{value}"{" selected" if current == value else ""}>{html.escape(text)}</option>'
+                    for value, text in options.items()
+                )
+                + "</select></label>"
+            )
+
+        people_options = "".join(
+            f'<option value="{int(person["id"])}"{" selected" if int(person["id"]) in filters.people else ""}>'
+            f'{html.escape(str(person["name"]))}</option>'
+            for person in filter_people
+        )
+        filter_panel_html = (
+            f'<div class="filter-panel" id="filterPanel"{"" if filters.active else " hidden"}>'
+            f'<label>Taken from<input name="from" value="{html.escape(filters.from_date, quote=True)}" placeholder="YYYY-MM-DD" inputmode="numeric" maxlength="10"></label>'
+            f'<label>Taken until<input name="to" value="{html.escape(filters.to_date, quote=True)}" placeholder="YYYY-MM-DD" inputmode="numeric" maxlength="10"></label>'
+            + (f'<label>People (all of them)<select name="people" multiple size="4">{people_options}</select></label>'
+               if people_options else "")
+            + choice("kind", "Type", KINDS, filters.kind)
+            + choice("shape", "Shape", SHAPES, filters.shape)
+            + choice("gps", "Location", LOCATIONS, filters.gps)
+            + f'<label>Camera<input name="camera" value="{html.escape(filters.camera, quote=True)}" placeholder="Make or model"></label>'
+            f'<label>Folder contains<input name="folder" value="{html.escape(filters.folder, quote=True)}" placeholder="Part of a folder name"></label>'
+            "</div>"
+        )
+        more_filters_label = f"More filters ({len(filter_chips)})" if filter_chips else "More filters"
+        filter_controls_html = (
+            f'<button type="button" class="secondary" id="moreFilters" aria-expanded="{"true" if filters.active else "false"}" '
+            f'aria-controls="filterPanel">{more_filters_label}</button>'
+            f'<button type="button" class="secondary" id="openCollections">'
+            f'{"Collections (" + str(collection_count) + ")" if collection_count else "Collections"}</button>'
+        )
+        if gallery_mode:
+            filter_controls_html = filter_panel_html = ""
         search_placeholder = (
             "Filter people by name, alias, or group" if gallery_mode else
             "Try: sunset over water, dog playing in snow" if scope == "semantic" else
@@ -3610,12 +3753,15 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "q": query, "date": selected_date, "scope": scope, "sort": sort, "person": person_id,
                 "near": f"{near_point[0]},{near_point[1]}" if near_point else "",
                 "rating": min_rating,
+                "from": filters.from_date, "to": filters.to_date, "people": filters.people,
+                "kind": filters.kind, "camera": filters.camera, "shape": filters.shape,
+                "gps": filters.gps, "folder": filters.folder,
             },
             "page": page_number, "hasMore": has_more,
         })}>
 <a href="#stage" class="skip-nav">Skip to photos</a>
 <header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span>{needs_tags_link}{keep_best_button}<button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
-<form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><button type="button" class="secondary filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="viewerToolbar">Filters</button><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker" aria-label="Search scope">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><label class="rating-field optional">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label><button>View</button></form></header>
+<form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><button type="button" class="secondary filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="viewerToolbar">Filters</button><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker" aria-label="Search scope">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><label class="rating-field optional">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label>{filter_controls_html}<button>View</button>{filter_panel_html}</form>{filter_chips_html}</header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">
 <button type="button" class="sidebar-close" id="sidebarClose">Close details</button>
@@ -8055,13 +8201,19 @@ class SearchHandler(BaseHTTPRequestHandler):
 
     def _keep_best_plan(self, con, body):
         """The sets the duplicates view currently shows, with a keeper chosen for each."""
-        params = {key: [str(body.get(key, "") or "")] for key in ("q", "date", "rating", "near")}
+        params = {key: [str(body.get(key, "") or "")] for key in (
+            "q", "date", "rating", "near", "from", "to", "kind", "camera", "shape", "gps", "folder")}
+        people = body.get("people")
+        params["people"] = [str(person) for person in people] if isinstance(people, list) else []
         query, selected_date, _scope, _person, _sort, _page, near_point, min_rating = self.parse_photo_query(params)
         clauses = ["a.in_review_bin=0"]
         values: list[object] = []
         rating_clauses, rating_values = rating_place_filters(min_rating, near_point)
         clauses.extend(rating_clauses)
         values.extend(rating_values)
+        filter_sql, filter_values = filter_clauses(parse_filters(params))
+        clauses.extend(filter_sql)
+        values.extend(filter_values)
         if selected_date:
             try:
                 dt.date.fromisoformat(selected_date)

@@ -37,7 +37,7 @@ REQUIRED_FILES = {
     "src/generate_historical_folder_tags.py", "src/face_locations.py", "src/face_scan.py", "src/face_learning.py", "src/face_math.py", "src/face_threshold_report.py", "src/publish_failures.py",
     "src/photo_index.py", "src/photo_search.py", "src/product.py", "requirements.txt",
     "src/console_log.py", "src/environment_check.py", "tools/__init__.py", "tools/terminal_tab.py", "src/folder_watcher.py", "src/media_dates.py", "src/ingest_pipeline.py", "src/metadata_backups.py",
-    "src/person_duplicates.py", "src/photo_duplicates.py", "src/photo_similar.py", "src/semantic_classify.py",
+    "src/person_duplicates.py", "src/photo_duplicates.py", "src/photo_filters.py", "src/photo_similar.py", "src/semantic_classify.py",
     "src/semantic_index.py", "src/settings_config.py", "src/xmp_sidecar.py", "src/generate_face_suggestions.py",
     "Install LensLedger.cmd", "Start LensLedger.cmd",
     "THIRD_PARTY_NOTICES.md", "tools/ExifTool/ExifTool.exe", "src/windows_ocr.ps1",

@@ -631,7 +631,7 @@ checkServerVersion();setInterval(checkServerVersion,30000);
 
 async function keepBestCopies(){
   const q=LL.query||{};
-  const filters={q:q.q||'',date:q.date||'',rating:q.rating?String(q.rating):'',near:q.near||''};
+  const filters={q:q.q||'',date:q.date||'',rating:q.rating?String(q.rating):'',near:q.near||'',from:q.from||'',to:q.to||'',people:q.people||[],kind:q.kind||'',camera:q.camera||'',shape:q.shape||'',gps:q.gps||'',folder:q.folder||''};
   let preview;
   try{preview=await api('/api/duplicates/keep-best/preview',filters)}
   catch(e){await askNotice('Could not check the duplicate sets',[e.message]);return}
@@ -657,3 +657,69 @@ async function keepBestCopies(){
   }catch(e){setStatus('');await askNotice('Could not clean up the duplicates',[e.message])}
 }
 $('keepBest')?.addEventListener('click',keepBestCopies);
+
+(function(){
+  const form=$('viewerToolbar'),toggle=$('moreFilters'),panel=$('filterPanel');
+  if(toggle&&panel){
+    toggle.addEventListener('click',function(){
+      const opening=panel.hasAttribute('hidden');
+      panel.toggleAttribute('hidden',!opening);
+      toggle.setAttribute('aria-expanded',String(opening));
+    });
+  }
+  if(!form)return;
+  const optional=['from','to','kind','shape','gps','camera','folder'];
+  form.addEventListener('submit',function(){
+    optional.forEach(function(name){
+      const el=form.elements[name];
+      if(el&&el.value===''){el.disabled=true;el.dataset.autoDisabled='1'}
+    });
+  });
+  window.addEventListener('pageshow',function(){
+    form.querySelectorAll('[data-auto-disabled]').forEach(function(el){el.disabled=false;delete el.dataset.autoDisabled});
+  });
+})();
+
+async function openCollections(focusSave){
+  const box=document.createElement('div');
+  const intro=document.createElement('p');
+  intro.textContent='A collection remembers a search and its filters, so it opens again in one click. Photos added later that match it are included.';
+  const list=document.createElement('div');
+  const saveRow=document.createElement('div');saveRow.className='collection-save';
+  const nameInput=document.createElement('input');nameInput.placeholder='Name for the current search';nameInput.setAttribute('aria-label','Collection name');nameInput.maxLength=60;
+  const saveButton=document.createElement('button');saveButton.textContent='Save current search';
+  const status=document.createElement('p');status.className='status';status.setAttribute('role','status');
+  saveRow.append(nameInput,saveButton);
+  box.append(intro,list,saveRow,status);
+  async function refresh(){
+    let data;
+    try{const r=await fetch('/api/collections');data=await r.json();if(!r.ok)throw new Error(data.error||'Could not load collections')}
+    catch(e){list.textContent=e.message;return}
+    list.replaceChildren();
+    if(!data.collections.length){const empty=document.createElement('p');empty.className='collection-empty';empty.textContent='No collections yet.';list.append(empty);return}
+    data.collections.forEach(function(entry){
+      const row=document.createElement('div');row.className='collection-row';
+      const link=document.createElement('a');link.href=entry.url;link.textContent=entry.name;
+      const remove=document.createElement('button');remove.className='secondary';remove.textContent='Delete';
+      remove.onclick=async function(){
+        if(!await askConfirm('Delete this collection?',['“'+entry.name+'” will be deleted. The photos in it are not affected.'],'Delete'))return;
+        try{await api('/api/collections/delete',{id:entry.id});refresh()}catch(e){status.textContent=e.message;status.className='status status-error'}
+      };
+      row.append(link,remove);list.append(row);
+    });
+  }
+  saveButton.onclick=async function(){
+    status.className='status';status.textContent='';
+    try{
+      const result=await api('/api/collections/save',{name:nameInput.value,query:location.search.slice(1)});
+      status.textContent=result.replaced?'Updated the collection with that name.':'Saved.';
+      nameInput.value='';refresh();
+    }catch(e){status.textContent=e.message;status.className='status status-error'}
+  };
+  nameInput.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();saveButton.click()}});
+  openModal('Collections',box);
+  await refresh();
+  if(focusSave)nameInput.focus();
+}
+$('openCollections')?.addEventListener('click',function(){openCollections(false)});
+$('saveCollection')?.addEventListener('click',function(){openCollections(true)});

@@ -96,3 +96,7 @@ form.toolbar input,form.toolbar select,.date-trigger,.sidebar input,.sidebar tex
 .section-hint{margin:0 0 8px;color:var(--text-secondary);font-size:12px;line-height:1.45}
 .tag-scope{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--text-secondary);font-size:12px}.tag-scope select{flex:1;min-width:0}
 @media(pointer:coarse),(max-width:768px){.tag-scope select{min-height:44px}}
+.filter-panel{flex:1 1 100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end;order:9}.filter-panel[hidden]{display:none}.filter-panel select[multiple]{min-height:88px}
+.filter-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding-top:8px}.filter-chip{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface3);color:var(--text);font-size:12px;text-decoration:none}.filter-chip:hover,.filter-chip:focus-visible{border-color:var(--selection)}
+.collection-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}.collection-row a{color:var(--text);font-weight:600;overflow-wrap:anywhere}.collection-save{display:flex;gap:8px;margin-top:12px}.collection-save input{flex:1 1 auto}.collection-empty{color:var(--text-secondary);font-size:13px}
+@media(max-width:768px){form.toolbar>#moreFilters,form.toolbar>#openCollections{order:7;flex:0 0 auto}form.toolbar>button:not([type]){order:8;flex:0 0 auto}}
