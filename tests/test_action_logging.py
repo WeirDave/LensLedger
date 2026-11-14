@@ -179,6 +179,7 @@ class TestEveryActionIsNamed(unittest.TestCase):
     # this list is a deliberate choice, which is the point of listing them.
     DELIBERATELY_QUIET = {
         "/api/dev/set",
+        "/api/duplicates/keep-best/preview",
         "/api/library/browse",
         "/api/publish/preview",
         "/api/reveal-file",

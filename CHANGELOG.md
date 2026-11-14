@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.37.0 — 2026-11-14
+
+- The **Exact duplicates** view has a **Keep best copies** button at the top of the page. It shows how many sets of identical photos are in view and how much space the extra copies use, and after confirmation keeps the photo listed first in each set and moves the other copies to the Review Bin, where each can be put back. At most 1,000 copies move per run; running it again continues.
+- Ratings, subjects, tags, captions, notes and confirmed people on the other copies, and the tags their folders gave them, are copied onto the photo that stays. Nothing is removed from the other copies, so restoring one from the Review Bin loses nothing.
+- The **Exact duplicates** and **Similar photos** views are calculated once and remembered until the library changes, instead of being recalculated for every page of the filmstrip.
+- The full-file comparison that confirms two photos are identical is stored in the library's database and reused, so a photo is read once for this check, not on every visit or after every restart.
+- The manual describes **Keep best copies**.
+
 ## 1.36.0 — 2026-11-14
 
 - **Auto-import** no longer moves a photo or video that is already in the library, byte for byte. The file stays in the source folder and the activity log lists it once as a skipped duplicate. The run summary counts these files separately.

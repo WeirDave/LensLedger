@@ -45,7 +45,10 @@ from face_learning import (
 from face_math import EmbeddingSet, modal_dimension, numpy_available, ranked_groups
 from publish_failures import REPAIRABLE_SUFFIXES, explain_failure
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
-from photo_duplicates import find_exact_duplicate_groups, library_has_identical_file
+from photo_duplicates import (
+    cached_groups, find_exact_duplicate_groups, library_has_identical_file, merge_into_keeper,
+    plan_keep_best, plan_token,
+)
 from photo_similar import find_similar_groups
 from person_duplicates import dismiss_pair as dismiss_duplicate_pair, find_possible_duplicates
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
@@ -95,6 +98,7 @@ from xmp_sidecar import SidecarRefused, is_lensledger_sidecar, write_sidecar
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 LIKE_ESCAPE_RE = re.compile(r"([\\%_])")
 PAGE_SIZE = 250  # default; overridden per-request from settings
+KEEP_BEST_LIMIT = 1000  # copies moved to the Review Bin by one "keep best" run
 PUBLISHABLE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".tif", ".tiff"}
 _PUBLISHABLE_SQL = "a.extension IN ('.jpg','.jpeg','.heic','.heif','.png','.webp','.tif','.tiff')"
 # Repair re-saves the picture as JPEG, so it stays limited to these.
@@ -565,6 +569,22 @@ def search_everything_scope(
     return items, total
 
 
+def rating_place_filters(min_rating: int, near_point) -> tuple[list[str], list[object]]:
+    """The minimum-rating and map-location clauses shared by the photo list and
+    the duplicate clean-up, so both always mean the same set of photos."""
+    clauses: list[str] = []
+    values: list[object] = []
+    if min_rating:
+        clauses.append("""EXISTS (
+                SELECT 1 FROM asset_ratings r WHERE r.relative_path=a.relative_path AND r.rating>=?
+            )""")
+        values.append(min_rating)
+    if near_point:
+        clauses.append("ROUND(a.gps_latitude,1)=? AND ROUND(a.gps_longitude,1)=?")
+        values.extend(near_point)
+    return clauses, values
+
+
 def split_tags(value: str) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -911,6 +931,7 @@ ACTION_LABELS = {
     "/api/ingest/run": "Run auto-import now",
     "/api/review-bin": "Move a photo to the Review Bin",
     "/api/review-bin/batch": "Move photos to the Review Bin",
+    "/api/duplicates/keep-best": "Keep the best copy of each duplicate set",
     "/api/review-bin/restore": "Restore from the Review Bin",
     "/api/review-bin/restore-batch": "Restore photos from the Review Bin",
     "/api/review-bin/delete": "Delete from the Review Bin",
@@ -2125,6 +2146,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.save_settings_api(body)
             if route == "/api/settings/remove-library":
                 return self.remove_library(body)
+            if route == "/api/duplicates/keep-best/preview":
+                return self.keep_best_preview(body)
+            if route == "/api/duplicates/keep-best":
+                return self.keep_best_apply(body)
             if route == "/api/ingest/save":
                 return self.save_ingest_config(body)
             if route == "/api/ingest/run":
@@ -2471,7 +2496,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Meaning</strong> &mdash; semantic search with natural language (requires meaning search)</li>
 <li><strong>Similar photos</strong> &mdash; photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Sets are shown like exact duplicates, with the largest file first. Matching compares the pattern of light and dark in each picture, so a colour and a black-and-white version of the same shot also match, and so can two plain pictures with the same layout. Look through each set before trashing anything; similar is not identical. Videos and RAW files are not compared. A library indexed by an earlier version is fingerprinted on its next scan, which takes a while the first time.</li>
 <li><strong>Needs tags</strong> &mdash; photos that have no tags yet, newest first. Text typed in the search field narrows the list by file or folder name. Folder-derived and hidden tags do not count as tags. The <strong>N need tags</strong> button in the header (for example &ldquo;11 need tags&rdquo;) opens the same list; it is hidden when every photo has tags.</li>
-<li><strong>Exact duplicates</strong> &mdash; photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, likely original first; a bar separates the sets and each photo is labelled with its place in its set, such as "1 of 2". Ctrl+click the extra copies and choose <strong>Trash selected</strong> to move them to the review bin. Also in the menu as <strong>Duplicate photos</strong>.</li>
+<li><strong>Exact duplicates</strong> &mdash; photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, likely original first; a bar separates the sets and each photo is labelled with its place in its set, such as "1 of 2". Ctrl+click the extra copies and choose <strong>Trash selected</strong> to move them to the review bin, or choose <strong>Keep best copies</strong> at the top of the page: it shows how many sets and how much space are involved, keeps the photo listed first in each set, and moves the other copies to the review bin, where each can be put back. Ratings, tags, subjects, notes and confirmed people on the other copies, and the tags their folders gave them, are copied onto the photo that stays. The sets are remembered between visits and only recalculated when the library changes. Also in the menu as <strong>Duplicate photos</strong>.</li>
 </ul>
 <h3>Sorting</h3>
 <ul>
@@ -3116,14 +3141,9 @@ class SearchHandler(BaseHTTPRequestHandler):
         """
         clauses = ["a.in_review_bin=0"]
         values: list[object] = []
-        if min_rating:
-            clauses.append("""EXISTS (
-                SELECT 1 FROM asset_ratings r WHERE r.relative_path=a.relative_path AND r.rating>=?
-            )""")
-            values.append(min_rating)
-        if near_point:
-            clauses.append("ROUND(a.gps_latitude,1)=? AND ROUND(a.gps_longitude,1)=?")
-            values.extend(near_point)
+        rating_clauses, rating_values = rating_place_filters(min_rating, near_point)
+        clauses.extend(rating_clauses)
+        values.extend(rating_values)
         if scope == "people" and person_id:
             clauses.append("""EXISTS (
                 SELECT 1 FROM asset_people ap
@@ -3202,7 +3222,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             # filmstrip so the extras can be selected and binned.
             finder = find_exact_duplicate_groups if scope == "duplicates" else find_similar_groups
             flat = []
-            for number, group in enumerate(finder(con, base_where, values, tokens), 1):
+            for number, group in enumerate(cached_groups(con, scope, finder, base_where, values, tokens), 1):
                 for position, item in enumerate(group, 1):
                     # The filmstrip draws a divider where "set" changes. The
                     # number runs over the whole list, not the page, so a set
@@ -3461,6 +3481,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'<a class="needs-tags" href="/?scope=untagged">{untagged_count:,} need{"s" if untagged_count == 1 else ""} tags</a>'
             if untagged_count and scope != "untagged" else ""
         )
+        keep_best_button = (
+            '<button type="button" class="secondary" id="keepBest" '
+            'title="Keep one photo of each set and move the identical copies to the Review Bin">Keep best copies</button>'
+            if scope == "duplicates" and items else ""
+        )
         stage_empty_text = (
             "Choose a photo from the filmstrip" if items else
             "No photo in this library is stored more than once" if scope == "duplicates" and not query else
@@ -3589,7 +3614,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             "page": page_number, "hasMore": has_more,
         })}>
 <a href="#stage" class="skip-nav">Skip to photos</a>
-<header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span>{needs_tags_link}<button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
+<header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="version">v{APP_VERSION}</span><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span>{needs_tags_link}{keep_best_button}<button type="button" class="theme-toggle" aria-label="Toggle theme"></button></div>
 <form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<label class="search-field">Search<input name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}"></label><button type="button" class="secondary filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="viewerToolbar">Filters</button><label class="scope-field">Search scope<button type="button" class="info-button" data-help="scopeHelp" aria-label="About search scopes">i</button><div class="help-popover" id="scopeHelp"><strong>Visible image tags</strong> — matches tags describing what's in the photo: subjects, objects, people, and text found by OCR.<br><br><strong>Day/event context</strong> — matches tags inferred from the folder name (e.g. "Birthday", "Vacation 2019") rather than image contents.<br><br><strong>People</strong> — browse and filter by recognized people.<br><br><strong>Meaning (optional)</strong> — uses a local AI vision model to match your description against what the photos actually look like. Requires a one-time model install from the Scan page. Try natural phrases like "sunset over water" or "dog playing in snow".<br><br><strong>Exact duplicates</strong> — photos stored more than once, byte for byte. Each set of copies sits together in the filmstrip, shortest file name first; Ctrl+click the extras and choose Trash selected to move them to the review bin.<br><br><strong>Similar photos</strong> — photos that look alike without being the same file: a resized, recompressed or lightly edited copy, or a burst of near-identical shots. Grouped like exact duplicates, largest file first. Check each set before trashing; similar is not identical.<br><br><strong>Everything</strong> — searches all of the above at once.</div><select name="scope" id="scopePicker" aria-label="Search scope">{scope_options}</select></label><button type="button" class="secondary" id="previousDay">◀ Day</button><div class="date-field"><span class="field-label">Date</span><button type="button" class="date-trigger" id="dateTrigger">{html.escape(selected_date, quote=True) if selected_date else 'Any date'}</button><input type="hidden" name="date" id="datePicker" value="{html.escape(selected_date, quote=True)}"><div class="date-popover" id="datePopover"><div class="date-popover-head"><button type="button" class="cal-nav" id="calPrevMonth" aria-label="Previous month">◀</button><select id="calMonth" aria-label="Month"></select><select id="calYear" aria-label="Year"></select><button type="button" class="cal-nav" id="calNextMonth" aria-label="Next month">▶</button></div><div class="date-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div><div class="date-days" id="calDays"></div><div class="date-popover-actions"><button type="button" class="secondary" id="calToday">Today</button><button type="button" class="secondary" id="calClear">Clear</button></div></div></div><button type="button" class="secondary" id="nextDay">Day ▶</button><label class="sort-field optional">Sort<select name="sort">{sort_options}</select></label><label class="rating-field optional">Rating<select name="rating" id="ratingFilter">{rating_options}</select></label><button>View</button></form></header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">
@@ -8007,6 +8032,108 @@ class SearchHandler(BaseHTTPRequestHandler):
             raise
         self.send_json({"ok": True, "review_id": review_id})
 
+    def _move_asset_to_review_bin(self, con, asset, moves):
+        """Move one catalogued file into the Review Bin and record it. Returns
+        the review id, or None when the file is missing or in a protected
+        folder. ``moves`` collects (source, destination) so a failure later in
+        a batch can put every file back."""
+        source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
+        if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
+            return None
+        review_root = review_bin_root().resolve()
+        destination = review_root / Path(asset["relative_path"])
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
+        destination.resolve().relative_to(review_root)
+        shutil.move(str(source), str(destination))
+        moves.append((source, destination))
+        review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
+            VALUES (?,?,?,?,?)""", (int(asset["id"]), str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
+        con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), int(asset["id"])))
+        return review_id
+
+    def _keep_best_plan(self, con, body):
+        """The sets the duplicates view currently shows, with a keeper chosen for each."""
+        params = {key: [str(body.get(key, "") or "")] for key in ("q", "date", "rating", "near")}
+        query, selected_date, _scope, _person, _sort, _page, near_point, min_rating = self.parse_photo_query(params)
+        clauses = ["a.in_review_bin=0"]
+        values: list[object] = []
+        rating_clauses, rating_values = rating_place_filters(min_rating, near_point)
+        clauses.extend(rating_clauses)
+        values.extend(rating_values)
+        if selected_date:
+            try:
+                dt.date.fromisoformat(selected_date)
+                clauses.append("a.capture_date=?")
+                values.append(selected_date)
+            except ValueError:
+                pass
+        groups = cached_groups(con, "duplicates", find_exact_duplicate_groups,
+                               " AND ".join(clauses), values, TOKEN_RE.findall(query))
+        return plan_keep_best(con, groups)
+
+    def keep_best_preview(self, body):
+        with self.db() as con:
+            plan = self._keep_best_plan(con, body)
+        extras = [extra for entry in plan for extra in entry["extras"]]
+        self.send_json({
+            "sets": len(plan),
+            "extras": len(extras),
+            "bytes": sum(extra["size_bytes"] for extra in extras),
+            "token": plan_token(plan),
+            "limit": KEEP_BEST_LIMIT,
+            "examples": plan[:12],
+        })
+
+    def keep_best_apply(self, body):
+        """Keep one copy of each set of identical photos, carry the user's tags,
+        rating and people from the others onto it, and move the others to the
+        Review Bin, where each can be restored."""
+        token = str(body.get("token", ""))
+        moves: list[tuple[Path, Path]] = []
+        action = Action("Keep the best copy of each duplicate set", "")
+        binned = 0
+        done_sets = 0
+        reclaimed = 0
+        merged_total = {"rating": 0, "subject": 0, "tags": 0, "people": 0, "text": 0}
+        review_ids: list[int] = []
+        try:
+            with self.db() as con:
+                plan = self._keep_best_plan(con, body)
+                if not token or token != plan_token(plan):
+                    raise ValueError("The duplicate sets changed since they were previewed. Preview them again.")
+                for entry in plan:
+                    if binned + len(entry["extras"]) > KEEP_BEST_LIMIT and binned:
+                        break
+                    extra_ids = [extra["id"] for extra in entry["extras"]]
+                    merged = merge_into_keeper(con, entry["keeper"]["id"], extra_ids)
+                    moved_here = 0
+                    for extra in entry["extras"]:
+                        asset = self.get_active_asset(con, extra["id"])
+                        review_id = self._move_asset_to_review_bin(con, asset, moves)
+                        if review_id is None:
+                            continue
+                        review_ids.append(review_id)
+                        moved_here += 1
+                        reclaimed += extra["size_bytes"]
+                    if moved_here == 0:
+                        continue
+                    binned += moved_here
+                    done_sets += 1
+                    for key, count in merged.items():
+                        merged_total[key] += count
+                    action.progress(f"{done_sets:,} sets done, {binned:,} copies moved")
+                remaining = max(0, sum(len(entry["extras"]) for entry in plan) - binned)
+        except Exception:
+            _undo_file_moves(moves)
+            raise
+        action.finish(f"{binned:,} copies from {done_sets:,} sets moved to the Review Bin")
+        self.send_json({
+            "ok": True, "sets": done_sets, "binned": binned, "bytes": reclaimed,
+            "merged": merged_total, "remaining": remaining, "review_ids": review_ids,
+        })
+
     def move_to_review_bin_batch(self, body):
         ids = body.get("ids", [])
         if not isinstance(ids, list) or not ids:
@@ -8021,20 +8148,9 @@ class SearchHandler(BaseHTTPRequestHandler):
                 for asset_id in ids:
                     asset_id = int(asset_id)
                     asset = self.get_active_asset(con, asset_id)
-                    source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
-                    if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
+                    review_id = self._move_asset_to_review_bin(con, asset, moves)
+                    if review_id is None:
                         continue
-                    review_root = review_bin_root().resolve()
-                    destination = review_root / Path(asset["relative_path"])
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    if destination.exists():
-                        destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
-                    destination.resolve().relative_to(review_root)
-                    shutil.move(str(source), str(destination))
-                    moves.append((source, destination))
-                    review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
-                        VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
-                    con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
                     review_ids.append(review_id)
                     action.note(f"moved out of the library: {asset['relative_path']}")
         except Exception:

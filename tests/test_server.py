@@ -279,6 +279,69 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn('<option value="similar" selected>Similar photos</option>', page)
         self.assertIn("Similar photos • 1–2 of 2", page)
 
+    def make_duplicate_set(self):
+        from photo_index import scan_library
+
+        copy = self.library / "2026-08-09 sample (copy).jpg"
+        copy.write_bytes(self.photo.read_bytes())
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        copy_id = int(con.execute("SELECT id FROM assets WHERE filename=?", (copy.name,)).fetchone()[0])
+        con.execute("INSERT INTO asset_ratings(relative_path, rating, updated_at) VALUES (?,5,'now')", (copy.name,))
+        con.commit()
+        con.close()
+        return copy, copy_id
+
+    def test_keep_best_previews_then_keeps_the_original_and_bins_the_copy(self):
+        copy, copy_id = self.make_duplicate_set()
+
+        preview = self.json_response(self.post("/api/duplicates/keep-best/preview", {}))
+        self.assertEqual((preview["sets"], preview["extras"]), (1, 1))
+        self.assertEqual(preview["bytes"], copy.stat().st_size)
+        self.assertEqual(preview["examples"][0]["keeper"]["id"], self.asset_id)
+
+        done = self.json_response(self.post("/api/duplicates/keep-best", {"token": preview["token"]}))
+
+        self.assertEqual((done["sets"], done["binned"], done["remaining"]), (1, 1, 0))
+        self.assertTrue(self.photo.is_file())
+        self.assertFalse(copy.exists())
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute("SELECT in_review_bin FROM assets WHERE id=?", (copy_id,)).fetchone()[0], 1)
+        self.assertEqual(con.execute(
+            "SELECT rating FROM asset_ratings WHERE relative_path=?", (self.photo.name,)).fetchone()[0], 5,
+            "the copy's rating moved onto the photo that was kept")
+        con.close()
+        self.assertEqual(
+            self.json_response(self.post("/api/duplicates/keep-best/preview", {}))["sets"], 0)
+
+        restored = self.json_response(self.post("/api/review-bin/restore-batch", {"review_ids": done["review_ids"]}))
+        self.assertEqual(restored["restored"], 1)
+        self.assertTrue(copy.is_file())
+
+    def test_keep_best_refuses_when_the_sets_changed_since_the_preview(self):
+        copy, _copy_id = self.make_duplicate_set()
+        preview = self.json_response(self.post("/api/duplicates/keep-best/preview", {}))
+
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/duplicates/keep-best", {"token": preview["token"] + "x"})
+        caught.exception.close()
+
+        self.assertTrue(copy.is_file() and self.photo.is_file(), "nothing is moved on a stale preview")
+
+    def test_keep_best_does_not_touch_photos_that_are_not_duplicates(self):
+        preview = self.json_response(self.post("/api/duplicates/keep-best/preview", {}))
+        self.assertEqual((preview["sets"], preview["extras"]), (0, 0))
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/duplicates/keep-best", {})
+        caught.exception.close()
+        self.assertTrue(self.photo.is_file())
+
+    def test_the_duplicates_view_offers_to_keep_the_best_copy_of_each_set(self):
+        self.make_duplicate_set()
+        page = self.get("/?scope=duplicates").read().decode("utf-8")
+        self.assertIn('id="keepBest"', page)
+        self.assertNotIn('id="keepBest"', self.get("/").read().decode("utf-8"))
+
     def bin_two_photos(self):
         from photo_index import scan_library
 

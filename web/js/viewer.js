@@ -628,3 +628,32 @@ checkServerVersion();setInterval(checkServerVersion,30000);
     refresh();
   });
 })();
+
+async function keepBestCopies(){
+  const q=LL.query||{};
+  const filters={q:q.q||'',date:q.date||'',rating:q.rating?String(q.rating):'',near:q.near||''};
+  let preview;
+  try{preview=await api('/api/duplicates/keep-best/preview',filters)}
+  catch(e){await askNotice('Could not check the duplicate sets',[e.message]);return}
+  if(!preview||!preview.sets){await askNotice('Nothing to clean up',['No set of identical photos is left in this view.']);return}
+  const megabytes=preview.bytes/1048576;
+  const size=megabytes>=1024?(megabytes/1024).toFixed(1)+' GB':megabytes>=1?megabytes.toFixed(megabytes<10?1:0)+' MB':Math.max(1,Math.round(preview.bytes/1024))+' KB';
+  const lines=[
+    preview.sets+' set'+(preview.sets===1?'':'s')+' of identical photos. In each, the photo listed first stays.',
+    'The other '+preview.extras+' go to the Review Bin ('+size+' to free), and each can be put back from the menu under Trash & restore.',
+    'Ratings, tags, subjects, notes and confirmed people on the others are copied onto the photo that stays.'
+  ];
+  if(preview.extras>preview.limit)lines.push('This run moves the first '+preview.limit+' copies. Run it again for the rest.');
+  (preview.examples||[]).slice(0,3).forEach(function(entry){lines.push('Keeps '+entry.keeper.filename+' ('+entry.keeper.folder+') and moves '+entry.extras.length+' other cop'+(entry.extras.length===1?'y':'ies')+'.')});
+  if(!await askConfirm('Keep one copy of each set?',lines,'Keep best copies',false))return;
+  setStatus('Moving copies to the Review Bin…');
+  try{
+    const done=await api('/api/duplicates/keep-best',{...filters,token:preview.token});
+    setStatus('');
+    const summary=[done.binned+' cop'+(done.binned===1?'y':'ies')+' from '+done.sets+' set'+(done.sets===1?'':'s')+' moved to the Review Bin.'];
+    if(done.remaining)summary.push(done.remaining+' more remain. Run it again to continue.');
+    await askNotice('Duplicates cleaned up',summary);
+    location.reload();
+  }catch(e){setStatus('');await askNotice('Could not clean up the duplicates',[e.message])}
+}
+$('keepBest')?.addEventListener('click',keepBestCopies);

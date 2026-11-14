@@ -46,7 +46,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 # An opening tag is matched on its own and its closing tag is looked for after
@@ -210,6 +210,16 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
 -- Deleting an asset cascades into these tables; without an index on
 -- asset_id every deleted photo scans the whole table.
 CREATE INDEX IF NOT EXISTS idx_face_embeddings_asset ON face_embeddings(asset_id);
+
+-- The full-file hash of photos that share a quick fingerprint, kept with the
+-- size and modification time it was computed for, so exact-duplicate checks
+-- never read a photo twice.
+CREATE TABLE IF NOT EXISTS asset_full_hashes (
+    asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+    size_bytes INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    sha256 TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_metadata_publications_asset ON metadata_publications(asset_id);
 
 CREATE TABLE IF NOT EXISTS people (
