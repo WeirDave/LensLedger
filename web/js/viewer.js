@@ -666,6 +666,7 @@ $('keepBest')?.addEventListener('click',keepBestCopies);
     });
   }
   if(!form)return;
+  ['kind','shape','gps'].forEach(function(name){const el=form&&form.elements[name];if(el)el.addEventListener('change',function(){form.requestSubmit()})});
   const optional=['from','to','kind','shape','gps','camera','folder'];
   form.addEventListener('submit',function(){
     optional.forEach(function(name){

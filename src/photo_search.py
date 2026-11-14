@@ -3826,7 +3826,10 @@ class SearchHandler(BaseHTTPRequestHandler):
             + choice("gps", "Location", LOCATIONS, filters.gps)
             + f'<label>Camera<input name="camera" value="{html.escape(filters.camera, quote=True)}" placeholder="Make or model"></label>'
             f'<label>Folder contains<input name="folder" value="{html.escape(filters.folder, quote=True)}" placeholder="Part of a folder name"></label>'
-            "</div>"
+            + '<div class="filter-actions"><button type="submit" class="filter-apply">Apply filters</button>'
+            + (f'<a class="button secondary" href="{html.escape(url_without("date", "rating", "from", "to", "people", "kind", "shape", "gps", "camera", "folder"), quote=True)}">Clear filters</a>'
+               if filter_chips else "")
+            + "</div></div>"
         )
         more_filters_label = f"Filters ({len(filter_chips)})" if filter_chips else "Filters"
         filter_controls_html = (

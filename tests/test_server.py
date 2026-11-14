@@ -333,8 +333,12 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIn('class="filter-chip" href="/?scope=all&amp;folder=Trip&amp;rating=0"', page)
         self.assertIn('class="filter-chip" href="/?scope=all&amp;kind=video&amp;rating=0"', page)
         self.assertIn('id="saveCollection"', page)
+        self.assertIn('class="filter-apply">Apply filters</button>', page)
+        self.assertIn('href="/?scope=all">Clear filters</a>', page)
         plain = self.get("/").read().decode("utf-8")
         self.assertIn('id="filterPanel" hidden>', plain)
+        self.assertIn('class="filter-apply">Apply filters</button>', plain)
+        self.assertNotIn(">Clear filters</a>", plain, "nothing to clear when no filter is active")
         self.assertNotIn('class="filter-chips"', plain)
 
     def test_meaning_search_respects_the_other_filters(self):

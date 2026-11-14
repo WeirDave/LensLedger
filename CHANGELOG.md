@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.41.1 — 2026-11-14
+
+- The **Filters** panel now has an **Apply filters** button, and a **Clear filters** button while any filter is active. **Type**, **Shape** and **Location** apply as soon as they are chosen; the other fields apply with **Apply filters** or Enter.
+
 ## 1.41.0 — 2026-11-14
 
 - **Search results now fill the screen as a grid of photos.** A search, filter, date, rating or special view shows large thumbnails of every match; choose one to open it in the viewing screen, and use **Back to results** or **Esc** to return to the grid at the same place. The home page opens as a grid of the newest photos.
