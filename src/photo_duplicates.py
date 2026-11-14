@@ -100,3 +100,34 @@ def find_exact_duplicate_groups(
             ])
     groups.sort(key=lambda group: (group[0]["folder"], group[0]["filename"]))
     return groups
+
+
+def library_has_identical_file(con: sqlite3.Connection, path: Path) -> bool:
+    """True when a byte-identical copy of ``path`` is already catalogued.
+
+    The stored fingerprint narrows the field by size and the first 8 KB, and a
+    full-file hash decides, so a lookalike is never mistaken for a copy.
+    """
+    from photo_index import content_hash
+
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False
+    fingerprint = content_hash(path)
+    if not fingerprint:
+        return False
+    rows = con.execute(
+        """SELECT path, size_bytes, mtime_ns FROM assets
+           WHERE content_hash=? AND size_bytes=? AND in_review_bin=0""",
+        (fingerprint, size),
+    ).fetchall()
+    if not rows:
+        return False
+    mine = _full_hash(str(path), size, path.stat().st_mtime_ns)
+    if not mine:
+        return False
+    for row in rows:
+        if Path(row["path"]).is_file() and _full_hash(row["path"], int(row["size_bytes"]), int(row["mtime_ns"])) == mine:
+            return True
+    return False

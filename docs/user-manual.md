@@ -332,7 +332,7 @@ You can add rules that route specific files to different destinations based on f
 - **Run now** — trigger an immediate pipeline run
 - **Activity log** — shows every file processed, with duplicates and errors
 
-Duplicate files are detected by content hash and skipped automatically.
+A photo or video that is already in your library, byte for byte, is not moved. It stays in the source folder and the activity log shows it once as a skipped duplicate. The date used for the destination folder is the photo's capture time; for a video or camera RAW file it is the date stored inside the file, and the file's modified time is used only when no date can be found. After a file is first seen, LensLedger waits a few seconds once for the whole batch to confirm that uploads have finished.
 
 Whenever auto-import moves new photos into your library — on its timer or from **Run now**, and whether or not folder watching is switched on — LensLedger scans them a few seconds later: photo locations first, then text recognition, meaning search and face detection where they are installed. If another scan is already running at that moment, the new photos are picked up on the next scheduled check instead.
 

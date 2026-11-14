@@ -17,6 +17,7 @@ import datetime as dt
 import json
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -24,7 +25,9 @@ from console_log import log as console_log
 from app_paths import data_root
 from photo_index import (
     MEDIA_EXTENSIONS,
+    capture_date_for,
     is_cloud_placeholder,
+    media_type,
 )
 
 
@@ -35,17 +38,26 @@ STABILITY_SECONDS = 5
 
 
 def _capture_date(path: Path) -> dt.datetime | None:
-    """Extract capture date from EXIF or fall back to file modification time."""
+    """When the file was taken: the photo's own EXIF time first, then the date
+    the library scan would give it (a video's or RAW file's header, or a date in
+    the file name), and only then the file's modification time."""
+    if media_type(path) == "image":
+        try:
+            from PIL import Image, ExifTags
+            with Image.open(path) as img:
+                exif = img.getexif()
+                for tag_id, value in exif.items():
+                    tag = ExifTags.TAGS.get(tag_id, "")
+                    if tag in ("DateTimeOriginal", "DateTime", "DateTimeDigitized"):
+                        return dt.datetime.strptime(str(value), "%Y:%m:%d %H:%M:%S")
+        except Exception:
+            pass  # EXIF extraction is best-effort; fall through
     try:
-        from PIL import Image, ExifTags
-        with Image.open(path) as img:
-            exif = img.getexif()
-            for tag_id, value in exif.items():
-                tag = ExifTags.TAGS.get(tag_id, "")
-                if tag in ("DateTimeOriginal", "DateTime", "DateTimeDigitized"):
-                    return dt.datetime.strptime(str(value), "%Y:%m:%d %H:%M:%S")
+        day = capture_date_for(path)
+        if day:
+            return dt.datetime.combine(dt.date.fromisoformat(day), dt.time.min)
     except Exception:
-        pass  # EXIF extraction is best-effort; fall through to mtime
+        pass  # header reading is best-effort; fall through to mtime
     try:
         return dt.datetime.fromtimestamp(path.stat().st_mtime)
     except OSError:
@@ -93,18 +105,28 @@ def _log_action(action: dict) -> None:
         f.write(json.dumps(action) + "\n")
 
 
-def _is_stable(path: Path) -> bool:
-    """Check if a file's size hasn't changed, indicating upload is complete."""
-    try:
-        size1 = path.stat().st_size
-        if size1 == 0:
-            return False
-        import time
+def _settled(paths: list[Path]) -> list[Path]:
+    """The files whose size did not change over one shared wait, meaning their
+    upload has finished. One wait covers the whole batch rather than one per
+    file."""
+    first: dict[Path, int] = {}
+    for path in paths:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size:
+            first[path] = size
+    if first and STABILITY_SECONDS:
         time.sleep(STABILITY_SECONDS)
-        size2 = path.stat().st_size
-        return size1 == size2
-    except OSError:
-        return False
+    settled = []
+    for path, size in first.items():
+        try:
+            if path.stat().st_size == size:
+                settled.append(path)
+        except OSError:
+            continue
+    return settled
 
 
 class IngestPipeline:
@@ -119,6 +141,7 @@ class IngestPipeline:
         interval_minutes: int = 10,
         on_file_ingested: Callable[[str, str], None] | None = None,
         on_batch_complete: Callable[[int], None] | None = None,
+        is_already_in_library: Callable[[Path], bool] | None = None,
     ):
         self._source = Path(source_folder) if source_folder else None
         self._destination = Path(destination_folder) if destination_folder else None
@@ -127,10 +150,12 @@ class IngestPipeline:
         self._interval = max(5, interval_minutes) * 60
         self._on_file_ingested = on_file_ingested
         self._on_batch_complete = on_batch_complete
+        self._is_already_in_library = is_already_in_library
+        self._reported_known: set[tuple[str, int]] = set()
         self._timer: threading.Timer | None = None
         self._running = False
         self._lock = threading.Lock()
-        self._stats: dict[str, int] = {"imported": 0, "errors": 0}
+        self._stats: dict[str, int] = {"imported": 0, "errors": 0, "already_in_library": 0}
 
     @property
     def running(self) -> bool:
@@ -228,6 +253,32 @@ class IngestPipeline:
                     return existing
         return dest_dir
 
+    def _is_known(self, path: Path) -> bool:
+        """True when a byte-identical copy is already in the library. The file
+        is left where it is and reported once, not on every pass."""
+        if not self._is_already_in_library:
+            return False
+        try:
+            known = self._is_already_in_library(path)
+        except Exception:
+            return False
+        if not known:
+            return False
+        self._stats["already_in_library"] += 1
+        try:
+            key = (str(path), path.stat().st_mtime_ns)
+        except OSError:
+            return True
+        if key not in self._reported_known:
+            self._reported_known.add(key)
+            console_log(f"Auto-import: already in the library, left in place — {path.name}")
+            _log_action({
+                "action": "skip_duplicate",
+                "source": str(path),
+                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            })
+        return True
+
     def _process_source(self) -> None:
         if not self._source or not self._source.is_dir():
             return
@@ -263,9 +314,13 @@ class IngestPipeline:
 
         console_log(f"Auto-import: found {len(candidates)} photos to check")
 
+        settled = _settled(candidates)
+        settled_set = set(settled)
         for path in candidates:
-            if not _is_stable(path):
+            if path not in settled_set:
                 console_log(f"Auto-import: skipped {path.name} (still uploading)")
+        for path in settled:
+            if self._is_known(path):
                 continue
 
             capture = _capture_date(path)

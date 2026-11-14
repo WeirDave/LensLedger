@@ -81,3 +81,45 @@ class ExactDuplicateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LibraryLookupTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.library = self.root / "photos"
+        self.library.mkdir()
+        self.database = self.root / "library.sqlite3"
+        self.original = self.library / "IMG_0001.jpg"
+        Image.new("RGB", (40, 30), (10, 20, 30)).save(self.original, quality=90)
+
+    def lookup(self, candidate):
+        from photo_duplicates import library_has_identical_file
+        from photo_index import connect, scan_library
+
+        scan_library(self.library, self.database)
+        con = connect(self.database)
+        try:
+            return library_has_identical_file(con, candidate)
+        finally:
+            con.close()
+
+    def test_a_byte_identical_file_elsewhere_is_recognised(self):
+        incoming = self.root / "incoming.jpg"
+        incoming.write_bytes(self.original.read_bytes())
+        self.assertTrue(self.lookup(incoming))
+
+    def test_a_different_picture_is_not(self):
+        incoming = self.root / "incoming.jpg"
+        Image.new("RGB", (40, 30), (200, 20, 30)).save(incoming, quality=90)
+        self.assertFalse(self.lookup(incoming))
+
+    def test_a_file_with_the_same_head_and_size_but_other_contents_is_not(self):
+        from photo_index import CONTENT_HASH_BLOCK
+
+        head = b"\xff\xd8" + b"\x00" * (CONTENT_HASH_BLOCK + 100)
+        (self.library / "a.jpg").write_bytes(head + b"tail-one")
+        incoming = self.root / "b.jpg"
+        incoming.write_bytes(head + b"tail-two")
+        self.assertFalse(self.lookup(incoming))

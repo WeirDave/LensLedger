@@ -45,7 +45,7 @@ from face_learning import (
 from face_math import EmbeddingSet, modal_dimension, numpy_available, ranked_groups
 from publish_failures import REPAIRABLE_SUFFIXES, explain_failure
 from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
-from photo_duplicates import find_exact_duplicate_groups
+from photo_duplicates import find_exact_duplicate_groups, library_has_identical_file
 from photo_similar import find_similar_groups
 from person_duplicates import dismiss_pair as dismiss_duplicate_pair, find_possible_duplicates
 from face_scan import list_errors as face_scan_list_errors, scan_for_faces, status as face_scan_status
@@ -2613,6 +2613,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Activity log</strong> &mdash; shows every file processed</li>
 </ul>
 <p>If a file with the same name already exists at the destination, a numeric suffix is added automatically.</p>
+<p>A photo or video that is already in your library, byte for byte, is not moved. It stays in the source folder and the activity log shows it once as a skipped duplicate. The date used for the destination folder is the photo&rsquo;s capture time; for a video or camera RAW file it is the date stored inside the file, and the file&rsquo;s modified time is used only when no date can be found. After a file is first seen, LensLedger waits a few seconds once for the whole batch to confirm that uploads have finished.</p>
 <p>Whenever auto-import moves new photos into your library &mdash; on its timer or from <strong>Run now</strong>, and whether or not folder watching is switched on &mdash; LensLedger scans them a few seconds later: photo locations first, then text recognition, meaning search and face detection where they are installed. If another scan is already running at that moment, the new photos are picked up on the next scheduled check instead.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
@@ -8515,6 +8516,14 @@ def main():
     def _after_import(count):
         console_log(f"Auto-import: triggering scan for {count} new file(s)")
         watcher.scan_soon(delay=5)
+    def _already_in_library(path):
+        if not SearchHandler.library_is_chosen():
+            return False
+        try:
+            with connect(SearchHandler.db_path) as con:
+                return library_has_identical_file(con, path)
+        except (sqlite3.Error, OSError):
+            return False
     pipeline = IngestPipeline(
         source_folder=str(ingest_cfg.get("source_folder", "")),
         destination_folder=str(ingest_cfg.get("destination_folder", "")),
@@ -8522,6 +8531,7 @@ def main():
         default_template=str(ingest_cfg.get("default_template", "")),
         interval_minutes=int(ingest_cfg["interval_minutes"]),
         on_batch_complete=_after_import,
+        is_already_in_library=_already_in_library,
     )
     SearchHandler.ingest_pipeline = pipeline
     if ingest_cfg.get("enabled"):

@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.36.0 — 2026-11-14
+
+- **Auto-import** no longer moves a photo or video that is already in the library, byte for byte. The file stays in the source folder and the activity log lists it once as a skipped duplicate. The run summary counts these files separately.
+- **Auto-import** files videos and camera RAW files under the date stored inside the file, as the library scan does, instead of the file's modified time. The modified time is used only when no date can be found.
+- **Auto-import** waits once for a whole batch to finish uploading, instead of five seconds per file. A batch of 100 new files no longer waits more than eight minutes before the first one is moved.
+- The manual describes duplicate skipping, the date used for sorting and the upload wait.
+
 ## 1.35.0 — 2026-11-14
 
 - **Start LensLedger.cmd** and **Install LensLedger.cmd** run LensLedger on the newest Python installed on the computer, instead of whichever Python comes first on the PATH. A pre-release Python is never chosen.
