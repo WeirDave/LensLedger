@@ -325,6 +325,15 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertNotIn('id="addPerson"', viewer_page)
         self.assertNotIn('id="peopleOptions"', viewer_page)
 
+        # The side panel explains itself in plain lines, not behind "i" buttons,
+        # and has one field for adding tags.
+        sidebar = viewer_page[viewer_page.index('id="sidebar"'):viewer_page.index('class="publish-bar"')]
+        self.assertNotIn("info-button", sidebar)
+        self.assertNotIn("help-popover", sidebar)
+        self.assertGreaterEqual(sidebar.count('class="section-hint"'), 6)
+        self.assertIn('id="tagScope"', sidebar)
+        self.assertIn('id="newTag"', sidebar)
+        self.assertNotIn('id="newContextTag"', sidebar)
         with self.get("/people") as response:
             faces_page = response.read().decode("utf-8")
         self.assertIn("js/person-picker.js", faces_page)

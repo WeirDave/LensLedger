@@ -212,7 +212,7 @@ A short phrase describing the main thing in the photo (e.g. "Golden Gate Bridge 
 
 ### Photo tags
 
-Comma-separated searchable tags for other visible things in the photo (e.g. "bridge, fog, bay, cars"). Stored as IPTC/XMP Keywords when published.
+Comma-separated searchable tags for other visible things in the photo (e.g. "bridge, fog, bay, cars"). Type them in the **Add tags** box and choose **This photo** in the **Add to** menu below it. Stored as IPTC/XMP Keywords when published.
 
 ### People in this photo
 
@@ -224,7 +224,7 @@ Shows confirmed people and face-recognition suggestions. You can:
 
 ### Event / folder tags
 
-Reusable tags applied to every photo in the same folder (e.g. "Christmas 2025", "Beach vacation"). Useful for providing shared context.
+Reusable tags applied to every photo in the same folder (e.g. "Christmas 2025", "Beach vacation"). To add one, type it in the **Add tags** box and choose **Every photo in this folder** in the **Add to** menu; the menu returns to **This photo** afterward. Useful for providing shared context.
 
 ### Capture details
 

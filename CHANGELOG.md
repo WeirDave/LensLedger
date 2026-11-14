@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.33.0 — 2026-11-13
+
+- The photo viewer's side panel has one **Add tags** box under **Photo tags**. The **Add to** menu below it chooses **This photo** or **Every photo in this folder**, which replaces the separate box that was under **Event / folder tags**. The menu returns to **This photo** after each add, so folder-wide additions are always deliberate.
+- The seven "i" help buttons in the side panel are gone. Each section shows its explanation as a short line under its heading, and the lines fold away with the section.
+- The manual describes the new **Add tags** box.
+
 ## 1.32.5 — 2026-11-13
 
 - **Publish all** on the Publish photos page follows the sidecar choices in Settings under Metadata publishing. A file type set to a sidecar file gets an `.xmp` file with its confirmed names and the photo itself is not changed. A file type set to embed and sidecar is written into the photo and its sidecar. A file type set to neither is listed as not written, with the reason, and its names stay unpublished.

@@ -108,3 +108,21 @@ class TrashDoesNotDependOnBrowserDialogs(unittest.TestCase):
         source = script("confirm-dialog.js")
         self.assertIn("showModal()", source)
         self.assertNotRegex(source, r"(?<![\w.])(confirm|alert|prompt)\(")
+
+
+class SidePanelTagEntry(unittest.TestCase):
+    def test_one_field_adds_tags_to_the_photo_or_its_folder(self):
+        source = script("viewer.js")
+        self.assertIn("/api/tag/add", source)
+        self.assertIn("/api/folder-tag/add", source)
+        self.assertNotIn("newContextTag", source)
+        self.assertNotIn("addContextTag", source)
+        start = source.index("async function addTag")
+        body = source[start:source.index("\n", start)]
+        self.assertIn("tagScope", body)
+
+    def test_adding_to_the_folder_is_never_the_remembered_choice(self):
+        source = script("viewer.js")
+        start = source.index("async function addTag")
+        body = source[start:source.index("\n", start)]
+        self.assertIn("$('tagScope').value='photo'", body)

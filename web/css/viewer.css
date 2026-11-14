@@ -93,3 +93,6 @@ form.toolbar input,form.toolbar select,.date-trigger,.sidebar input,.sidebar tex
 .needs-tags:hover{border-color:var(--accent);background:var(--menu-hover)}
 @media(max-width:768px){.needs-tags{margin-left:auto;margin-right:2px}}
 @media(pointer:coarse),(max-width:768px){.needs-tags{min-height:44px;padding:0 14px}}
+.section-hint{margin:0 0 8px;color:var(--text-secondary);font-size:12px;line-height:1.45}
+.tag-scope{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--text-secondary);font-size:12px}.tag-scope select{flex:1;min-width:0}
+@media(pointer:coarse),(max-width:768px){.tag-scope select{min-height:44px}}
