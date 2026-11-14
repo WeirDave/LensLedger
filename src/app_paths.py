@@ -48,6 +48,10 @@ def face_data_root() -> Path:
     return data_root() / "Face Data"
 
 
+def thumbnail_cache_root() -> Path:
+    return data_root() / "Thumbnails"
+
+
 def database_backup_root() -> Path:
     return data_root() / "Database Backups"
 

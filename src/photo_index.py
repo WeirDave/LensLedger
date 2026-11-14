@@ -49,21 +49,28 @@ IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
 SCHEMA_VERSION = 25
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
-XMP_SUBJECT_RE = re.compile(
-    rb"<dc:subject\b[^>]*(?<!/)>.*?</dc:subject>", re.IGNORECASE | re.DOTALL
-)
-XMP_LAST_KEYWORD_RE = re.compile(
-    rb"<([\w.-]+):LastKeywordXMP\b[^>]*(?<!/)>.*?</\1:LastKeywordXMP>", re.IGNORECASE | re.DOTALL
-)
-XMP_PERSON_RE = re.compile(
-    rb"<([\w.-]+):PersonInImage\b[^>]*(?<!/)>.*?</\1:PersonInImage>", re.IGNORECASE | re.DOTALL
-)
+# An opening tag is matched on its own and its closing tag is looked for after
+# it. Matching both in one lazy pattern rescans to the end of the data for every
+# opening tag that never closes, which a damaged or crafted file turns into a
+# scan that takes minutes. [^<>] keeps each opening tag from running on past
+# the next tag, so the whole search stays linear.
+XMP_SUBJECT_OPEN_RE = re.compile(rb"<dc:subject\b[^<>]{0,1024}(?<!/)>", re.IGNORECASE)
+XMP_LAST_KEYWORD_OPEN_RE = re.compile(rb"<([\w.-]+):LastKeywordXMP\b[^<>]{0,1024}(?<!/)>", re.IGNORECASE)
+XMP_PERSON_OPEN_RE = re.compile(rb"<([\w.-]+):PersonInImage\b[^<>]{0,1024}(?<!/)>", re.IGNORECASE)
+XMP_SUBJECT_CLOSE = rb"</dc:subject>"
+XMP_LAST_KEYWORD_CLOSE = rb"</%s:LastKeywordXMP>"
+XMP_PERSON_CLOSE = rb"</%s:PersonInImage>"
+XMP_PACKET_START = b"<x:xmpmeta"
+XMP_PACKET_END = b"</x:xmpmeta>"
+XMP_PACKET_LIMIT = 16 * 1024 * 1024
+XMP_READ_CHUNK = 1024 * 1024
 EMBEDDED_TAG_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".tif", ".tiff"}
 # Raised whenever extract_embedded_tags learns to read another field, so the
 # next scan re-reads unchanged files once instead of trusting what an older
 # reader stored for them. 4: the star rating.
 EMBEDDED_TAGS_VERSION = 4
-RDF_ITEM_RE = re.compile(rb"<rdf:li\b[^>]*>(.*?)</rdf:li>", re.IGNORECASE | re.DOTALL)
+RDF_ITEM_OPEN_RE = re.compile(rb"<rdf:li\b[^<>]{0,1024}>", re.IGNORECASE)
+RDF_ITEM_CLOSE_RE = re.compile(rb"</rdf:li>", re.IGNORECASE)
 DATE_RE = re.compile(r"(?P<year>19\d{2}|20\d{2})[-_](?P<month>\d{2})[-_](?P<day>\d{2})")
 # Phones and cameras name files IMG_20240101_123456, PXL_20240101_..., or
 # 20240101_123456. The digit guards stop it matching inside a longer number.
@@ -711,12 +718,76 @@ def _unique(values) -> list[str]:
     return result
 
 
-def _xmp_items(pattern: re.Pattern, data: bytes) -> list[str]:
-    block = pattern.search(data)
+def _xmp_block(opening: re.Pattern, closing: bytes, data: bytes) -> bytes:
+    """The first element that opens and later closes, or b"" for none.
+
+    `closing` may hold one %s for the namespace prefix the opening tag matched.
+    A prefix whose closing tag is missing after one opening tag is missing after
+    every later one too, so it is not searched for again.
+    """
+    unclosed: set[bytes] = set()
+    for start in opening.finditer(data):
+        prefix = start.group(1).lower() if opening.groups else b""
+        if prefix in unclosed:
+            continue
+        close = re.compile(closing % re.escape(start.group(1)) if opening.groups else closing,
+                           re.IGNORECASE).search(data, start.end())
+        if close:
+            return data[start.start():close.end()]
+        unclosed.add(prefix)
+    return b""
+
+
+def _rdf_items(block: bytes) -> list[bytes]:
+    items: list[bytes] = []
+    position = 0
+    while True:
+        start = RDF_ITEM_OPEN_RE.search(block, position)
+        if not start:
+            break
+        close = RDF_ITEM_CLOSE_RE.search(block, start.end())
+        if not close:
+            break
+        items.append(block[start.end():close.start()])
+        position = close.end()
+    return items
+
+
+def _xmp_items(opening: re.Pattern, closing: bytes, data: bytes) -> list[str]:
+    block = _xmp_block(opening, closing, data)
     if not block:
         return []
-    return [html.unescape(item.decode("utf-8", errors="replace"))
-            for item in RDF_ITEM_RE.findall(block.group(0))]
+    return [html.unescape(item.decode("utf-8", errors="replace")) for item in _rdf_items(block)]
+
+
+def _read_xmp_packet(stream) -> bytes:
+    """The <x:xmpmeta> packet of a file that can keep it anywhere, or b"".
+
+    Read in chunks so a large TIFF or HEIC is never held in memory whole, and
+    given up on when the packet runs past XMP_PACKET_LIMIT.
+    """
+    carry = b""
+    packet: bytearray | None = None
+    searched = 0
+    while True:
+        chunk = stream.read(XMP_READ_CHUNK)
+        if not chunk:
+            return b""
+        if packet is None:
+            window = carry + chunk
+            found = window.find(XMP_PACKET_START)
+            if found < 0:
+                carry = window[-(len(XMP_PACKET_START) - 1):]
+                continue
+            packet = bytearray(window[found:])
+        else:
+            packet += chunk
+        end = packet.find(XMP_PACKET_END, searched)
+        if end >= 0:
+            return bytes(packet[:end + len(XMP_PACKET_END)])
+        searched = max(0, len(packet) - len(XMP_PACKET_END) + 1)
+        if len(packet) > XMP_PACKET_LIMIT:
+            return b""
 
 
 def _iim_keywords(iim: bytes) -> list[str]:
@@ -805,16 +876,13 @@ def extract_embedded_tags(path: Path) -> tuple[list[str], list[str]]:
             else:
                 # HEIC, PNG, WebP and TIFF keep XMP in a block that can sit anywhere,
                 # and exiftool appends rewritten metadata at the end.
-                data = stream.read()
-                start = data.find(b"<x:xmpmeta")
-                end = data.find(b"</x:xmpmeta>", start) if start >= 0 else -1
-                data = data[start:end + 12] if end >= 0 else b""
+                data = _read_xmp_packet(stream)
                 iptc = []
     except OSError:
         return [], []
-    keywords = _unique([*_xmp_items(XMP_SUBJECT_RE, data), *iptc,
-                        *_xmp_items(XMP_LAST_KEYWORD_RE, data)])
-    return keywords, _unique(_xmp_items(XMP_PERSON_RE, data))
+    keywords = _unique([*_xmp_items(XMP_SUBJECT_OPEN_RE, XMP_SUBJECT_CLOSE, data), *iptc,
+                        *_xmp_items(XMP_LAST_KEYWORD_OPEN_RE, XMP_LAST_KEYWORD_CLOSE, data)])
+    return keywords, _unique(_xmp_items(XMP_PERSON_OPEN_RE, XMP_PERSON_CLOSE, data))
 
 
 XMP_NAMESPACE_PREFIX_RE = re.compile(
@@ -833,7 +901,7 @@ def parse_xmp_rating(data: bytes) -> int:
     for prefix in sorted({match.group(1) for match in XMP_NAMESPACE_PREFIX_RE.finditer(data)}):
         name = re.escape(prefix)
         found = (re.search(rb"(?<![\w.:-])" + name + rb":Rating\s*=\s*[\"']([^\"']*)[\"']", data)
-                 or re.search(rb"<" + name + rb":Rating\b[^>]*>\s*([^<]*?)\s*</" + name + rb":Rating>", data))
+                 or re.search(rb"<" + name + rb":Rating\b[^<>]*>\s*([^<]*?)\s*</" + name + rb":Rating>", data))
         if not found:
             continue
         try:
@@ -857,10 +925,7 @@ def extract_embedded_rating(path: Path) -> int | None:
                 if not data.startswith(b"\xff\xd8"):
                     return None
             else:
-                data = stream.read()
-                start = data.find(b"<x:xmpmeta")
-                end = data.find(b"</x:xmpmeta>", start) if start >= 0 else -1
-                data = data[start:end + 12] if end >= 0 else b""
+                data = _read_xmp_packet(stream)
     except OSError:
         return None
     return parse_xmp_rating(data)

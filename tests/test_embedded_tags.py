@@ -3,11 +3,13 @@ from __future__ import annotations
 import io
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from PIL import Image
 
+import photo_index
 from photo_index import EMBEDDED_TAGS_VERSION, extract_embedded_tags, scan_library
 
 
@@ -141,6 +143,64 @@ class TestEmbeddedTagBackfill(unittest.TestCase):
         finally:
             con.close()
         self.assertEqual(self.photo.read_bytes(), before)
+
+
+class TestEmbeddedTagReaderStaysFast(unittest.TestCase):
+    """A damaged or crafted file must not make the reader's time grow with the
+    square of its size, and a large file must not be held in memory whole."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_thousands_of_unclosed_tags_are_read_in_linear_time(self):
+        hostile = (b"<x:xmpmeta>" + b"<dc:subject>" * 60_000
+                   + b"<Iptc4xmpExt:PersonInImage>" * 20_000
+                   + b"<MicrosoftPhoto:LastKeywordXMP>" * 20_000
+                   + b"<rdf:li>" * 60_000 + b"</x:xmpmeta>")
+        photo = self.root / "hostile.png"
+        photo.write_bytes(hostile)
+        started = time.monotonic()
+        keywords, people = extract_embedded_tags(photo)
+        self.assertEqual((keywords, people), ([], []))
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_an_unclosed_tag_before_a_good_one_does_not_hide_it(self):
+        data = (b"<x:xmpmeta><dc:subject><dc:subject><rdf:Bag><rdf:li>"
+                b"Harbour</rdf:li></rdf:Bag></dc:subject></x:xmpmeta>")
+        photo = self.root / "damaged.webp"
+        photo.write_bytes(b"RIFF" + data)
+        self.assertEqual(extract_embedded_tags(photo)[0], ["Harbour"])
+
+    def test_a_prefix_without_a_closing_tag_does_not_hide_another_prefix(self):
+        data = (b"<x:xmpmeta><a:PersonInImage><b:PersonInImage><rdf:Bag>"
+                b"<rdf:li>Otto Brandt</rdf:li></rdf:Bag></b:PersonInImage></x:xmpmeta>")
+        photo = self.root / "prefixes.png"
+        photo.write_bytes(b"\x89PNG" + data)
+        self.assertEqual(extract_embedded_tags(photo)[1], ["Otto Brandt"])
+
+    def test_the_packet_is_found_across_read_boundaries(self):
+        chunk = photo_index.XMP_READ_CHUNK
+        for padding in (chunk - 5, chunk - 1, chunk, chunk + 3):
+            with self.subTest(padding=padding):
+                photo = self.root / f"edge{padding}.tif"
+                photo.write_bytes(b"\x00" * padding + XMP + b"\x00" * 10)
+                keywords, people = extract_embedded_tags(photo)
+                self.assertEqual(keywords, ["Harbour", "Rock & Roll", "Ferry"])
+                self.assertEqual(people, ["Otto Brandt", "Lena Vos"])
+
+    def test_a_packet_that_never_ends_is_given_up_on(self):
+        photo = self.root / "endless.tif"
+        original = photo_index.XMP_PACKET_LIMIT
+        photo_index.XMP_PACKET_LIMIT = 2 * photo_index.XMP_READ_CHUNK
+        try:
+            photo.write_bytes(b"<x:xmpmeta><dc:subject>" + b"x" * (5 * photo_index.XMP_READ_CHUNK))
+            self.assertEqual(extract_embedded_tags(photo), ([], []))
+        finally:
+            photo_index.XMP_PACKET_LIMIT = original
 
 
 if __name__ == "__main__":

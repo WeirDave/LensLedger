@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.34.0 — 2026-11-13
+
+- Photo lists and cards load thumbnails instead of the original files: the strip under the viewer, the photo on each person's card, the **Possible duplicates** comparison, the **Card photo for** picker, the **Manage groups** avatars and the **People review** photos. The viewer and its full-size lightbox still load the original. Thumbnails are made as needed and kept in a new `Thumbnails` folder in the application data folder, limited to about 1 GB; deleting any of them is safe.
+- Reading the tags embedded in a photo takes time proportional to its size even when the metadata holds many unclosed tags, and photos in HEIC, PNG, WebP and TIFF are read in pieces rather than into memory whole.
+- **Import database** in **Settings** checks the database in the ZIP before replacing the current one, and no longer imports pickle files from an export's `FaceData` folder.
+- **Empty trash**, **Delete** and restoring in **Trash & restore** act only on files inside the Review Bin folder; an entry naming a file elsewhere is left alone and reported.
+- A person's name on a face box in the viewer is displayed as text.
+
 ## 1.33.2 — 2026-11-13
 
 - Meaning search is faster, especially on large libraries and when paging through results. It no longer reads and decodes the whole meaning index on every search; the index is held in memory and read again only after it changes. Results are unchanged.

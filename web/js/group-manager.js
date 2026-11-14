@@ -168,7 +168,7 @@ function renderPeople(){
       avatar.append(img);
     }else if(p.representative_id){
       var img=document.createElement('img');
-      img.src='/media?id='+p.representative_id;
+      img.src='/thumb?id='+p.representative_id+'&size=160';
       img.alt=p.name;
       img.loading='lazy';
       avatar.append(img);

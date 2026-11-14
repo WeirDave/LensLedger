@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import array
 import html
+import io
 import http.client
 import json
 import os
@@ -287,6 +288,192 @@ class ServerWorkflowTests(unittest.TestCase):
         con = sqlite3.connect(self.database)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM assets WHERE in_review_bin=1").fetchone()[0], 1)
         con.close()
+
+    def point_a_bin_entry_outside_the_bin(self):
+        """Make the second binned photo's recorded file a bystander elsewhere,
+        as a database imported from somewhere else could."""
+        second, review_ids = self.bin_two_photos()
+        bystander = self.root / "bystander.txt"
+        bystander.write_text("not a photo in the bin")
+        con = sqlite3.connect(self.database)
+        con.execute("UPDATE review_bin SET review_path=? WHERE id=?", (str(bystander), review_ids[1]))
+        con.commit()
+        con.close()
+        return bystander, review_ids
+
+    def test_emptying_the_bin_never_deletes_a_file_outside_it(self):
+        bystander, review_ids = self.point_a_bin_entry_outside_the_bin()
+
+        emptied = self.json_response(self.post("/api/review-bin/empty", {}))
+
+        self.assertEqual((emptied["ok"], emptied["deleted"], emptied["refused"]), (False, 1, 1))
+        self.assertTrue(bystander.is_file())
+        con = sqlite3.connect(self.database)
+        self.assertEqual([row[0] for row in con.execute("SELECT id FROM review_bin")], [review_ids[1]])
+        con.close()
+
+    def test_deleting_one_entry_never_deletes_a_file_outside_the_bin(self):
+        bystander, review_ids = self.point_a_bin_entry_outside_the_bin()
+
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/review-bin/delete", {"review_id": review_ids[1]})
+        self.assertEqual(caught.exception.code, 400)
+        caught.exception.close()
+
+        self.assertTrue(bystander.is_file())
+
+    def test_restoring_never_moves_a_file_from_outside_the_bin_into_the_library(self):
+        bystander, review_ids = self.point_a_bin_entry_outside_the_bin()
+
+        undone = self.json_response(self.post("/api/review-bin/restore-batch", {"review_ids": review_ids}))
+
+        self.assertEqual((undone["ok"], undone["restored"]), (False, 1))
+        self.assertEqual([item["review_id"] for item in undone["failed"]], [review_ids[1]])
+        self.assertTrue(bystander.is_file())
+        self.assertFalse((self.library / "second.jpg").exists())
+
+    def add_large_photo(self, name: str = "large.jpg", size=(1200, 800), colour=(10, 120, 60)) -> int:
+        from photo_index import scan_library
+
+        big = self.library / name
+        Image.new("RGB", size, colour).save(big, quality=90)
+        self.assertEqual(scan_library(self.library, self.database), 0)
+        con = sqlite3.connect(self.database)
+        try:
+            return int(con.execute("SELECT id FROM assets WHERE filename=?", (name,)).fetchone()[0])
+        finally:
+            con.close()
+
+    def test_thumbnails_are_small_and_made_once(self):
+        asset_id = self.add_large_photo()
+        original_size = (self.library / "large.jpg").stat().st_size
+
+        first = self.get(f"/thumb?id={asset_id}&size=160")
+        data = first.read()
+        self.assertEqual(first.getheader("Content-Type"), "image/jpeg")
+        self.assertEqual(first.getheader("X-Content-Type-Options"), "nosniff")
+        with Image.open(io.BytesIO(data)) as thumbnail:
+            self.assertEqual(thumbnail.size, (160, 107))
+        self.assertLess(len(data), original_size)
+        stored = [path for path in (self.data / "Thumbnails").rglob("*.jpg")]
+        self.assertEqual(len(stored), 1)
+
+        with patch.object(self.photo_search, "render_thumbnail", side_effect=AssertionError("made again")):
+            self.assertEqual(self.get(f"/thumb?id={asset_id}&size=160").read(), data)
+
+    def test_a_requested_size_uses_the_next_stored_size_up(self):
+        asset_id = self.add_large_photo()
+        for requested, width in ((1, 160), (161, 320), (500, 640), (None, 320)):
+            query = f"&size={requested}" if requested else ""
+            with Image.open(io.BytesIO(self.get(f"/thumb?id={asset_id}{query}").read())) as thumbnail:
+                self.assertEqual(thumbnail.width, width, requested)
+
+    def test_a_larger_request_or_a_photo_that_cannot_be_shrunk_gets_the_original(self):
+        asset_id = self.add_large_photo()
+        original = (self.library / "large.jpg").read_bytes()
+        self.assertEqual(self.get(f"/thumb?id={asset_id}&size=2000").read(), original)
+
+        with patch.object(self.photo_search, "render_thumbnail", side_effect=OSError("cannot decode")):
+            self.assertEqual(self.get(f"/thumb?id={asset_id}&size=160").read(), original)
+
+    def test_an_edited_photo_gets_a_new_thumbnail(self):
+        asset_id = self.add_large_photo()
+        first = self.get(f"/thumb?id={asset_id}&size=160").read()
+        Image.new("RGB", (1200, 800), (200, 30, 30)).save(self.library / "large.jpg", quality=90)
+
+        second = self.get(f"/thumb?id={asset_id}&size=160").read()
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(len(list((self.data / "Thumbnails").rglob("*.jpg"))), 2)
+
+    def test_thumbnails_refuse_what_media_refuses(self):
+        for path in ("/thumb?id=99999", "/thumb?id=abc"):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get(path)
+            self.assertIn(caught.exception.code, (400, 404))
+            caught.exception.close()
+        port = self.server.server_port
+        rebound = {"Host": f"rebound.example:{port}"}
+        self.assertEqual(self.raw_request("GET", f"/thumb?id={self.asset_id}", headers=rebound).status, 403)
+        con = sqlite3.connect(self.database)
+        con.execute("UPDATE assets SET path=? WHERE id=?", (str(self.root / "outside.jpg"), self.asset_id))
+        con.commit()
+        con.close()
+        Image.new("RGB", (8, 8)).save(self.root / "outside.jpg")
+        self.assertEqual(self.raw_request("GET", f"/thumb?id={self.asset_id}").status, 403)
+
+    def test_the_thumbnail_folder_is_trimmed_oldest_first(self):
+        root = self.data / "Thumbnails" / "320" / "ab"
+        root.mkdir(parents=True)
+        for index in range(10):
+            path = root / f"{index}.jpg"
+            path.write_bytes(b"x" * 1000)
+            os.utime(path, (1_000_000 + index, 1_000_000 + index))
+
+        removed = self.photo_search.prune_thumbnail_cache(limit=5000)
+
+        self.assertEqual(removed, 6)
+        self.assertEqual(sorted(path.name for path in root.glob("*.jpg")), ["6.jpg", "7.jpg", "8.jpg", "9.jpg"])
+        self.assertEqual(self.photo_search.prune_thumbnail_cache(limit=5000), 0)
+
+    def test_people_cards_and_the_filmstrip_ask_for_thumbnails_not_originals(self):
+        from pathlib import Path as _Path
+
+        scripts = _Path(self.photo_search.__file__).resolve().parent.parent / "web" / "js"
+        viewer = (scripts / "viewer.js").read_text(encoding="utf-8")
+        self.assertIn("img.src='/thumb?id='+item.id;b.append(img)", viewer)
+        self.assertIn("picture.src='/thumb?id='+Number(person.representative_id)", viewer)
+        self.assertIn("/thumb?id=", (scripts / "group-manager.js").read_text(encoding="utf-8"))
+
+    def export_zip(self, database: Path, extra: dict[str, bytes]) -> Path:
+        import zipfile
+
+        archive = self.root / "export.zip"
+        with zipfile.ZipFile(archive, "w") as package:
+            package.writestr("manifest.json", json.dumps({
+                "library_root": str(self.library), "schema_version": 1, "photo_count": 1,
+            }))
+            package.write(database, "database.sqlite3")
+            for name, data in extra.items():
+                package.writestr(name, data)
+        return archive
+
+    def import_from(self, archive: Path):
+        with patch.object(self.photo_search, "choose_file", return_value=str(archive)):
+            return self.post("/api/settings/import", {})
+
+    def test_importing_skips_pickle_files_and_keeps_other_face_data(self):
+        archive = self.export_zip(self.database, {
+            "FaceData/named_refs.pkl": b"not trusted", "FaceData/notes/readme.txt": b"kept",
+        })
+
+        result = self.json_response(self.import_from(archive))
+
+        self.assertTrue(result["ok"])
+        self.assertIn("1 pickle file were not imported", result["message"])
+        face_data = self.data / "Face Data"
+        self.assertFalse((face_data / "named_refs.pkl").exists())
+        self.assertEqual((face_data / "notes" / "readme.txt").read_bytes(), b"kept")
+
+    def test_importing_refuses_a_database_that_is_not_a_catalog(self):
+        for label, content in (("damaged", b"this is not a database" * 200), ("other", None)):
+            with self.subTest(label):
+                broken = self.root / f"{label}.sqlite3"
+                if content is None:
+                    other = sqlite3.connect(broken)
+                    other.execute("CREATE TABLE unrelated(x)")
+                    other.commit()
+                    other.close()
+                else:
+                    broken.write_bytes(content)
+                before = self.database.read_bytes()
+
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.import_from(self.export_zip(broken, {}))
+                self.assertEqual(caught.exception.code, 400)
+                caught.exception.close()
+
+                self.assertEqual(self.database.read_bytes(), before, "the catalog must be left as it was")
 
     def test_custom_date_picker_renders_hidden_field_and_trigger_label(self):
         # The toolbar's date filter used to be a native <input type="date">,

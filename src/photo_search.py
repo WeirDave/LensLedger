@@ -36,7 +36,7 @@ except ImportError:
 
 from console_log import Action, log as console_log
 from app_paths import (
-    backup_root, data_root, database_backup_root, review_bin_root,
+    backup_root, data_root, database_backup_root, review_bin_root, thumbnail_cache_root,
 )
 from face_learning import (
     BULK_CONFIRM_SIMILARITY, FIND_MORE_AUTO_CONFIRM_SIMILARITY, REVIEW_SIMILARITY, SUGGESTION_THRESHOLD,
@@ -66,7 +66,7 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
 import metadata_backups
 from photo_index import (
-    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, MEDIA_EXTENSIONS, SCHEMA_VERSION, VIDEO_EXTENSIONS, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
+    EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, SCHEMA_VERSION, VIDEO_EXTENSIONS, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
     extract_embedded_rating, extract_embedded_tags, is_cloud_placeholder, record_file_rating,
     refresh_embedded_tags, store_embedded_tags, ocr_assets,
     ocr_is_available, pending_scan_counts, rebuild_search_row, scan_library,
@@ -991,6 +991,105 @@ def resolve_inside(root: Path, relative) -> Path:
     return Path(full)
 
 
+THUMBNAIL_SIZES = (160, 320, 640)
+THUMBNAIL_DEFAULT_SIZE = 320
+THUMBNAIL_CACHE_LIMIT_BYTES = 1024 * 1024 * 1024
+THUMBNAIL_PRUNE_EVERY = 200
+
+
+def thumbnail_bucket(requested: int) -> int | None:
+    """The smallest stored thumbnail size that is at least `requested`, or None
+    when the picture is wanted larger than any thumbnail."""
+    return next((size for size in THUMBNAIL_SIZES if requested <= size), None)
+
+
+def thumbnail_cache_file(source: Path, bucket: int) -> Path:
+    """Where the thumbnail of `source` is kept. The name comes from the photo's
+    place, size and modified time, so an edited photo gets a new thumbnail and
+    two libraries whose photos share database ids never share one."""
+    stat = source.stat()
+    key = hashlib.sha256(f"{source}|{stat.st_mtime_ns}|{stat.st_size}|{bucket}".encode("utf-8")).hexdigest()
+    return thumbnail_cache_root() / str(bucket) / key[:2] / f"{key}.jpg"
+
+
+def render_thumbnail(source: Path, bucket: int) -> bytes:
+    with Image.open(source) as image:
+        if image.format == "JPEG":
+            image.draft("RGB", (bucket, bucket))
+        image = ImageOps.exif_transpose(image)
+        if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
+            flat = image.convert("RGBA")
+            image = Image.new("RGB", flat.size, (255, 255, 255))
+            image.paste(flat, mask=flat.getchannel("A"))
+        else:
+            image = image.convert("RGB")
+        image.thumbnail((bucket, bucket))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=82)
+    return buffer.getvalue()
+
+
+def prune_thumbnail_cache(limit: int = THUMBNAIL_CACHE_LIMIT_BYTES) -> int:
+    """Delete the oldest thumbnails until the folder is under 80% of `limit`.
+    Returns how many were removed. Anything removed is simply made again."""
+    entries = []
+    total = 0
+    for path in thumbnail_cache_root().rglob("*.jpg"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        entries.append((stat.st_mtime, stat.st_size, path))
+        total += stat.st_size
+    if total <= limit:
+        return 0
+    removed = 0
+    for _modified, size, path in sorted(entries):
+        if total <= limit * 0.8:
+            break
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        total -= size
+        removed += 1
+    return removed
+
+
+def check_imported_database(path: Path) -> None:
+    """Refuse an exported database that is damaged or is not a LensLedger catalog."""
+    try:
+        con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            if con.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("the database in this export is damaged and was not imported")
+            tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "assets" not in tables:
+                raise ValueError("the database in this export is not a LensLedger catalog and was not imported")
+            if int(con.execute("PRAGMA user_version").fetchone()[0]) > SCHEMA_VERSION:
+                raise ValueError("the database in this export is newer than this version of LensLedger supports")
+        finally:
+            con.close()
+    except sqlite3.DatabaseError:
+        raise ValueError("the database in this export could not be read and was not imported") from None
+
+
+def review_bin_file(recorded_path) -> Path:
+    """The file a Review Bin entry names, refused when it is not inside the Review Bin.
+
+    The path comes from the database, which an imported export can fill with
+    anything. Deleting or moving what it names without this check would act on a
+    file anywhere the user's account can reach.
+    """
+    root = review_bin_root().resolve()
+    path = Path(str(recorded_path)).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError("this Review Bin entry points outside the Review Bin, so its file was left alone") from None
+    return path
+
+
 def refine_action_label(route: str, body: dict, label: str, current_root) -> str:
     """Name the action the way the button the user pressed names it.
 
@@ -1698,6 +1797,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.serve_world_map()
         if url.path == "/media":
             return self.serve_media(params)
+        if url.path == "/thumb":
+            return self.serve_thumb(params)
         if url.path == "/media-face":
             return self.serve_face_media(params)
         if url.path == "/api/asset":
@@ -2642,6 +2743,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td><code>Database Backups\\</code></td><td>Verified database backups</td></tr>
 <tr><td><code>Review Bin\\</code></td><td>Trashed photos</td></tr>
 <tr><td><code>Face Data\\</code></td><td>Face detection data</td></tr>
+<tr><td><code>Thumbnails\\</code></td><td>Small copies of photos shown in lists and cards. LensLedger makes them as needed, keeps them under 1 GB, and rebuilds any you delete.</td></tr>
 <tr><td><code>Exports\\</code></td><td>Database export ZIPs</td></tr>
 <tr><td><code>library-state.json</code></td><td>Library list and current library</td></tr>
 <tr><td><code>settings.json</code></td><td>Application settings</td></tr>
@@ -2881,8 +2983,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             # export that points outside the Face Data folder changes nothing.
             face_data_root = (data_root() / "Face Data").resolve()
             face_files: list[tuple[str, Path]] = []
+            skipped_pickles = 0
             for name in names:
                 if name.startswith("FaceData/") and not name.endswith("/"):
+                    # A pickle runs code when it is loaded, and one in an export
+                    # came from wherever the export did, so it is not imported.
+                    if name.lower().endswith((".pkl", ".pickle")):
+                        skipped_pickles += 1
+                        continue
                     dest = (face_data_root / name[len("FaceData/"):]).resolve()
                     try:
                         dest.relative_to(face_data_root)
@@ -2895,6 +3003,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 try:
                     with zf.open("database.sqlite3") as src, open(temp_db, "wb") as dst:
                         shutil.copyfileobj(src, dst)
+                    check_imported_database(temp_db)
                     old_root = manifest.get("library_root", "")
                     new_root = str(self.library_root)
                     if old_root and old_root != new_root:
@@ -2921,7 +3030,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                     shutil.copyfileobj(src, dst)
         console_log(f"Import database: replaced the index from {Path(zip_path).name} "
                     f"({manifest.get('photo_count', '?')} photos)")
-        self.send_json({"ok": True, "message": f"Imported from {Path(zip_path).name} ({manifest.get('photo_count', '?')} photos)"})
+        message = f"Imported from {Path(zip_path).name} ({manifest.get('photo_count', '?')} photos)"
+        if skipped_pickles:
+            message += f"; {skipped_pickles} pickle file{'' if skipped_pickles == 1 else 's'} were not imported"
+        self.send_json({"ok": True, "message": message})
 
     def parse_photo_query(self, params):
         """Parse q/date/scope/person/sort/page params into validated values,
@@ -3326,7 +3438,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             groups = person.get("groups", [])
             alias_text = ", ".join(aliases) if aliases else "No alternate names yet"
             picture = (
-                f'<img src="/media?id={int(person["representative_id"])}" alt="Representative photo of {html.escape(person["name"], quote=True)}">'
+                f'<img src="/thumb?id={int(person["representative_id"])}" alt="Representative photo of {html.escape(person["name"], quote=True)}">'
                 if person["representative_id"] else '<div class="person-placeholder">👤</div>'
             )
             person_url = "/?" + urllib.parse.urlencode({"scope": "people", "person": person["id"], "sort": "newest"})
@@ -7902,7 +8014,7 @@ class SearchHandler(BaseHTTPRequestHandler):
     def _restore_review_item(self, con, review_id):
         row = con.execute("SELECT * FROM review_bin WHERE id=? AND restored_at IS NULL", (review_id,)).fetchone()
         if not row: raise ValueError("review item is no longer available")
-        source = Path(row["review_path"]).resolve(); destination = Path(row["original_path"]).resolve()
+        source = review_bin_file(row["review_path"]); destination = Path(row["original_path"]).resolve()
         destination.relative_to(self.library_root)
         if not source.is_file() or destination.exists(): raise ValueError("cannot restore because the source is missing or destination exists")
         destination.parent.mkdir(parents=True, exist_ok=True); shutil.move(str(source), str(destination))
@@ -7946,7 +8058,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             row = con.execute("SELECT * FROM review_bin WHERE id=? AND restored_at IS NULL", (review_id,)).fetchone()
             if not row:
                 raise ValueError("review item is no longer available")
-            source = Path(row["review_path"]).resolve()
+            source = review_bin_file(row["review_path"])
             if source.is_file():
                 source.unlink()
                 console_log("Delete from the Review Bin: deleted permanently — "
@@ -7965,11 +8077,17 @@ class SearchHandler(BaseHTTPRequestHandler):
     def empty_review_bin(self):
         deleted = 0
         missing = 0
+        refused = 0
         with self.db() as con:
             rows = con.execute("SELECT * FROM review_bin WHERE restored_at IS NULL").fetchall()
             action = Action("Empty the Review Bin", f"{len(rows):,} photos to delete permanently")
             for row in rows:
-                source = Path(row["review_path"]).resolve()
+                try:
+                    source = review_bin_file(row["review_path"])
+                except ValueError as exc:
+                    refused += 1
+                    action.failure(row["original_relative_path"], str(exc))
+                    continue
                 # Deleting a photo cannot be undone, so each one is named as it
                 # goes. This log is the only remaining record afterwards.
                 if source.is_file():
@@ -7988,10 +8106,12 @@ class SearchHandler(BaseHTTPRequestHandler):
         summary = f"{deleted:,} photos deleted permanently"
         if missing:
             summary += f", {missing:,} were already gone"
-        if not deleted:
+        if refused:
+            summary += f", {refused:,} left alone because their file is outside the Review Bin"
+        if not deleted and not refused:
             summary = "the Review Bin was already empty"
         action.finish(summary)
-        self.send_json({"ok": True, "deleted": deleted})
+        self.send_json({"ok": not refused, "deleted": deleted, "refused": refused})
 
     def serve_web_asset(self, name: str):
         if not WEB_ASSET_NAME_RE.fullmatch(name):
@@ -8020,6 +8140,60 @@ class SearchHandler(BaseHTTPRequestHandler):
         path = Path(__file__).parent.parent / "assets" / "world-map.svg"
         if not path.is_file(): return self.send_error(404)
         self.send_bytes(path.read_bytes(), "image/svg+xml", cache="private, max-age=86400")
+
+    thumbnail_writes = 0
+    thumbnail_lock = threading.Lock()
+
+    def serve_thumb(self, params):
+        """A small JPEG of a photo, made once and kept on disk.
+
+        Lists and cards show photos far smaller than the originals, which can be
+        many megabytes each. Anything that cannot be made into a thumbnail, or
+        that is asked for larger than the largest one, is sent as the original.
+        """
+        try: asset_id = int(params.get("id", [""])[0])
+        except ValueError: return self.send_error(400)
+        try: requested = int(params.get("size", [str(THUMBNAIL_DEFAULT_SIZE)])[0])
+        except ValueError: requested = THUMBNAIL_DEFAULT_SIZE
+        bucket = thumbnail_bucket(requested)
+        with self.db() as con:
+            row = con.execute("SELECT path FROM assets WHERE id=? AND in_review_bin=0", (asset_id,)).fetchone()
+        if not row: return self.send_error(404)
+        path = Path(row["path"]).resolve()
+        try: path.relative_to(self.library_root)
+        except ValueError: return self.send_error(403)
+        if not path.is_file(): return self.send_error(404)
+        if bucket is None or path.suffix.lower() not in IMAGE_EXTENSIONS:
+            return self.serve_media(params)
+        try:
+            cached = thumbnail_cache_file(path, bucket)
+            try:
+                data = cached.read_bytes()
+            except OSError:
+                data = render_thumbnail(path, bucket)
+                self.keep_thumbnail(cached, data)
+        except Exception:
+            return self.serve_media(params)
+        self.send_bytes(data, "image/jpeg", cache="private, max-age=3600")
+
+    def keep_thumbnail(self, cached: Path, data: bytes):
+        """Store a thumbnail; a full or unwritable disk only means it is made again."""
+        temporary = None
+        try:
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary = tempfile.mkstemp(dir=cached.parent, suffix=".tmp")
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(data)
+            os.replace(temporary, cached)
+            cls = type(self)
+            with cls.thumbnail_lock:
+                cls.thumbnail_writes += 1
+                prune = cls.thumbnail_writes % THUMBNAIL_PRUNE_EVERY == 0
+            if prune:
+                prune_thumbnail_cache()
+        except OSError:
+            if temporary:
+                Path(temporary).unlink(missing_ok=True)
 
     def serve_media(self, params):
         try: asset_id = int(params.get("id", [""])[0])

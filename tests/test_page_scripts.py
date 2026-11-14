@@ -143,3 +143,13 @@ class SidePanelTagEntry(unittest.TestCase):
         start = source.index("async function addTag")
         body = source[start:source.index("\n", start)]
         self.assertIn("$('tagScope').value='photo'", body)
+
+
+class FaceNamesAreNeverParsedAsHtml(unittest.TestCase):
+    """A person's name is typed text. Put into markup, a name like <b>x</b>
+    would be drawn as HTML on the photo instead of shown as typed."""
+
+    def test_the_viewer_sets_a_face_name_as_text(self):
+        source = script("viewer.js")
+        self.assertNotRegex(source, r"innerHTML\s*=[^;\n]*person_name")
+        self.assertRegex(source, r"label\.textContent\s*=\s*face\.person_name")

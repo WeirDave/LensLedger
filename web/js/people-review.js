@@ -110,8 +110,8 @@ function buildCard(item) {
   img.loading = 'lazy';
   img.alt = 'Suggested face';
   const canCrop = item.face_id && hasFaceBox(item);
-  img.src = canCrop ? '/media-face?face_id=' + item.face_id : '/media?id=' + item.id;
-  if (canCrop) img.onerror = () => { img.onerror = null; img.src = '/media?id=' + item.id; };
+  img.src = canCrop ? '/media-face?face_id=' + item.face_id : '/thumb?id=' + item.id;
+  if (canCrop) img.onerror = () => { img.onerror = null; img.src = '/thumb?id=' + item.id; };
   const badge = document.createElement('span');
   badge.className = 'state-badge';
   badge.textContent = '✓';
