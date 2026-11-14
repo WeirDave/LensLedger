@@ -2798,7 +2798,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </table>
 <h3>Updates</h3>
 <p>LensLedger checks for updates from GitHub automatically. When a new version is available, an update badge appears in the navigation menu. A banner appears on all pages when the on-disk code is newer than the running server, with a <strong>Restart</strong> button to load the new version.</p>
-<p><strong>Start LensLedger.cmd</strong> installs Pillow 13, the image library LensLedger uses to read photos, on the next launch if an older version is installed. An installation that already has it starts without contacting the network.</p>
+<p><strong>Start LensLedger.cmd</strong> runs on the newest Python installed on the computer, and on every launch checks the packages listed in <code>requirements.txt</code> (Pillow, the image library LensLedger uses to read photos, and pillow-heif for HEIC photos). Any that is missing, too old or broken is installed or updated before LensLedger starts, so an update that needs a newer package needs nothing done by hand. If the Python found is older than 3.11, the launcher says so and stops. An installation whose packages are all current starts without contacting the network.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 

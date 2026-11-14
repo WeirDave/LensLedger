@@ -2,7 +2,17 @@
 title LensLedger
 cd /d "%~dp0"
 
-where python >nul 2>&1
+REM Run on the newest Python installed, not whichever happens to come first on
+REM PATH: an older one left ahead of it never gets the newer packages. The py
+REM launcher knows every installed Python; a pre-release is never chosen, and
+REM neither is anything below the minimum, which falls back to PATH's python.
+set "PY=python"
+where py >nul 2>&1
+if not errorlevel 1 (
+    py -3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) and sys.version_info.releaselevel == 'final' else 1)" >nul 2>&1
+    if not errorlevel 1 set "PY=py -3"
+)
+%PY% -c "import sys" >nul 2>&1
 if errorlevel 1 (
     echo.
     echo LensLedger needs Python 3.11 or newer.
@@ -18,25 +28,20 @@ REM running this launcher, and 1 for "stay here" -- already inside a terminal,
 REM switched off in Settings, or no wt.exe. The tab passes --in-tab back so it
 REM can never open a second one from inside itself.
 if /i "%~1"=="--in-tab" goto :launcher_ready
-python -m tools.terminal_tab "%~f0" 2>nul
+%PY% -m tools.terminal_tab "%~f0" 2>nul
 if not errorlevel 1 exit /b 0
 :launcher_ready
 
-REM Install the small Python dependency set on first launch, and again whenever
-REM a required package is missing -- an install made before a package joined
-REM requirements.txt would otherwise never get it (HEIC photos need
-REM pillow_heif). Existing healthy installations skip this step without
-REM contacting the network.
-python -c "import PIL, pillow_heif; assert int(PIL.__version__.split(chr(46))[0]) >= 13" >nul 2>&1
+REM Check the Python version, then install or update whatever requirements.txt
+REM lists that is missing, too old or broken -- on first launch, and again after
+REM any update that changes the file, with no edit here. src\environment_check.py
+REM reads requirements.txt itself. An installation that already satisfies it
+REM starts without contacting the network.
+%PY% src\environment_check.py --fix
 if errorlevel 1 (
-    echo Preparing LensLedger for first use...
-    python -m pip install -r requirements.txt
-    if errorlevel 1 (
-        echo.
-        echo LensLedger could not install its Python requirements.
-        pause
-        exit /b 1
-    )
+    echo.
+    pause
+    exit /b 1
 )
 
 REM Remove the empty pre-v0.15 working-folder shell after older processes let go
@@ -77,14 +82,13 @@ if exist "%LENSLEDGER_RESTART_MARKER%" del "%LENSLEDGER_RESTART_MARKER%" >nul 2>
 setlocal EnableDelayedExpansion
 set "RESTART_FLAG="
 for /l %%n in (1,1,100000) do (
-    python src\photo_search.py !RESTART_FLAG! %*
+    %PY% src\photo_search.py !RESTART_FLAG! %*
     set "RC=!errorlevel!"
     if "!RC!"=="75" (
         echo Restarting LensLedger...
         for /l %%w in (1,1,600) do if exist "%LENSLEDGER_RESTART_MARKER%" ping -n 2 127.0.0.1 >nul
         del "%LENSLEDGER_RESTART_MARKER%" >nul 2>&1
-        python -c "import PIL, pillow_heif; assert int(PIL.__version__.split(chr(46))[0]) >= 13" >nul 2>&1
-        if errorlevel 1 python -m pip install -r requirements.txt
+        %PY% src\environment_check.py --fix
         cls
         set "RESTART_FLAG=--restarted"
     ) else (

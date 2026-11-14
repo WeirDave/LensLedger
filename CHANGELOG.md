@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.35.0 — 2026-11-14
+
+- **Start LensLedger.cmd** and **Install LensLedger.cmd** run LensLedger on the newest Python installed on the computer, instead of whichever Python comes first on the PATH. A pre-release Python is never chosen.
+- Every launch, and every restart, checks the packages listed in `requirements.txt` and installs or updates any that is missing, too old or broken before LensLedger starts. A package that gains a newer minimum version, or is added to the file, is installed on the next launch with no change to the launcher. An installation whose packages are all current starts without contacting the network.
+- A Python older than 3.11 is reported with a download link and the launch stops, instead of failing later.
+- The manual and README describe the launch-time checks.
+
 ## 1.34.2 — 2026-11-14
 
 - Photos whose embedded metadata block declares XML entities are no longer read for embedded tags, so a crafted photo cannot make that block expand into something very large. Ordinary metadata is read as before.

@@ -85,8 +85,9 @@ alternate name at a time, separating multiple names with commas.
    done. The extracted ZIP can then be deleted. (Running `Start LensLedger.cmd`
    directly from the extracted folder instead still works, but that copy can
    never update itself — see *Updates and rollback* below.)
-5. On first launch it installs the small Python requirements if they are not
-   already present.
+5. On every launch it checks the Python requirements and installs or updates
+   any that are missing or out of date, and it runs on the newest Python
+   installed.
 6. Choose the photo folder you want to inventory and select **Build my library**.
 7. Review the scan report, then select **Open my library**.
 
