@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.39.0 — 2026-11-14
+
+- **Meaning search can now match how a person looks.** Choose **Meaning** as the search scope, select a person under **More filters > People (all of them)** and describe what to find, such as "beard" or "bald head". Photos rank by the better of the whole-photo match and the match against that person's face, so a small detail in a wide shot is no longer lost.
+- Faces are prepared for this automatically at the end of a face detection run and of a meaning search run, once meaning search is set up. The first run on an existing library encodes every located face, which takes a while.
+- The library database moved to schema version 28 (a new table holding one vector per face crop).
+
 ## 1.38.0 — 2026-11-14
 
 - **More filters** on the home page, next to the Rating menu: a date range, several people at once (only photos where all of them are confirmed), type (photos, videos, RAW files), shape (landscape, portrait, square), location (has or has none), camera make or model, and part of a folder name. They combine with each other and with every search scope.

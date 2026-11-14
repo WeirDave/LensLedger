@@ -87,10 +87,13 @@ from semantic_classify import classify_library
 from semantic_index import (
     BUILD_MODES as SEMANTIC_BUILD_MODES,
     SUPPORTED_MODELS as SEMANTIC_SUPPORTED_MODELS,
+    blend_person_faces as semantic_blend_person_faces,
+    build_face_index as build_semantic_face_index,
     build_index as build_semantic_index,
     clear_available_cache as semantic_clear_cache,
     delete_cached_model as semantic_delete_model,
     encoder_for as semantic_encoder_for,
+    face_crop_pending as semantic_face_crop_pending,
     is_available as semantic_is_available,
     model_cache_info as semantic_model_cache_info,
     search as semantic_search,
@@ -1297,6 +1300,41 @@ def _run_ocr_job(handler_class, database, since, workers, started_at, rescan=Fal
             handler_class.ocr_job = {"state": "error", "message": str(exc)}
 
 
+def _run_face_crop_pass(database, encoder=None, should_cancel=None):
+    """Index the crop around each located face so a person's appearance (a
+    beard, a bald head) can be searched. Quietly does nothing unless meaning
+    search is installed with its model already downloaded, and never raises:
+    it runs after another job has finished its own work."""
+    try:
+        if not semantic_is_available():
+            return
+        model_id = load_settings().get("scan", {}).get("semantic_model", "ViT-B-32/openai")
+        if model_id not in SEMANTIC_SUPPORTED_MODELS:
+            model_id = "ViT-B-32/openai"
+        if not semantic_model_cache_info().get(model_id, {}).get("downloaded"):
+            return
+        if not semantic_face_crop_pending(database, model_id):
+            return
+    except Exception:
+        return
+    action = Action("Face appearance index", "faces without meaning data")
+    try:
+        encoder = encoder or semantic_encoder_for(model_id)
+
+        def report(counts):
+            if int(counts["indexed"]):
+                action.progress(f"{int(counts['indexed']):,} of {int(counts['total']):,} faces indexed")
+
+        result = build_semantic_face_index(database, encoder=encoder, progress=report,
+                                           should_cancel=should_cancel)
+        summary = f"{int(result['indexed']):,} faces indexed"
+        if int(result["errors"]):
+            summary += f", {int(result['errors']):,} could not be read"
+        (action.cancelled if result["cancelled"] else action.finish)(summary)
+    except Exception as exc:
+        action.failed(str(exc))
+
+
 def _run_semantic_index_job(handler_class, database, batch_size, started_at, mode="new"):
     """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
     settings = load_settings()
@@ -1388,6 +1426,8 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
                 "failures": list(result.get("failures") or []),
                 "mode": mode,
             }
+        if not result["cancelled"]:
+            _run_face_crop_pass(database, encoder, handler_class.semantic_cancel.is_set)
         if not result["cancelled"] and get_setting("publish", "auto_classify", default=False):
             if not handler_class.classify_lock.acquire(blocking=False):
                 console_log("Auto-classify: skipped because classification is already running")
@@ -1476,6 +1516,7 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             action.cancelled(summary)
         else:
             action.finish(summary)
+            _run_face_crop_pass(database, should_cancel=handler_class.face_scan_cancel.is_set)
     except Exception as exc:
         action.failed(str(exc))
         with handler_class.face_scan_lock:
@@ -2475,6 +2516,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Tick <strong>Read photos again that have already been read</strong> to re-read photos already done, rather than only new ones. It asks first, because on a large library it takes a while.</p>
 <h3>Meaning search (optional)</h3>
 <p>Uses a local AI vision model (CLIP) to search photos by natural language descriptions like &ldquo;a birthday cake&rdquo; or &ldquo;sunset over water.&rdquo; Requires a one-time model download.</p>
+<p><strong>Searching for how someone looks.</strong> Choose <strong>Meaning</strong> as the search scope, open <strong>More filters</strong>, select the person under <strong>People (all of them)</strong> and describe what to find, such as &ldquo;beard&rdquo;, &ldquo;bald head&rdquo; or &ldquo;wearing glasses&rdquo;.Photos are then ranked by how well that person&rsquo;s face matches the description as well as by the whole picture, so a small detail still counts in a wide shot. Faces are prepared for this automatically after face detection, and at the end of a meaning search run, once meaning search is set up. The person needs confirmed photos (see People). Plain descriptions such as &ldquo;bald head&rdquo; work best; the model matches the overall look, not exact detail. Without a person selected, the search matches the whole photo only.</p>
 <table>
 <tr><th>Model</th><th>Size</th><th>Quality</th></tr>
 <tr><td>ViT-B-32</td><td>~400 MB</td><td>Good general quality, fast</td></tr>
@@ -3234,14 +3276,23 @@ class SearchHandler(BaseHTTPRequestHandler):
         if scope == "semantic":
             if not query:
                 return [], 0, selected_date
-            total = int(semantic_status(type(self).db_path)["indexed"])
+            coverage = semantic_status(type(self).db_path)
+            total = int(coverage["indexed"])
             if len(clauses) > 1:
                 # Narrowed by a date, rating, person or other filter: rank every
                 # indexed photo, keep those that pass, then page what is left.
-                everything = semantic_search(type(self).db_path, query, max(total, 1), 0)
+                chosen_people = filters.people if filters else []
+                encoder = semantic_encoder_for(str(coverage["model"])) if chosen_people else None
+                everything = semantic_search(type(self).db_path, query, max(total, 1), 0, encoder=encoder)
                 passing = keep_matching_ids(con, [asset_id for asset_id, _score in everything],
                                             base_where, values)
-                narrowed = [asset_id for asset_id, _score in everything if asset_id in passing]
+                kept = [(asset_id, score) for asset_id, score in everything if asset_id in passing]
+                if chosen_people:
+                    # With people chosen, a photo also scores by how well their
+                    # faces match (a beard, a bald head), not only the whole frame.
+                    kept = semantic_blend_person_faces(type(self).db_path, query, kept, chosen_people,
+                                                       encoder=encoder)
+                narrowed = [asset_id for asset_id, _score in kept]
                 total = len(narrowed)
                 ranked_ids = narrowed[(page_number - 1) * PAGE_SIZE:page_number * PAGE_SIZE]
             else:

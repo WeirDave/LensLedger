@@ -328,6 +328,31 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual((recent["total"], [item["filename"] for item in recent["items"]]),
                          (1, ["2026-08-09 sample.jpg"]))
 
+    def test_meaning_search_with_a_person_ranks_by_that_persons_face(self):
+        self.add_filter_photos()
+        con = sqlite3.connect(self.database)
+        ids = {row[0]: int(row[1]) for row in con.execute("SELECT filename, id FROM assets")}
+        person = con.execute("INSERT INTO people(name) VALUES ('Sample Person')").lastrowid
+        for name in ("2026-08-09 sample.jpg", "2026-03-01 tall.jpg"):
+            con.execute("INSERT INTO asset_people(asset_id,person_id,state,source,updated_at) "
+                        "VALUES (?,?,'confirmed','manual','2024-01-01')", (ids[name], person))
+        con.commit()
+        con.close()
+        ranked = [(ids["2026-08-09 sample.jpg"], 0.9), (ids["2026-03-01 tall.jpg"], 0.8)]
+        status = {"indexed": 2, "pending": 0, "model": "m", "available": True, "errors": 0}
+        blended = MagicMock(return_value=[(ids["2026-03-01 tall.jpg"], 1.0), (ids["2026-08-09 sample.jpg"], 0.9)])
+        with patch.object(self.photo_search, "semantic_search", return_value=ranked), \
+             patch.object(self.photo_search, "semantic_status", return_value=status), \
+             patch.object(self.photo_search, "semantic_encoder_for", return_value="encoder"), \
+             patch.object(self.photo_search, "semantic_blend_person_faces", blended):
+            with_person = self.listed(f"scope=semantic&q=beard&people={person}")
+            without_person = self.listed("scope=semantic&q=beard")
+        self.assertEqual(with_person, ["2026-03-01 tall.jpg", "2026-08-09 sample.jpg"])
+        self.assertEqual(without_person, ["2026-08-09 sample.jpg", "2026-03-01 tall.jpg"])
+        blended.assert_called_once()
+        self.assertEqual(blended.call_args.args[1], "beard")
+        self.assertEqual(blended.call_args.args[3], [person])
+
     def test_a_search_matching_more_than_thirty_two_thousand_photos_still_works(self):
         con = sqlite3.connect(self.database)
         rows = [(f"bulk/{number}.jpg", f"bulk/{number}.jpg", "bulk", f"{number}.jpg", ".jpg", "image", 1, 1, 1, 1,

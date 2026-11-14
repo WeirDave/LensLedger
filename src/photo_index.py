@@ -46,7 +46,7 @@ MEDIA_EXTENSIONS = {
 RAW_EXTENSIONS = {".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 # An opening tag is matched on its own and its closing tag is looked for after
@@ -288,6 +288,17 @@ CREATE TABLE IF NOT EXISTS semantic_embeddings (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_model ON semantic_embeddings(model);
+
+-- Meaning-search vectors for the head-and-shoulders crop of each detected face,
+-- so a small detail such as a beard can be matched even when the face fills a
+-- tiny part of the photo.
+CREATE TABLE IF NOT EXISTS face_semantic_embeddings (
+    face_id INTEGER PRIMARY KEY REFERENCES face_embeddings(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    embedding_f32 BLOB NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS people_review_actions (
     id INTEGER PRIMARY KEY,

@@ -119,6 +119,8 @@ To set up meaning search, go to **Settings > Meaning search model** and click **
 
 Changing the model re-indexes your photos on the next meaning search run.
 
+**Searching for how someone looks.** Choose **Meaning** as the search scope, open **More filters**, select the person under **People (all of them)** and describe what to find, such as "beard", "bald head" or "wearing glasses". Photos are then ranked by how well that person's face matches the description as well as by the whole picture, so a small detail still counts in a wide shot. Faces are prepared for this automatically after face detection, and at the end of a meaning search run, once meaning search is set up. The person needs confirmed photos (see People). Plain descriptions such as "bald head" work best; the model matches the overall look, not exact detail. Without a person selected, the search matches the whole photo only.
+
 Three buttons start a meaning-search run, and they do different things:
 
 - **Build / resume meaning index** — the everyday one. Indexes photos that have never been indexed.

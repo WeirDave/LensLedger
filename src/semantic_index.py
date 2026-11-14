@@ -18,7 +18,7 @@ try:
 except ImportError:  # NumPy is optional in LensLedger; it arrives with face detection.
     np = None
 
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile, ImageOps
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 try:
     from pillow_heif import register_heif_opener
@@ -107,6 +107,16 @@ class OpenClipEncoder:
         for index, vector in zip(positions, vectors.cpu().tolist()):
             result[index] = tuple(float(value) for value in vector)
         return result
+
+    def encode_crops(self, crops: list[Image.Image]) -> list[tuple[float, ...]]:
+        """Return a vector for each already-loaded RGB image."""
+        if not crops:
+            return []
+        with self.torch.no_grad():
+            batch = self.torch.stack([self.preprocess(crop) for crop in crops]).to(self.device)
+            vectors = self.model.encode_image(batch)
+            vectors = vectors / vectors.norm(dim=-1, keepdim=True)
+        return [tuple(float(value) for value in vector) for vector in vectors.cpu().tolist()]
 
     def encode_text(self, text: str) -> tuple[float, ...]:
         with self.torch.no_grad():
@@ -342,6 +352,216 @@ def build_index(
     if counts["indexed"]:
         clear_matrix_cache(db_path)
     return counts
+
+
+# The crop around a detected face is this many face-widths across, centred a
+# little above the face so the top of the head and the hair are included.
+FACE_CROP_SPAN = 2.4
+FACE_CROP_LIFT = 0.15
+FACE_CROP_MIN_PIXELS = 224
+
+
+def face_crop(image: Image.Image, left: float, top: float, right: float, bottom: float) -> Image.Image | None:
+    """A square head-and-shoulders crop around a face box given as fractions of
+    the (already upright) image, or None when the box is empty."""
+    width, height = image.size
+    box_w = (right - left) * width
+    box_h = (bottom - top) * height
+    if box_w < 2 or box_h < 2:
+        return None
+    side = min(max(box_w, box_h) * FACE_CROP_SPAN, width, height)
+    centre_x = (left + right) / 2 * width
+    centre_y = (top + bottom) / 2 * height - box_h * FACE_CROP_LIFT
+    crop_left = min(max(0.0, centre_x - side / 2), width - side)
+    crop_top = min(max(0.0, centre_y - side / 2), height - side)
+    return image.crop((int(crop_left), int(crop_top), int(crop_left + side), int(crop_top + side)))
+
+
+def _open_upright(path: Path, box_fraction: float) -> Image.Image:
+    """Open a photo upright, decoding a JPEG at reduced scale when the face is
+    large enough that the crop would still be at least FACE_CROP_MIN_PIXELS."""
+    image = Image.open(path)
+    try:
+        if image.format == "JPEG" and box_fraction > 0:
+            scale = min(1.0, FACE_CROP_MIN_PIXELS / (max(image.size) * box_fraction * FACE_CROP_SPAN))
+            image.draft("RGB", (max(1, int(image.size[0] * scale)), max(1, int(image.size[1] * scale))))
+        return ImageOps.exif_transpose(image).convert("RGB")
+    finally:
+        image.close()
+
+
+def face_crop_pending(db_path: Path, model: str = DEFAULT_MODEL) -> int:
+    """How many detected faces have no crop vector yet for ``model``."""
+    with connect(db_path) as con:
+        return int(con.execute(
+            """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+               LEFT JOIN face_semantic_embeddings fs ON fs.face_id=f.id AND fs.model=?
+               WHERE a.media_type='image' AND a.in_review_bin=0 AND f.ignored_at IS NULL
+                     AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                     AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                     AND fs.face_id IS NULL""",
+            (model,),
+        ).fetchone()[0])
+
+
+def build_face_index(
+    db_path: Path,
+    encoder=None,
+    batch_size: int = 16,
+    progress: Callable[[dict[str, int]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> dict[str, object]:
+    """Encode the crop around every located face that has no crop vector yet,
+    so appearance words (beard, bald, glasses) can be matched to a person's
+    face rather than to the whole photo. Each photo is opened once."""
+    encoder = encoder or encoder_for(DEFAULT_MODEL)
+    model = str(encoder.identity)
+    skip_exts = unsupported_image_extensions() | {".gif"}
+    ext_clause = " AND ".join(["a.extension != ?"] * len(skip_exts))
+    with connect(db_path) as con:
+        rows = con.execute(
+            f"""SELECT f.id AS face_id, f.asset_id, a.path,
+                       f.box_left, f.box_top, f.box_right, f.box_bottom
+                FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
+                LEFT JOIN face_semantic_embeddings fs ON fs.face_id=f.id AND fs.model=?
+                WHERE a.media_type='image' AND a.in_review_bin=0 AND f.ignored_at IS NULL
+                      AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
+                      AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL
+                      AND fs.face_id IS NULL AND {ext_clause}
+                ORDER BY f.asset_id, f.id""",
+            (model, *sorted(skip_exts)),
+        ).fetchall()
+    by_asset: dict[int, list] = {}
+    for row in rows:
+        by_asset.setdefault(int(row["asset_id"]), []).append(row)
+    counts: dict[str, object] = {"total": len(rows), "indexed": 0, "errors": 0, "cancelled": False}
+    if progress:
+        progress(dict(counts))
+    pending: list[tuple[int, Image.Image]] = []
+
+    def flush() -> None:
+        if not pending:
+            return
+        vectors = encoder.encode_crops([crop for _face_id, crop in pending])
+        with connect(db_path) as con:
+            for (face_id, _crop), vector in zip(pending, vectors):
+                if not vector:
+                    counts["errors"] += 1
+                    continue
+                con.execute(
+                    """INSERT INTO face_semantic_embeddings(face_id,model,dimensions,embedding_f32,updated_at)
+                       VALUES (?,?,?,?,?) ON CONFLICT(face_id) DO UPDATE SET
+                       model=excluded.model,dimensions=excluded.dimensions,
+                       embedding_f32=excluded.embedding_f32,updated_at=excluded.updated_at""",
+                    (face_id, model, len(vector), encode_vector(normalize(vector)), utc_now()),
+                )
+                counts["indexed"] += 1
+        pending.clear()
+        if progress:
+            progress(dict(counts))
+
+    for faces in by_asset.values():
+        if should_cancel and should_cancel():
+            counts["cancelled"] = True
+            break
+        try:
+            widest = max(max(f["box_right"] - f["box_left"], f["box_bottom"] - f["box_top"]) for f in faces)
+            image = _open_upright(Path(faces[0]["path"]), float(widest))
+        except (OSError, ValueError, Image.DecompressionBombError):
+            counts["errors"] += len(faces)
+            continue
+        for face in faces:
+            crop = face_crop(image, face["box_left"], face["box_top"], face["box_right"], face["box_bottom"])
+            if crop is None:
+                counts["errors"] += 1
+                continue
+            pending.append((int(face["face_id"]), crop))
+        image.close()
+        if len(pending) >= max(1, batch_size):
+            flush()
+    flush()
+    return counts
+
+
+def rank_faces(
+    db_path: Path,
+    text: str,
+    face_ids: Iterable[int],
+    encoder=None,
+    chunk: int = 800,
+) -> dict[int, float]:
+    """Cosine score of ``text`` against each face's crop vector, for the faces
+    in ``face_ids`` that have one. Faces without a crop vector are left out."""
+    text = " ".join(text.split())
+    wanted = sorted({int(face_id) for face_id in face_ids})
+    if not text or not wanted:
+        return {}
+    with connect(db_path) as con:
+        model_row = con.execute(
+            "SELECT model FROM face_semantic_embeddings GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1"
+        ).fetchone()
+        if not model_row:
+            return {}
+        model = str(model_row["model"])
+        rows = []
+        for start in range(0, len(wanted), chunk):
+            part = wanted[start:start + chunk]
+            marks = ",".join("?" for _ in part)
+            rows.extend(con.execute(
+                f"SELECT face_id,embedding_f32 FROM face_semantic_embeddings WHERE model=? AND face_id IN ({marks})",
+                (model, *part),
+            ).fetchall())
+    if not rows:
+        return {}
+    encoder = encoder or encoder_for(model)
+    query = normalize(encoder.encode_text(text))
+    scores: dict[int, float] = {}
+    for row in rows:
+        scores[int(row["face_id"])] = dot(query, decode_vector(row["embedding_f32"]))
+    return scores
+
+
+def blend_person_faces(
+    db_path: Path,
+    text: str,
+    scored: list[tuple[int, float]],
+    person_ids: Iterable[int],
+    encoder=None,
+    chunk: int = 800,
+) -> list[tuple[int, float]]:
+    """Re-rank ``(asset_id, score)`` pairs so each photo scores by the better of
+    its whole-photo match and the best match among the crops of the chosen
+    people's confirmed faces in it. Photos whose faces have no crop vector keep
+    their whole-photo score."""
+    people = sorted({int(person_id) for person_id in person_ids})
+    if not scored or not people:
+        return scored
+    asset_ids = [asset_id for asset_id, _score in scored]
+    person_marks = ",".join("?" for _ in people)
+    links: dict[int, list[int]] = {}
+    with connect(db_path) as con:
+        for start in range(0, len(asset_ids), chunk):
+            part = asset_ids[start:start + chunk]
+            marks = ",".join("?" for _ in part)
+            for row in con.execute(
+                f"""SELECT asset_id,face_id FROM asset_people
+                    WHERE state='confirmed' AND face_id IS NOT NULL
+                          AND person_id IN ({person_marks}) AND asset_id IN ({marks})""",
+                (*people, *part),
+            ):
+                links.setdefault(int(row["asset_id"]), []).append(int(row["face_id"]))
+    face_scores = rank_faces(
+        db_path, text, (face_id for faces in links.values() for face_id in faces), encoder
+    )
+    if not face_scores:
+        return scored
+    blended = []
+    for asset_id, score in scored:
+        best = max((face_scores[face_id] for face_id in links.get(asset_id, ()) if face_id in face_scores),
+                   default=None)
+        blended.append((asset_id, score if best is None else max(score, best)))
+    blended.sort(key=lambda item: item[1], reverse=True)
+    return blended
 
 
 # A decoded copy of a library's embeddings, kept in memory so repeated and
