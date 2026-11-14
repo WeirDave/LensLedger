@@ -615,6 +615,65 @@ class ServerWorkflowTests(unittest.TestCase):
         with patch.object(self.photo_search, "render_thumbnail", side_effect=OSError("cannot decode")):
             self.assertEqual(self.get(f"/thumb?id={asset_id}&size=160").read(), original)
 
+    def add_video(self, name: str = "clip.mp4") -> int:
+        from photo_index import scan_library
+
+        (self.library / name).write_bytes(b"not a real movie")
+        scan_library(self.library, self.database)
+        con = sqlite3.connect(self.database)
+        try:
+            return int(con.execute("SELECT id FROM assets WHERE filename=?", (name,)).fetchone()[0])
+        finally:
+            con.close()
+
+    def test_a_video_thumbnail_is_a_small_picture_made_once(self):
+        asset_id = self.add_video()
+        frame = Image.new("RGB", (1280, 720), (200, 30, 30))
+
+        with patch.object(self.photo_search, "video_frame", return_value=frame):
+            first = self.get(f"/thumb?id={asset_id}&size=160")
+            data = first.read()
+        self.assertEqual(first.getheader("Content-Type"), "image/jpeg")
+        with Image.open(io.BytesIO(data)) as thumbnail:
+            self.assertEqual(thumbnail.size, (160, 90))
+        with patch.object(self.photo_search, "video_frame", side_effect=AssertionError("made again")):
+            self.assertEqual(self.get(f"/thumb?id={asset_id}&size=160").read(), data)
+
+    def test_a_video_with_no_readable_frame_has_no_thumbnail(self):
+        asset_id = self.add_video()
+
+        with patch.object(self.photo_search, "video_frame", return_value=None):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get(f"/thumb?id={asset_id}&size=160")
+        self.assertEqual(caught.exception.code, 404)
+        caught.exception.close()
+
+    def test_a_real_video_file_yields_a_frame(self):
+        try:
+            import cv2
+            import numpy
+        except ImportError:
+            self.skipTest("OpenCV is not installed")
+        from video_frames import video_frame
+
+        path = self.library / "real.mp4"
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (320, 240))
+        for index in range(30):
+            picture = numpy.zeros((240, 320, 3), numpy.uint8)
+            picture[:, :, 2] = 200
+            picture[:, :, 1] = index * 4
+            writer.write(picture)
+        writer.release()
+        if not path.is_file() or path.stat().st_size == 0:
+            self.skipTest("This OpenCV build cannot write MP4")
+
+        frame = video_frame(path, 160)
+
+        self.assertIsNotNone(frame)
+        red, _green, blue = frame.getpixel((frame.width // 2, frame.height // 2))
+        self.assertGreater(red, 150)
+        self.assertLess(blue, 80)
+
     def test_an_edited_photo_gets_a_new_thumbnail(self):
         asset_id = self.add_large_photo()
         first = self.get(f"/thumb?id={asset_id}&size=160").read()
@@ -661,6 +720,7 @@ class ServerWorkflowTests(unittest.TestCase):
         scripts = _Path(self.photo_search.__file__).resolve().parent.parent / "web" / "js"
         viewer = (scripts / "viewer.js").read_text(encoding="utf-8")
         self.assertIn("img.src='/thumb?id='+item.id;b.append(img)", viewer)
+        self.assertIn("img.src='/thumb?id='+item.id;img.onerror=", viewer)
         self.assertIn("picture.src='/thumb?id='+Number(person.representative_id)", viewer)
         self.assertIn("/thumb?id=", (scripts / "group-manager.js").read_text(encoding="utf-8"))
 

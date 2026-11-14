@@ -71,6 +71,7 @@ from lensledger_updater import (check_for_update, is_managed_install, managed_in
                                 is_git_install,
                                 UpdateError)
 from metadata_reader import pixel_hash as _pixel_hash, read_embedded_metadata
+from video_frames import video_frame
 import metadata_backups
 from photo_index import (
     EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, SCHEMA_VERSION, VIDEO_EXTENSIONS, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
@@ -1078,6 +1079,17 @@ def render_thumbnail(source: Path, bucket: int) -> bytes:
         image.thumbnail((bucket, bucket))
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=82)
+    return buffer.getvalue()
+
+
+def render_video_thumbnail(source: Path, bucket: int) -> bytes:
+    """A JPEG poster frame of a video. Raises when no frame can be read."""
+    frame = video_frame(source, bucket)
+    if frame is None:
+        raise OSError("No frame could be read from this video")
+    frame.thumbnail((bucket, bucket))
+    buffer = io.BytesIO()
+    frame.convert("RGB").save(buffer, format="JPEG", quality=82)
     return buffer.getvalue()
 
 
@@ -8518,16 +8530,19 @@ class SearchHandler(BaseHTTPRequestHandler):
         try: path.relative_to(self.library_root)
         except ValueError: return self.send_error(403)
         if not path.is_file(): return self.send_error(404)
-        if bucket is None or path.suffix.lower() not in IMAGE_EXTENSIONS:
+        is_video = path.suffix.lower() in VIDEO_EXTENSIONS
+        if bucket is None or not (is_video or path.suffix.lower() in IMAGE_EXTENSIONS):
             return self.serve_media(params)
         try:
             cached = thumbnail_cache_file(path, bucket)
             try:
                 data = cached.read_bytes()
             except OSError:
-                data = render_thumbnail(path, bucket)
+                data = (render_video_thumbnail if is_video else render_thumbnail)(path, bucket)
                 self.keep_thumbnail(cached, data)
         except Exception:
+            if is_video:
+                return self.send_error(404)
             return self.serve_media(params)
         self.send_bytes(data, "image/jpeg", cache="private, max-age=3600", media=True)
 

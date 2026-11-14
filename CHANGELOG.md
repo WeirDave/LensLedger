@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.40.0 — 2026-11-14
+
+- **Videos now show a picture from the video in the thumbnail strip** instead of a plain "VIDEO" label, with a small play button over it so they stay easy to tell from photos. A video whose picture cannot be read on the computer keeps the label.
+- Video pictures are read through Windows, which uses the codecs already installed there, and are kept in the same thumbnail folder as photo thumbnails (limited to 1 GB in total).
+
 ## 1.39.0 — 2026-11-14
 
 - **Meaning search can now match how a person looks.** Choose **Meaning** as the search scope, select a person under **More filters > People (all of them)** and describe what to find, such as "beard" or "bald head". Photos rank by the better of the whole-photo match and the match against that person's face, so a small detail in a wide shot is no longer lost.
