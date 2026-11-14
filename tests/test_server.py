@@ -142,6 +142,60 @@ class ServerWorkflowTests(unittest.TestCase):
         for host in (f"localhost:{port}", f"127.0.0.1:{port}", f"[::1]:{port}", "LOCALHOST"):
             self.assertEqual(self.raw_request("GET", "/", headers={"Host": host}).status, 200, host)
 
+    def raw_json(self, method, path, *, headers=None, body=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def test_posts_from_another_site_are_refused_before_the_token_is_read(self):
+        port = self.server.server_port
+        body = json.dumps({"csrf": "wrong", "path": "../data/outside.jpg"}).encode("utf-8")
+        host = f"127.0.0.1:{port}"
+        base = {"Host": host, "Content-Type": "application/json"}
+        for origin in ("http://evil.example", f"http://evil.example:{port}", "null", f"https://127.0.0.1:{port}",
+                       f"http://127.0.0.1:{port + 1}", f"http://localhost:{port}"):
+            status, payload = self.raw_json("POST", "/api/reveal-path", headers={**base, "Origin": origin}, body=body)
+            self.assertEqual(status, 403, origin)
+            self.assertEqual(json.loads(payload)["error"], "request came from another site", origin)
+        for site in ("cross-site", "same-site"):
+            status, payload = self.raw_json("POST", "/api/reveal-path", headers={**base, "Sec-Fetch-Site": site}, body=body)
+            self.assertEqual(json.loads(payload)["error"], "request came from another site", site)
+        for extra in ({}, {"Origin": f"http://127.0.0.1:{port}"}, {"Sec-Fetch-Site": "same-origin"}):
+            status, payload = self.raw_json("POST", "/api/reveal-path", headers={**base, **extra}, body=body)
+            self.assertEqual(json.loads(payload)["error"], "invalid request token", extra)
+
+    def test_same_origin_check_rules(self):
+        from photo_search import is_same_origin_request as same
+        self.assertTrue(same(None, "127.0.0.1:8765"))
+        self.assertTrue(same("http://127.0.0.1:8765", "127.0.0.1:8765"))
+        self.assertTrue(same("http://LOCALHOST:8765", "localhost:8765"))
+        self.assertTrue(same("http://[::1]:8765", "[::1]:8765"))
+        self.assertTrue(same("http://localhost", "localhost"))
+        self.assertTrue(same("http://localhost:1", "localhost:1", "none"))
+        for origin in ("null", "", "http://evil.example:8765", "http://127.0.0.1:8766", "https://127.0.0.1:8765",
+                       "http://127.0.0.1:8765/path", "http://127.0.0.1:8765@evil.example", "file://"):
+            self.assertFalse(same(origin, "127.0.0.1:8765"), origin)
+        self.assertFalse(same("http://127.0.0.1:8765", "127.0.0.1:8765", "cross-site"))
+        self.assertFalse(same(None, "127.0.0.1:8765", "same-site"))
+
+    def test_files_sent_from_disk_carry_security_headers(self):
+        port = self.server.server_port
+        host = {"Host": f"127.0.0.1:{port}"}
+        face = self.raw_request("GET", "/media-face?face_id=999999", headers=host)
+        self.assertEqual(face.status, 404)
+        for path in (f"/media?id={self.asset_id}", f"/thumb?id={self.asset_id}", f"/thumb?id={self.asset_id}&size=9999"):
+            response = self.raw_request("GET", path, headers=host)
+            self.assertEqual(response.status, 200, path)
+            self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff", path)
+            self.assertEqual(response.getheader("X-Frame-Options"), "DENY", path)
+            self.assertEqual(response.getheader("Cross-Origin-Resource-Policy"), "same-origin", path)
+            self.assertIn("default-src 'none'", response.getheader("Content-Security-Policy") or "", path)
+            self.assertIn("sandbox", response.getheader("Content-Security-Policy") or "", path)
+
     def test_old_people_review_address_forwards_only_the_person(self):
         response = self.raw_request("GET", "/people-review?person=12&next=%0d%0aSet-Cookie:x")
         self.assertEqual(response.status, 301)

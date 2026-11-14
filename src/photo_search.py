@@ -983,6 +983,28 @@ def is_local_host_header(value: str | None) -> bool:
     return hostname in LOCAL_HOSTNAMES
 
 
+def is_same_origin_request(origin: str | None, host: str | None, fetch_site: str | None = None) -> bool:
+    """A page on another site can make the browser send a POST here, and the
+    request token is the only thing standing in its way. Browsers also say
+    where a request came from, so a POST naming any other origin is refused
+    as well. A request that names no origin (a script, curl) is not a
+    browser cross-site request and is left to the token."""
+    if fetch_site is not None and fetch_site.strip().lower() not in ("same-origin", "none"):
+        return False
+    if origin is None:
+        return True
+    try:
+        parts = urllib.parse.urlsplit(origin.strip())
+    except ValueError:
+        return False
+    if parts.scheme != "http" or not parts.netloc or parts.path not in ("", "/"):
+        return False
+    return parts.hostname in LOCAL_HOSTNAMES and parts.netloc.lower() == (host or "").strip().lower()
+
+
+MEDIA_CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox"
+
+
 def resolve_inside(root: Path, relative) -> Path:
     base = os.path.realpath(root)
     full = os.path.realpath(os.path.join(base, os.fspath(relative)))
@@ -1743,11 +1765,16 @@ class SearchHandler(BaseHTTPRequestHandler):
     def db(self):
         return connect(self.db_path)
 
-    def send_bytes(self, data: bytes, content_type: str, status: int = 200, cache: str = "no-store"):
+    def send_bytes(self, data: bytes, content_type: str, status: int = 200, cache: str = "no-store", media: bool = False):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", cache)
+        if media:
+            self.send_media_headers()
+            self.end_headers()
+            self.wfile.write(data)
+            return
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         # No inline <script> or <style> anywhere in the app -- page data crosses
@@ -1762,6 +1789,15 @@ class SearchHandler(BaseHTTPRequestHandler):
         )
         self.end_headers()
         self.wfile.write(data)
+
+    def send_media_headers(self):
+        """The headers every file or picture sent straight from disk carries.
+        A library file opened on its own address must not run anything, so
+        it is sandboxed and never sniffed into another type."""
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", MEDIA_CONTENT_SECURITY_POLICY)
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
 
     def send_html(self, body: str, status: int = 200):
         self.send_bytes(body.encode("utf-8"), "text/html; charset=utf-8", status)
@@ -1923,6 +1959,8 @@ class SearchHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not is_local_host_header(self.headers.get("Host")):
             return self.send_error(403)
+        if not is_same_origin_request(self.headers.get("Origin"), self.headers.get("Host"), self.headers.get("Sec-Fetch-Site")):
+            return self.send_json({"error": "request came from another site"}, 403)
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > 100_000:
@@ -5716,6 +5754,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "image/jpeg")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "private, max-age=86400")
+        self.send_media_headers()
         self.end_headers()
         self.wfile.write(data)
 
@@ -6017,8 +6056,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_media_headers()
         self.end_headers()
 
         def send_event(data):
@@ -8174,7 +8212,7 @@ class SearchHandler(BaseHTTPRequestHandler):
                 self.keep_thumbnail(cached, data)
         except Exception:
             return self.serve_media(params)
-        self.send_bytes(data, "image/jpeg", cache="private, max-age=3600")
+        self.send_bytes(data, "image/jpeg", cache="private, max-age=3600", media=True)
 
     def keep_thumbnail(self, cached: Path, data: bytes):
         """Store a thumbnail; a full or unwritable disk only means it is made again."""
@@ -8214,11 +8252,11 @@ class SearchHandler(BaseHTTPRequestHandler):
             except Exception:
                 return self.send_error(500)
             data = buffer.getvalue()
-            self.send_response(200); self.send_header("Content-Type", "image/jpeg"); self.send_header("Content-Length", str(len(data))); self.send_header("Cache-Control", "private, max-age=3600"); self.end_headers()
+            self.send_response(200); self.send_header("Content-Type", "image/jpeg"); self.send_header("Content-Length", str(len(data))); self.send_header("Cache-Control", "private, max-age=3600"); self.send_media_headers(); self.end_headers()
             self.wfile.write(data)
             return
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        self.send_response(200); self.send_header("Content-Type", content_type); self.send_header("Content-Length", str(path.stat().st_size)); self.send_header("Cache-Control", "private, max-age=3600"); self.end_headers()
+        self.send_response(200); self.send_header("Content-Type", content_type); self.send_header("Content-Length", str(path.stat().st_size)); self.send_header("Cache-Control", "private, max-age=3600"); self.send_media_headers(); self.end_headers()
         with path.open("rb") as stream:
             while chunk := stream.read(1024 * 1024): self.wfile.write(chunk)
 

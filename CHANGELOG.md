@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.34.1 — 2026-11-14
+
+- Changes that arrive from a page on another website are refused. Every request that changes something now has to come from LensLedger's own address, in addition to the request token it already needed.
+- Photos, thumbnails and face pictures sent by the server now carry the same protective headers as the pages: they are never reinterpreted as another file type, cannot be shown inside another site's frame or loaded by another site, and a library file opened on its own address cannot run anything.
+
 ## 1.34.0 — 2026-11-13
 
 - Photo lists and cards load thumbnails instead of the original files: the strip under the viewer, the photo on each person's card, the **Possible duplicates** comparison, the **Card photo for** picker, the **Manage groups** avatars and the **People review** photos. The viewer and its full-size lightbox still load the original. Thumbnails are made as needed and kept in a new `Thumbnails` folder in the application data folder, limited to about 1 GB; deleting any of them is safe.
