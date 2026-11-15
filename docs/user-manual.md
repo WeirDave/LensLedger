@@ -302,6 +302,7 @@ From the People search scope on the home page:
 
 - **Edit name** — change a person's primary name. The rename propagates to all confirmed photos' JPEG metadata.
 - **Aliases** — add alternate names (nicknames, maiden names) that also match in search.
+- **Restore from photo names** — on the People index, links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, for example after photos were renamed or moved. It shows how many links it would restore and asks first. Rejected matches are left alone.
 - **Merge** — combine duplicate person records. Aliases are preserved, and JPEG metadata is updated.
 
 ---

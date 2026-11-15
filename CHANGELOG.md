@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.43.0 — 2026-11-15
+
+- The people index has a new **Restore from photo names** button, next to **Tag faces**. It links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, so those people show their photos again. It reports how many photos, people and links it would restore, and changes nothing until **Restore** is chosen. No photo file is changed. A match that was rejected earlier, and photos in the Review Bin, are left alone.
+
 ## 1.42.0 — 2026-11-14
 
 - The **Publish photos** page has a new **Activity log** window that shows what LensLedger is doing as it happens: the same lines the terminal window prints, such as each step of **Classify photos** and **Write all tags**, each photo that could not be handled, and how the run ended. **Copy** and **Clear** buttons sit in its title bar.
