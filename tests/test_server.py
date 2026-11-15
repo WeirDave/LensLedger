@@ -1922,6 +1922,67 @@ class ServerWorkflowTests(unittest.TestCase):
             [0.1, 0.2, 0.4, 0.6],
         )
 
+    def _people_for_relink(self):
+        from photo_index import connect, set_source_tags
+
+        con = connect(self.database)
+        found = int(con.execute("INSERT INTO people(name) VALUES ('Casey Example')").lastrowid)
+        refused = int(con.execute("INSERT INTO people(name) VALUES ('Robin Sample')").lastrowid)
+        set_source_tags(con, self.asset_id, "embedded_people", ["casey example", "Robin Sample", "Nobody Listed"])
+        set_source_tags(con, self.asset_id, "embedded_xmp", ["Pat Keyword"])
+        con.execute("INSERT INTO people(name) VALUES ('Pat Keyword')")
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,source,updated_at)
+               VALUES (?,?,'rejected','manual','2026-01-01T00:00:00+00:00')""",
+            (self.asset_id, refused),
+        )
+        con.commit()
+        con.close()
+        return found, refused
+
+    def test_restore_from_photo_names_counts_without_changing_anything(self):
+        found, _refused = self._people_for_relink()
+        result = self.json_response(self.post("/api/people/relink", {"apply": False}))
+        self.assertEqual((result["applied"], result["links"], result["people"], result["photos"]),
+                         (False, 1, 1, 1))
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) FROM asset_people WHERE person_id=?", (found,)).fetchone()[0], 0)
+        con.close()
+
+    def test_restore_from_photo_names_links_only_exact_embedded_people_names(self):
+        found, refused = self._people_for_relink()
+        result = self.json_response(self.post("/api/people/relink", {"apply": True}))
+        self.assertEqual((result["applied"], result["links"]), (True, 1))
+        con = sqlite3.connect(self.database)
+        link = con.execute(
+            "SELECT state, source, face_id, published_at FROM asset_people WHERE asset_id=? AND person_id=?",
+            (self.asset_id, found)).fetchone()
+        self.assertEqual((link[0], link[1], link[2]), ("confirmed", "embedded_names", None))
+        self.assertIsNotNone(link[3])
+        self.assertEqual(con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?",
+            (self.asset_id, refused)).fetchone()[0], "rejected")
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM asset_people").fetchone()[0], 2)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) FROM asset_tags at JOIN tags t ON t.id=at.tag_id "
+            "WHERE at.source='person' AND t.name='Casey Example'").fetchone()[0], 1)
+        con.close()
+        again = self.json_response(self.post("/api/people/relink", {"apply": True}))
+        self.assertEqual(again["links"], 0)
+
+    def test_restore_from_photo_names_skips_photos_in_the_review_bin(self):
+        self._people_for_relink()
+        con = sqlite3.connect(self.database)
+        con.execute("UPDATE assets SET in_review_bin=1 WHERE id=?", (self.asset_id,))
+        con.commit()
+        con.close()
+        result = self.json_response(self.post("/api/people/relink", {"apply": True}))
+        self.assertEqual(result["links"], 0)
+
+    def test_people_index_offers_restore_from_photo_names(self):
+        self.assertIn("Restore from photo names", self.get("/?scope=people").read().decode("utf-8"))
+
     def test_merge_people_keeps_aliases_and_strongest_photo_decision(self):
         from photo_index import utc_now
 
