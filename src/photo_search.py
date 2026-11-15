@@ -3431,7 +3431,6 @@ class SearchHandler(BaseHTTPRequestHandler):
         selected_person_stats: dict[str, int] = {}
         total = 0
         trash_count = 0
-        review_count = 0
         unidentified_faces_count = 0
         untagged_count = 0
         filter_people: list[dict] = []
@@ -3445,12 +3444,10 @@ class SearchHandler(BaseHTTPRequestHandler):
                 trash_count = int(con.execute(
                     "SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL"
                 ).fetchone()[0])
-                review_count = int(con.execute(
-                    "SELECT COUNT(*) FROM asset_people WHERE state='suggested'"
-                ).fetchone()[0])
                 unidentified_faces_count = int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.skipped_at IS NULL
+                         AND f.person_id IS NULL
                          AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""
@@ -3700,7 +3697,7 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
             f'<button type="button" class="secondary" id="findDuplicatesGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Find duplicates</button>'
-            f'<button type="button" id="reviewPeopleGallery">Tag faces ({review_count:,})</button>'
+            f'<button type="button" id="reviewPeopleGallery">Tag faces ({unidentified_faces_count:,})</button>'
             f'</div></nav>'
         )
         lettered_cards = []

@@ -1287,6 +1287,34 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertIsNone(queue["person"])
         self.assertEqual(queue["deferred_people"], 1)
 
+    def test_tag_faces_button_counts_the_faces_the_page_lists(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        for source_id, skipped in ((1, None), (2, None), (3, utc_now())):
+            con.execute(
+                """INSERT INTO face_embeddings(
+                       source,source_face_id,asset_id,relative_path,gender_marker,dimensions,embedding_f32,
+                       box_left,box_top,box_right,box_bottom,skipped_at
+                   ) VALUES ('test',?,?,?,?,?,?,?,?,?,?,?)""",
+                (source_id, self.asset_id, self.photo.name, "F", 2, b"12345678",
+                 0.1, 0.2, 0.4, 0.6, skipped),
+            )
+        face_id = int(con.execute("SELECT MIN(id) FROM face_embeddings").fetchone()[0])
+        person_id = int(con.execute("INSERT INTO people(name) VALUES ('Counted Person')").lastrowid)
+        con.execute(
+            """INSERT INTO asset_people(asset_id,person_id,state,confidence,face_id,source,updated_at)
+               VALUES (?,?,'suggested',0.93,?,'test',?)""",
+            (self.asset_id, person_id, face_id, utc_now()),
+        )
+        con.commit()
+        con.close()
+
+        page = self.get("/?scope=people").read().decode("utf-8")
+        self.assertIn("Tag faces (2)", page)
+        listed = self.json_response(self.get("/api/faces/unidentified"))
+        self.assertEqual(listed["total"], 2)
+
     def test_people_queue_returns_the_exact_face_bounds(self):
         from photo_index import utc_now
 
