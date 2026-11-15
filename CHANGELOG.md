@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.50.1 — 2026-11-15
+
+- The version badge now sits at the far right of the top bar on every page. On the home page, People, Set-aside faces, Publish photos and Manage groups it was previously next to the LensLedger name; it now follows the light/dark theme button, matching Settings, Scan photos, Auto-import, Dev Tools and the User Manual.
+
 ## 1.50.0 — 2026-11-15
 
 - Added a **Re-scan everything** button under **Face detection** on the **Scan your photos** page. It looks for faces in every photo again, including ones already scanned, and asks for confirmation first.
