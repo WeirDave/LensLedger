@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.47.0 — 2026-11-15
+
+- Face detection now uses an NVIDIA graphics card when the computer has one. Setting up face detection on Windows detects the card and installs the graphics-card version of its runtime in place of the processor-only one.
+- The status line under **Face detection** on the **Scan your photos** page now says whether it runs on the graphics card or the processor, and the activity log gives the same line when a scan starts.
+- A **Use my graphics card** button appears beside **Pause** under **Face detection** when a card was found but face detection is still on the processor. It restarts LensLedger and switches face detection to the graphics-card runtime; faces already found stay as they are.
+- A computer whose NVIDIA driver is too old for graphics-card support now gets a status line saying so, instead of a button that cannot work.
+
 ## 1.46.0 — 2026-11-15
 
 - Meaning search now uses an NVIDIA graphics card when the computer has one. Setting up meaning search on Windows detects the card and downloads the version of PyTorch that can use it (about 2.5 GB) instead of the processor-only version.

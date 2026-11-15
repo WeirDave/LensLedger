@@ -206,20 +206,26 @@ def nvidia_gpu_name() -> str:
     return lines[0] if done.returncode == 0 and lines else ""
 
 
-def describe_device(cuda_name: str, nvidia_name: str) -> dict[str, str]:
-    """What meaning search runs on, and why, in words for the person using it.
+def describe_device(cuda_name: str, nvidia_name: str, software: str = "PyTorch",
+                    fixable: bool = True) -> dict[str, str]:
+    """What a feature runs on, and why, in words for the person using it.
 
-    ``cuda_name`` is the card PyTorch can use ("" if it cannot use one);
+    ``cuda_name`` is the card ``software`` can use ("" if it cannot use one);
     ``nvidia_name`` is an NVIDIA card found in the computer whether or not
-    PyTorch can use it."""
+    ``software`` can use it; ``fixable`` is whether LensLedger can fetch a
+    build that does."""
     if cuda_name:
         return {"device": "cuda", "name": cuda_name,
                 "summary": f"Using your graphics card ({cuda_name})."}
-    if nvidia_name:
+    if nvidia_name and fixable:
         return {"device": "cpu", "name": "",
                 "summary": (f"Using the processor, not your graphics card ({nvidia_name}): the installed "
-                            "PyTorch has no NVIDIA support, so indexing is far slower than it needs to be. "
-                            "Use the \"Use my graphics card\" button on the Scan your photos page to fix it.")}
+                            f"{software} has no NVIDIA support, so this is far slower than it needs to be. "
+                            "Use the \"Use my graphics card\" button to fix it.")}
+    if nvidia_name:
+        return {"device": "cpu", "name": "",
+                "summary": (f"Using the processor. An NVIDIA graphics card ({nvidia_name}) was found, but its "
+                            "driver is too old for graphics-card support; updating the NVIDIA driver would allow it.")}
     return {"device": "cpu", "name": "", "summary": "Using the processor."}
 
 
@@ -230,7 +236,7 @@ def device_status() -> dict[str, str]:
         return {"device": "", "name": "", "summary": ""}
     import torch
     cuda_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
-    return describe_device(cuda_name, nvidia_gpu_name())
+    return describe_device(cuda_name, nvidia_gpu_name(), "PyTorch", bool(cuda_wheel_tag()))
 
 
 CUDA_WHEEL_BASE = "https://download.pytorch.org/whl"
@@ -300,6 +306,26 @@ def torch_lacks_gpu_support(installed: str, tag: str) -> bool:
 
 def gpu_switch_available() -> bool:
     return torch_lacks_gpu_support(installed_torch_version(), cuda_wheel_tag())
+
+
+def distribution_version(name: str) -> str:
+    """The installed version of a pip package, or "" -- read from its metadata so
+    the package itself is never imported (importing it would hold its files open)."""
+    try:
+        from importlib.metadata import version
+        return version(name)
+    except Exception:
+        return ""
+
+
+def onnx_gpu_requirement(packages: list[str], with_cuda_libraries: bool) -> str:
+    """The onnxruntime line of a requirements section, turned into its
+    graphics-card package ("onnxruntime>=1.28,<2" becomes
+    "onnxruntime-gpu>=1.28,<2"). Without PyTorch's CUDA libraries to share,
+    the CUDA and cuDNN libraries are requested with it."""
+    line = next((p for p in packages if p.lower().startswith("onnxruntime")), "onnxruntime")
+    rest = re.sub(r"^onnxruntime(-gpu)?", "", line, flags=re.IGNORECASE)
+    return f"onnxruntime-gpu{'[cuda,cudnn]' if with_cuda_libraries else ''}{rest}"
 
 
 def cuda_torch_pip_args(requirement: str, tag: str) -> list[str]:

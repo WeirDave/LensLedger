@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Callable
 
 from photo_index import connect, utc_now
+from semantic_index import (
+    cuda_wheel_tag, describe_device, distribution_version, installed_torch_version,
+    nvidia_gpu_name, onnx_gpu_requirement, run_pip,
+)
 
 
 def _unit(values) -> list[float]:
@@ -39,6 +43,64 @@ def is_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def face_gpu_switch_available() -> bool:
+    """True when face detection is installed without graphics-card support on a
+    computer whose NVIDIA card and driver could give it. onnxruntime-gpu's
+    PyPI build needs CUDA 13, hence the driver check."""
+    return bool(
+        cuda_wheel_tag() == "cu130" and distribution_version("insightface")
+        and not distribution_version("onnxruntime-gpu")
+    )
+
+
+def face_device_status() -> dict[str, str]:
+    """What face detection will run on, without loading its model. Empty when
+    face detection is not installed."""
+    if not is_available():
+        return {}
+    cuda_name = ""
+    if distribution_version("onnxruntime-gpu"):
+        try:
+            import onnxruntime
+            if "CUDAExecutionProvider" in onnxruntime.get_available_providers():
+                cuda_name = nvidia_gpu_name()
+        except Exception:
+            pass
+    return describe_device(cuda_name, nvidia_gpu_name(), "face-detection runtime",
+                           cuda_wheel_tag() == "cu130")
+
+
+def switch_faces_to_gpu(packages: list[str]) -> tuple[bool, str]:
+    """Replace the processor-only onnxruntime with the graphics-card one. If the
+    replacement cannot be installed, the processor one is put back so face
+    detection keeps working. Must run while onnxruntime is not loaded."""
+    requirement = onnx_gpu_requirement(packages, "+cu130" not in installed_torch_version())
+    cpu_requirement = next((p for p in packages if p.lower().startswith("onnxruntime")), "onnxruntime")
+    run_pip(["uninstall", "-y", "onnxruntime"], timeout=600)
+    ok, tail = run_pip(["install", requirement], timeout=3600, stream=True)
+    if not ok:
+        run_pip(["uninstall", "-y", "onnxruntime-gpu"], timeout=600)
+        run_pip(["install", cpu_requirement], timeout=1800)
+    return ok, tail
+
+
+def _gpu_providers() -> tuple[list[str], int]:
+    """Execution providers and device number to prepare the face models with:
+    the graphics card when onnxruntime has it, else the processor."""
+    try:
+        import onnxruntime
+    except ImportError:
+        return ["CPUExecutionProvider"], -1
+    if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
+        return ["CPUExecutionProvider"], -1
+    try:
+        # Finds CUDA and cuDNN in PyTorch's folder or the NVIDIA pip packages.
+        onnxruntime.preload_dlls()
+    except Exception:
+        pass
+    return ["CUDAExecutionProvider", "CPUExecutionProvider"], 0
 
 
 def _insightface_model_root() -> Path:
@@ -106,8 +168,9 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
             "with this Python interpreter first."
         ) from exc
     _patch_face_align()
+    providers, device_id = _gpu_providers()
     options = {
-        "name": model_name, "providers": ["CPUExecutionProvider"],
+        "name": model_name, "providers": providers,
         # buffalo_l's full pack also includes gender/age and 3D/2D landmark
         # models. Neither face_scan.py nor this module reads anything but
         # .bbox and .normed_embedding (detection + recognition) -- on a
@@ -121,7 +184,7 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
         options["root"] = str(model_root)
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
         analyzer = FaceAnalysis(**options)
-        analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+        analyzer.prepare(ctx_id=device_id, det_size=(640, 640))
     return cv2, np, analyzer
 
 

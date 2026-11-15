@@ -489,7 +489,8 @@ async function pollOnce() {
       $('faceScanBarWrap').hidden = !faceInstalling;
       $('faceScanBarWrap').classList.toggle('indeterminate', faceInstalling);
     } else {
-      $('faceScanMessage').textContent = faceScan.message || 'Ready. Scan for faces below to find people in photos LensLedger has not looked at yet.';
+      $('faceScanMessage').textContent = (faceScan.message || 'Ready. Scan for faces below to find people in photos LensLedger has not looked at yet.')
+        + (faceScan.device_summary ? ' ' + faceScan.device_summary : '');
       const faceErrorCount = Math.max(c.face_scan_errors || 0, faceScan.errors || 0);
       $('faceScanMetrics').replaceChildren(
         metric('Faces found', faceScan.faces_found, faceScan.faces_found ? () => { window.location.href = '/people'; } : null),
@@ -500,6 +501,8 @@ async function pollOnce() {
     }
     const faceScanRunning = faceScan.state === 'running';
     $('startFaceScan').disabled = faceScanRunning || scanAllRunning;
+    $('useGpuFaces').hidden = !faceScan.gpu_switch_available;
+    $('useGpuFaces').disabled = faceScanRunning || scanAllRunning;
     $('pauseFaceScan').disabled = !faceScanRunning || scanAllRunning;
     setSpinner('faceScanSpinner', faceScanRunning || faceInstalling);
     $('faceScanElapsed').textContent = faceInstalling ? elapsedText(faceInstall.started_at)
@@ -561,12 +564,14 @@ $('rescanSemantic').onclick = async () => {
   if (!await askConfirm('Read every photo again?', ['Read every photo again from scratch, including ones already indexed?', 'This can take a long time on a large library.'], 'Read again', false)) return;
   startSemantic('all', $('rescanSemantic'));
 };
-$('useGpu').onclick = async () => {
-  if (!await askConfirm('Use your graphics card?', ['LensLedger will restart and download the PyTorch build that can use your NVIDIA graphics card (about 2.5 GB).', 'The terminal window shows the download, and LensLedger reopens when it is done. Photos already indexed stay indexed.'], 'Restart and download', false)) return;
-  $('useGpu').disabled = true;
-  try { await api('/api/semantic/gpu-setup', {}); $('semanticMessage').textContent = 'Restarting to download graphics-card support. LensLedger reopens when it is done…'; }
-  catch (error) { $('semanticMessage').textContent = error.message; $('useGpu').disabled = false; }
-};
+async function useGraphicsCard(button, message, parts, details) {
+  if (!await askConfirm('Use your graphics card?', details, 'Restart and download', false)) return;
+  button.disabled = true;
+  try { await api('/api/semantic/gpu-setup', { parts }); message.textContent = 'Restarting to download graphics-card support. LensLedger reopens when it is done…'; }
+  catch (error) { message.textContent = error.message; button.disabled = false; }
+}
+$('useGpu').onclick = () => useGraphicsCard($('useGpu'), $('semanticMessage'), ['torch'], ['LensLedger will restart and download the PyTorch build that can use your NVIDIA graphics card (about 2.5 GB).', 'The terminal window shows the download, and LensLedger reopens when it is done. Photos already indexed stay indexed.']);
+$('useGpuFaces').onclick = () => useGraphicsCard($('useGpuFaces'), $('faceScanMessage'), ['faces'], ['LensLedger will restart and switch face detection to the graphics-card runtime (a few hundred MB, more if PyTorch is not set up for your card).', 'The terminal window shows the download, and LensLedger reopens when it is done. Faces already found stay as they are.']);
 $('pauseSemantic').onclick = async () => {
   try { await api('/api/semantic/cancel', {}); $('semanticMessage').textContent = 'Pausing after the active image batch…'; }
   catch (error) { $('semanticMessage').textContent = error.message; }

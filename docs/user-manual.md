@@ -137,7 +137,9 @@ Meaning search runs many times faster on an NVIDIA graphics card than on the pro
 
 The status line under **Meaning search** on the **Scan your photos** page, and the activity log, say which is in use. "Using your graphics card (...)" means the card is working. "Using the processor, not your graphics card" means a card was found but the installed PyTorch cannot use it, which happens when meaning search was set up before LensLedger looked for a card. In that case a **Use my graphics card** button appears beside **Pause**. It restarts LensLedger, downloads the graphics-card version while the terminal window shows progress, and opens again when it is done. Photos already indexed stay indexed.
 
-Graphics-card support is set up automatically on Windows with an NVIDIA card and a current driver. Other computers use the processor, and macOS and Linux already use the card where PyTorch supports it.
+Face detection works the same way. Its status line under **Face detection** says whether it is using the card, and a **Use my graphics card** button appears there when a card was found but face detection is still on the processor. The button restarts LensLedger and switches face detection to the graphics-card version of its runtime (a few hundred MB, more when PyTorch is not set up for your card). Faces already found stay as they are.
+
+Graphics-card support is set up automatically on Windows with an NVIDIA card and a current driver; face detection needs a driver that supports CUDA 13 or newer. If the driver is too old, the status line says so and suggests updating it. Other computers use the processor, and macOS and Linux already use the card where PyTorch supports it.
 
 ### Face detection (optional)
 

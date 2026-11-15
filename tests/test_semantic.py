@@ -327,6 +327,7 @@ class GraphicsCardSetupTests(unittest.TestCase):
                 marker = Path(temporary) / photo_search.SEMANTIC_GPU_SWITCH_MARKER
                 with patch.object(photo_search, "semantic_run_pip", return_value=(True, "")) as run, \
                         patch.object(photo_search, "console_log"), \
+                        patch.object(photo_search, "face_gpu_switch_available", return_value=False), \
                         patch.object(photo_search, "semantic_cuda_wheel_tag", return_value="cu126"):
                     photo_search.apply_pending_gpu_switch()
                     run.assert_not_called()
@@ -343,12 +344,102 @@ class GraphicsCardSetupTests(unittest.TestCase):
                 else:
                     os.environ["LENSLEDGER_DATA_DIR"] = previous
 
+    def test_a_queued_face_switch_leaves_pytorch_alone(self):
+        import json
+        import os
+        from unittest.mock import patch
+        import photo_search
+
+        with tempfile.TemporaryDirectory() as temporary:
+            previous = os.environ.get("LENSLEDGER_DATA_DIR")
+            os.environ["LENSLEDGER_DATA_DIR"] = temporary
+            try:
+                marker = Path(temporary) / photo_search.SEMANTIC_GPU_SWITCH_MARKER
+                marker.write_text(json.dumps({"parts": ["faces"]}))
+                with patch.object(photo_search, "semantic_run_pip", return_value=(True, "")) as torch_pip, \
+                        patch.object(photo_search, "switch_faces_to_gpu", return_value=(True, "")) as faces, \
+                        patch.object(photo_search, "console_log"), \
+                        patch.object(photo_search, "face_gpu_switch_available", return_value=True), \
+                        patch.object(photo_search, "semantic_cuda_wheel_tag", return_value="cu130"):
+                    photo_search.apply_pending_gpu_switch()
+                torch_pip.assert_not_called()
+                faces.assert_called_once()
+                self.assertFalse(marker.exists())
+            finally:
+                if previous is None:
+                    os.environ.pop("LENSLEDGER_DATA_DIR", None)
+                else:
+                    os.environ["LENSLEDGER_DATA_DIR"] = previous
+
     def test_setup_requirement_line_is_taken_from_the_package_list(self):
         import photo_search
 
         self.assertEqual(photo_search.torch_requirement(["open_clip_torch>=3.3,<4", "torch>=2.13,<3"]),
                          "torch>=2.13,<3")
         self.assertEqual(photo_search.torch_requirement(["open_clip_torch>=3.3,<4"]), "torch")
+
+
+class FaceGraphicsCardTests(unittest.TestCase):
+    PACKAGES = ["insightface>=1.0.1,<2", "onnxruntime>=1.28,<2"]
+
+    def test_the_graphics_card_runtime_keeps_the_version_range(self):
+        from semantic_index import onnx_gpu_requirement
+
+        self.assertEqual(onnx_gpu_requirement(self.PACKAGES, False), "onnxruntime-gpu>=1.28,<2")
+        self.assertEqual(onnx_gpu_requirement(self.PACKAGES, True), "onnxruntime-gpu[cuda,cudnn]>=1.28,<2",
+                         "without PyTorch's CUDA libraries to share, the libraries come with it")
+
+    def test_the_cuda_libraries_are_shared_with_a_cuda_pytorch(self):
+        import face_locations
+        from unittest.mock import patch
+
+        for torch_version, expected in (("2.14.1+cu130", "onnxruntime-gpu>=1.28,<2"),
+                                        ("2.13.0+cpu", "onnxruntime-gpu[cuda,cudnn]>=1.28,<2"),
+                                        ("", "onnxruntime-gpu[cuda,cudnn]>=1.28,<2")):
+            with self.subTest(torch=torch_version), \
+                    patch.object(face_locations, "installed_torch_version", return_value=torch_version), \
+                    patch.object(face_locations, "run_pip", return_value=(True, "")) as pip:
+                face_locations.switch_faces_to_gpu(self.PACKAGES)
+                self.assertEqual(pip.call_args_list[0][0][0], ["uninstall", "-y", "onnxruntime"])
+                self.assertEqual(pip.call_args_list[1][0][0], ["install", expected])
+
+    def test_a_failed_switch_puts_the_processor_runtime_back(self):
+        import face_locations
+        from unittest.mock import patch
+
+        calls = []
+
+        def pip(args, timeout, stream=False):
+            calls.append(args)
+            return (args[0] != "install" or "onnxruntime-gpu" not in args[1], "download failed")
+
+        with patch.object(face_locations, "installed_torch_version", return_value="2.14.1+cu130"), \
+                patch.object(face_locations, "run_pip", side_effect=pip):
+            ok, _tail = face_locations.switch_faces_to_gpu(self.PACKAGES)
+        self.assertFalse(ok)
+        self.assertEqual(calls[-2:], [["uninstall", "-y", "onnxruntime-gpu"], ["install", "onnxruntime>=1.28,<2"]])
+
+    def test_an_old_driver_is_told_to_update_instead_of_to_press_a_button(self):
+        from semantic_index import describe_device
+
+        report = describe_device("", "Example GPU 1000", "face-detection runtime", fixable=False)
+        self.assertEqual(report["device"], "cpu")
+        self.assertIn("driver", report["summary"])
+        self.assertNotIn("button", report["summary"])
+
+    def test_face_detection_uses_the_card_when_onnxruntime_has_it(self):
+        import face_locations
+        import sys
+        import types
+        from unittest.mock import patch
+
+        fake = types.SimpleNamespace(get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"],
+                                     preload_dlls=lambda: None)
+        with patch.dict(sys.modules, {"onnxruntime": fake}):
+            self.assertEqual(face_locations._gpu_providers(), (["CUDAExecutionProvider", "CPUExecutionProvider"], 0))
+        cpu_only = types.SimpleNamespace(get_available_providers=lambda: ["CPUExecutionProvider"])
+        with patch.dict(sys.modules, {"onnxruntime": cpu_only}):
+            self.assertEqual(face_locations._gpu_providers(), (["CPUExecutionProvider"], -1))
 
 
 class DeviceReportTests(unittest.TestCase):

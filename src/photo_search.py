@@ -44,7 +44,10 @@ from face_learning import (
 )
 from face_math import EmbeddingSet, modal_dimension, numpy_available, ranked_groups
 from publish_failures import REPAIRABLE_SUFFIXES, explain_failure
-from face_locations import is_available as face_is_available, model_cache_info as face_model_cache_info
+from face_locations import (
+    face_device_status, face_gpu_switch_available, switch_faces_to_gpu,
+    is_available as face_is_available, model_cache_info as face_model_cache_info,
+)
 from photo_filters import (
     LOCATIONS, KINDS, SHAPES, collection_query, delete_collection, filter_clauses, keep_matching_ids,
     list_collections, parse_filters, save_collection,
@@ -441,6 +444,10 @@ def apply_pending_gpu_switch() -> None:
     if not marker.exists():
         return
     try:
+        parts = list(json.loads(marker.read_text(encoding="ascii")).get("parts", []))
+    except (OSError, ValueError, AttributeError):
+        parts = ["torch", "faces"]
+    try:
         marker.unlink()
     except OSError:
         pass
@@ -448,13 +455,21 @@ def apply_pending_gpu_switch() -> None:
     if not tag:
         console_log("Graphics-card support: no NVIDIA card found, nothing to switch")
         return
-    requirement = torch_requirement(optional_requirements("meaning-search"))
-    console_log("Graphics-card support: downloading PyTorch with NVIDIA support (about 2.5 GB). "
-                "LensLedger opens when this finishes.")
-    ok, _tail = semantic_run_pip(semantic_cuda_torch_pip_args(requirement, tag), timeout=3600, stream=True)
-    console_log("Graphics-card support: installed, meaning search will now use your graphics card" if ok
-                else "Graphics-card support: the download failed, meaning search keeps using the processor. "
-                     "Try again from the Scan your photos page.")
+    if "torch" in parts:
+        requirement = torch_requirement(optional_requirements("meaning-search"))
+        console_log("Graphics-card support: downloading PyTorch with NVIDIA support (about 2.5 GB). "
+                    "LensLedger opens when this finishes.")
+        ok, _tail = semantic_run_pip(semantic_cuda_torch_pip_args(requirement, tag), timeout=3600, stream=True)
+        console_log("Graphics-card support: installed, meaning search will now use your graphics card" if ok
+                    else "Graphics-card support: the download failed, meaning search keeps using the processor. "
+                         "Try again from the Scan your photos page.")
+    # After PyTorch, so face detection can share its CUDA libraries.
+    if "faces" in parts and face_gpu_switch_available():
+        console_log("Graphics-card support: switching face detection to the graphics-card runtime…")
+        ok, _tail = switch_faces_to_gpu(optional_requirements("face-locations"))
+        console_log("Graphics-card support: installed, face detection will now use your graphics card" if ok
+                    else "Graphics-card support: the download failed, face detection keeps using the processor. "
+                         "Try again from the Scan your photos page.")
 
 
 EXIFTOOL_PATH = Path(__file__).parent.parent / "tools" / "ExifTool" / "ExifTool.exe"
@@ -1528,7 +1543,8 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             errors = int(counts["errors"])
             if not _face_started_logged:
                 _face_started_logged = True
-                action.note(f"{total:,} photos to scan" if total else "no photos need scanning")
+                action.note((face_device_status().get("summary", "") + " ").lstrip()
+                            + (f"{total:,} photos to scan" if total else "no photos need scanning"))
             if processed > 0:
                 suffix = f", {errors:,} could not be scanned" if errors else ""
                 action.progress(f"{processed:,} of {total:,} photos, {faces:,} faces found{suffix}")
@@ -2466,7 +2482,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="progress-bar" id="locationBarWrap" hidden><span id="locationBar"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions" id="ocrActions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" class="secondary" id="useGpu" hidden title="Switch meaning search to the NVIDIA build of PyTorch so it runs on your graphics card">Use my graphics card</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" class="secondary" id="useGpuFaces" hidden title="Switch face detection to the graphics-card runtime so it runs on your NVIDIA graphics card">Use my graphics card</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div><h3 class="backup-subhead">Photo safety copies</h3><p class="backup-note">Before LensLedger writes tags into a photo it keeps a complete copy of the original, so any write can be undone. These build up as you publish. How long they are kept is set under "Metadata publishing" in <a href="/settings#metadata-publishing">Settings</a>.</p><div class="health-summary ocr-summary" id="photoBackupMetrics"></div><div class="interrupted-writes" id="interruptedWrites" hidden></div><div class="backup-row"><button type="button" class="secondary" id="prunePhotoBackups">Clear copies past the limit</button><button type="button" class="secondary" id="clearPhotoBackups">Clear all safety copies</button><span id="photoBackupStatus"></span></div></section>
 </main>
 <div class="modal-backdrop" id="scanModalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="scanModalTitle"><div class="modal-head"><h2 id="scanModalTitle"></h2><button type="button" class="modal-close" id="scanModalClose">Close</button></div><div id="scanModalBody"></div></section></div>
@@ -2670,6 +2686,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h4>Using your NVIDIA graphics card</h4>
 <p>Meaning search runs many times faster on an NVIDIA graphics card than on the processor. LensLedger looks for a card when meaning search is set up and, if it finds one, downloads the version of PyTorch that can use it (about 2.5 GB) in place of the processor-only version. Nothing needs configuring.</p>
 <p>The status line under <strong>Meaning search</strong> on the <strong>Scan your photos</strong> page, and the activity log, say which is in use. &ldquo;Using the processor, not your graphics card&rdquo; means a card was found but the installed PyTorch cannot use it. A <strong>Use my graphics card</strong> button then appears beside <strong>Pause</strong>: it restarts LensLedger, downloads the graphics-card version while the terminal window shows progress, and opens again when it is done. Photos already indexed stay indexed.</p>
+<p>Face detection works the same way: its status line under <strong>Face detection</strong> says what it is using, and a <strong>Use my graphics card</strong> button appears there when a card was found but face detection is still on the processor. It needs an NVIDIA driver that supports CUDA 13 or newer; if the driver is too old the status line says so.</p>
 <h3>Face detection (optional)</h3>
 <p>Finds faces in your photos so they can be identified in <a href="/people">People</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
 <h3>Backups</h3>
@@ -7917,11 +7934,15 @@ class SearchHandler(BaseHTTPRequestHandler):
         """Switch an installed, card-less PyTorch to the NVIDIA build. PyTorch is
         in use by this very process, so the swap cannot happen here: it is queued
         in a marker file and carried out by the next start, before PyTorch loads."""
-        if not semantic_gpu_switch_available():
-            raise ValueError("Nothing to switch: no NVIDIA graphics card was found, or PyTorch already uses it.")
+        wanted = body.get("parts") or ["torch", "faces"]
+        parts = [part for part, needed in (("torch", semantic_gpu_switch_available()),
+                                           ("faces", face_gpu_switch_available()))
+                 if needed and part in wanted]
+        if not parts:
+            raise ValueError("Nothing to switch: no NVIDIA graphics card was found, or it is already in use.")
         if self._refuse_restart_while_busy(body):
             return
-        (data_root() / SEMANTIC_GPU_SWITCH_MARKER).write_text("1", encoding="ascii")
+        (data_root() / SEMANTIC_GPU_SWITCH_MARKER).write_text(json.dumps({"parts": parts}), encoding="ascii")
         self._restart_in_place(
             "Restarting LensLedger to download graphics-card support for meaning search…",
             "Restarting. The terminal window shows the download (about 2.5 GB); LensLedger reopens when it is done.",
@@ -7979,7 +8000,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         with type(self).face_install_lock:
             install = dict(type(self).face_install_job)
         cache = face_model_cache_info() if coverage.get("installed") else {}
-        self.send_json({**coverage, **job, "install": install, "model_cache": cache})
+        device = face_device_status() if coverage.get("installed") else {}
+        self.send_json({**coverage, **job, "install": install, "model_cache": cache,
+                        "device_summary": device.get("summary", ""),
+                        "gpu_switch_available": face_gpu_switch_available() if device else False})
 
     def face_scan_errors(self):
         self.send_json({"errors": face_scan_list_errors(type(self).db_path)})
@@ -8042,6 +8066,12 @@ class SearchHandler(BaseHTTPRequestHandler):
                     capture_output=True, text=True, timeout=1800,
                 )
                 if result.returncode == 0:
+                    if semantic_cuda_wheel_tag() == "cu130":
+                        action.note("NVIDIA graphics card found; switching to the graphics-card runtime")
+                        gpu_ok, gpu_tail = switch_faces_to_gpu(packages)
+                        if not gpu_ok:
+                            action.note("graphics-card support could not be installed, using the processor: "
+                                        + (gpu_tail.splitlines()[-1] if gpu_tail else "unknown error"))
                     with handler_class.face_install_lock:
                         handler_class.face_install_job = {
                             "state": "complete",
