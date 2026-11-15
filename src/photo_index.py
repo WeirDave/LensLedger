@@ -1149,7 +1149,7 @@ def relink_people_from_embedded_names(con: sqlite3.Connection, apply: bool) -> d
     rescan) comes back with its names as tags only. This restores the link
     where a photo's embedded people name matches a person exactly, ignoring
     case. A pair that already has any row, including a rejected one, is left
-    alone. The file already carries the name, so the link counts as published.
+    alone, as is a name hidden from that photo with the tag's remove button. The file already carries the name, so the link counts as published.
     """
     rows = con.execute(
         """SELECT DISTINCT a.id AS asset_id, p.id AS person_id
@@ -1159,7 +1159,10 @@ def relink_people_from_embedded_names(con: sqlite3.Connection, apply: bool) -> d
            JOIN people p ON p.name = t.name COLLATE NOCASE
            WHERE a.in_review_bin = 0
              AND NOT EXISTS (SELECT 1 FROM asset_people x
-                             WHERE x.asset_id = a.id AND x.person_id = p.id)"""
+                             WHERE x.asset_id = a.id AND x.person_id = p.id)
+             AND NOT EXISTS (SELECT 1 FROM asset_tag_exclusions e
+                             WHERE e.relative_path = a.relative_path
+                               AND e.tag = t.name COLLATE NOCASE)"""
     ).fetchall()
     summary = {
         "links": len(rows),

@@ -122,6 +122,8 @@ function collectSettings(){
   s.ingest=s.ingest||{};
   s.ingest.enabled=c('ingestEnabled');
   s.ingest.interval_minutes=Math.max(5,Math.min(1440,n('ingestInterval')||10));
+  s.people=s.people||{};
+  s.people.restore_from_photo_names=c('restoreFromNames');
   s.startup=s.startup||{};
   s.startup.show_library_picker=c('showLibraryPicker');
   s.startup.terminal_tab=c('terminalTab');

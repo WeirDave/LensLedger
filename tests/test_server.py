@@ -2013,6 +2013,87 @@ class ServerWorkflowTests(unittest.TestCase):
         result = self.json_response(self.post("/api/people/relink", {"apply": True}))
         self.assertEqual(result["links"], 0)
 
+    def test_restore_from_photo_names_respects_a_name_hidden_from_the_photo(self):
+        found, _refused = self._people_for_relink()
+        con = sqlite3.connect(self.database)
+        relative = con.execute("SELECT relative_path FROM assets WHERE id=?", (self.asset_id,)).fetchone()[0]
+        con.execute("INSERT INTO asset_tag_exclusions(relative_path,tag) VALUES (?, 'Casey Example')", (relative,))
+        con.commit()
+        con.close()
+        self.assertEqual(self.json_response(self.post("/api/people/relink", {"apply": True}))["links"], 0)
+
+    def test_a_person_removed_from_a_photo_stays_removed_after_a_scan(self):
+        found, _refused = self._people_for_relink()
+        self.json_response(self.post("/api/people/relink", {"apply": True}))
+        with patch.object(self.photo_search.SearchHandler, "_publish_people_metadata",
+                          return_value={"path": self.photo, "backup": self.photo, "filename": self.photo.name}):
+            self.json_response(self.post("/api/person/state", {"id": self.asset_id, "name": "Casey Example", "state": "rejected"}))
+        self._finish_a_scan()
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?",
+            (self.asset_id, found)).fetchone()[0], "rejected")
+        con.close()
+
+    def _finish_a_scan(self):
+        from unittest.mock import patch
+
+        class Handler:
+            library_lock = threading.Lock()
+            library_job = {"state": "idle", "message": ""}
+            library_cancel = threading.Event()
+            current_library = (self.library.resolve(), self.database)
+
+        with patch.object(self.photo_search, "save_library_state"):
+            self.photo_search._run_library_scan_job(
+                Handler, self.library.resolve(), self.database, "2026-01-01T00:00:00Z")
+        return Handler
+
+    def test_a_finished_scan_restores_people_from_photo_names_by_default(self):
+        found, refused = self._people_for_relink()
+        self.assertEqual(self._finish_a_scan().library_job["state"], "complete")
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?",
+            (self.asset_id, found)).fetchone()[0], "confirmed")
+        self.assertEqual(con.execute(
+            "SELECT state FROM asset_people WHERE asset_id=? AND person_id=?",
+            (self.asset_id, refused)).fetchone()[0], "rejected")
+        con.close()
+
+    def test_a_scan_leaves_people_alone_when_the_setting_is_off(self):
+        from unittest.mock import patch
+
+        found, _refused = self._people_for_relink()
+        with patch.object(self.photo_search, "get_setting", return_value=False):
+            self._finish_a_scan()
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) FROM asset_people WHERE person_id=?", (found,)).fetchone()[0], 0)
+        con.close()
+
+    def test_a_scan_that_was_paused_does_not_restore_people(self):
+        found, _refused = self._people_for_relink()
+
+        class Handler:
+            library_lock = threading.Lock()
+            library_job = {"state": "idle", "message": ""}
+            library_cancel = threading.Event()
+            current_library = (self.library.resolve(), self.database)
+
+        from unittest.mock import patch
+        with patch.object(self.photo_search, "save_library_state"),                 patch.object(self.photo_search, "scan_library", return_value=3):
+            self.photo_search._run_library_scan_job(
+                Handler, self.library.resolve(), self.database, "2026-01-01T00:00:00Z")
+        con = sqlite3.connect(self.database)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) FROM asset_people WHERE person_id=?", (found,)).fetchone()[0], 0)
+        con.close()
+
+    def test_settings_page_offers_the_restore_setting_on_by_default(self):
+        page = self.get("/settings").read().decode("utf-8")
+        self.assertIn('id="restoreFromNames" checked', page)
+
     def test_people_index_offers_restore_from_photo_names(self):
         self.assertIn("Restore from photo names", self.get("/?scope=people").read().decode("utf-8"))
 

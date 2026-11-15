@@ -79,6 +79,11 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertEqual(loaded["publish"]["classify_threshold"], defaults["publish"]["classify_threshold"])
         self.assertEqual(loaded["scan"]["semantic_batch_size"], defaults["scan"]["semantic_batch_size"])
 
+    def test_restoring_people_from_photo_names_is_on_by_default_and_must_be_on_or_off(self):
+        self.assertIs(self.settings_config.load_settings()["people"]["restore_from_photo_names"], True)
+        with self.assertRaises(ValueError):
+            self.settings_config.validate_settings({"people": {"restore_from_photo_names": "yes"}})
+
     def test_the_auto_import_interval_has_a_default(self):
         self.assertEqual(self.settings_config.load_settings()["ingest"]["interval_minutes"], 10)
 

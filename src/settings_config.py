@@ -34,6 +34,9 @@ DEFAULTS: dict[str, object] = {
         "interval_minutes": 10,
         "rules": [],
     },
+    "people": {
+        "restore_from_photo_names": True,
+    },
     "startup": {
         "show_library_picker": False,
         "terminal_tab": True,
@@ -78,6 +81,7 @@ _RULES: dict[tuple[str, str], tuple[str, float | None, float | None, str]] = {
     ("ingest", "destination_folder"): ("text", None, None, "Auto-import destination folder"),
     ("ingest", "default_template"): ("text", None, None, "Auto-import date template"),
     ("ingest", "rules"): ("list", None, None, "Auto-import override rules"),
+    ("people", "restore_from_photo_names"): ("bool", None, None, "Restore people from photo names after scans"),
     ("startup", "show_library_picker"): ("bool", None, None, "Ask which library to open at startup"),
     ("startup", "terminal_tab"): ("bool", None, None, "Terminal tab"),
     ("publish", "embed"): ("bool", None, None, "Embed tags in photos"),

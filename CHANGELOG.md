@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.45.0 — 2026-11-15
+
+- People are now restored from photo names automatically after every completed scan. When a photo file carries a person's name as people metadata but LensLedger has no link between the photo and that person, as happens after photos are renamed or moved, the link is added and the person's photos show again. **Settings** > **People** > **Restore people from photo names after each scan** controls it and is on by default. The same action stays available as **Restore from photo names** on the people index.
+- A person removed from a photo, a match rejected earlier, a name hidden from a photo with the tag's remove button, and photos in the Review Bin are not restored. No photo file is changed.
+
 ## 1.44.0 — 2026-11-15
 
 - Automatic photo tags now come from a built-in list of about 500 subjects, scenes and activities (animals, plants, buildings, vehicles, food, objects, sports and events) instead of about 50 broad categories. A photo of a deer can now be tagged **deer**.
