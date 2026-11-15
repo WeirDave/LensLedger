@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.47.2 — 2026-11-15
+
+- The version number shown beside the LensLedger name at the top of every page is larger and easier to read: 15px text on a roomier badge, up from 10–11px.
+
 ## 1.47.1 — 2026-11-15
 
 - The **Restore people from photo names after each scan** switch under **Settings** > **People** was removed. Missing people links are now always restored after every completed scan. A saved setting left over from 1.45.0 is ignored.
