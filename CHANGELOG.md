@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.51.0 — 2026-11-15
+
+- The photo viewer's side panel is shorter and easier to scan. The paragraph under each heading is now a single line, and the "Metadata for this photo" block at the top is gone.
+- Each section lists what the photo already has and shows **None yet** when it has nothing: **Primary subject**, **Photo tags**, **People in this photo** and **Event / folder tags**. The box for adding more is directly underneath.
+- The photo description box is its own **Description** section instead of sitting inside a green "Publish to this photo" box. A line above **Preview & publish** says changes stay in LensLedger until they are published.
+- **Trash this photo** is now the **Trash** button beside the file name at the top of the side panel, instead of at the bottom. Its confirmation is unchanged.
+
 ## 1.50.2 — 2026-11-15
 
 - The **Photo map** page now shows the version badge at the far right of its top bar, like every other page. Double-clicking it checks for updates, and while a newer release is available a single click opens the updates panel.

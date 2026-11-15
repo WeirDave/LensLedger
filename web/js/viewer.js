@@ -258,7 +258,7 @@ async function selectAsset(id){
     }else{
       const media=document.createElement(d.media_type==='video'?'video':'img');media.src='/media?id='+d.id;if(d.media_type==='video')media.controls=true;else media.alt=d.embedded_metadata?.description||d.filename||'Selected photo';stage.prepend(media);initZoom(media);if(d.all_faces&&d.all_faces.length)renderClickableFaces(media,d.all_faces);else renderFocusedFace(media,d.focused_person_face);
     }
-    $('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';personPicker?.reset();$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'Only this selected photo will be changed, and only after you approve the preview.':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderRating(d.rating||0);renderEmbeddedMetadata(d.embedded_metadata);setStatus('');
+    $('assetDate').textContent=d.capture_date||'Date unknown';$('assetName').textContent=d.filename;$('assetFolder').textContent=d.folder;$('subjectInput').value='';personPicker?.reset();$('publishDescription').value=d.embedded_metadata?.description||'';$('previewPublish').disabled=!d.publishable;$('restorePublish').disabled=!d.can_restore_publish;$('publishNote').textContent=d.publishable?'':'Publishing is currently available for JPEG photos.';renderChips(d);renderPeople(d);renderRating(d.rating||0);renderEmbeddedMetadata(d.embedded_metadata);setStatus('');
   }catch(e){setStatus(e.message,true)}
   updateNav();
 }
