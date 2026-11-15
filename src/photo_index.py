@@ -1141,7 +1141,7 @@ def sync_person_tags(con: sqlite3.Connection, asset_id: int) -> None:
     set_source_tags(con, asset_id, "person", names)
 
 
-def relink_people_from_embedded_names(con: sqlite3.Connection, apply: bool) -> dict[str, int]:
+def relink_people_from_embedded_names(con: sqlite3.Connection) -> dict[str, int]:
     """Link photos to the people whose names their files carry as people metadata.
 
     A person's photos are rows in asset_people keyed on the photo's database
@@ -1149,7 +1149,8 @@ def relink_people_from_embedded_names(con: sqlite3.Connection, apply: bool) -> d
     rescan) comes back with its names as tags only. This restores the link
     where a photo's embedded people name matches a person exactly, ignoring
     case. A pair that already has any row, including a rejected one, is left
-    alone, as is a name hidden from that photo with the tag's remove button. The file already carries the name, so the link counts as published.
+    alone, as is a name hidden from that photo with the tag's remove button. The file already carries the name, so the link
+    counts as published.
     """
     rows = con.execute(
         """SELECT DISTINCT a.id AS asset_id, p.id AS person_id
@@ -1169,7 +1170,7 @@ def relink_people_from_embedded_names(con: sqlite3.Connection, apply: bool) -> d
         "people": len({row[1] for row in rows}),
         "photos": len({row[0] for row in rows}),
     }
-    if not apply or not rows:
+    if not rows:
         return summary
     now = utc_now()
     for asset_id, person_id in rows:

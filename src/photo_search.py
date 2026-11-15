@@ -870,7 +870,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
         if state == "complete" and get_setting("people", "restore_from_photo_names", default=True):
             try:
                 with connect(database) as con:
-                    restored = relink_people_from_embedded_names(con, True)
+                    restored = relink_people_from_embedded_names(con)
                 if restored["links"]:
                     console_log(f"[People] Restored {restored['links']:,} link(s) for {restored['people']:,} "
                                 f"people on {restored['photos']:,} photos from the names in the photo files")
@@ -974,7 +974,6 @@ ACTION_LABELS = {
     "/api/people/duplicates/dismiss": "Mark two people as not the same person",
     "/api/person/card-photo": "Change a person's photo",
     "/api/people/learn": "Learn from confirmed people",
-    "/api/people/relink": "Restore people from photo names",
     "/api/people/review/decision": "People review decision",
     "/api/people/review/batch": "People review, bulk decision",
     "/api/people/review/undo": "Undo a people review decision",
@@ -2201,8 +2200,6 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.undo_people_review_batch(body)
             if route == "/api/people/learn":
                 return self.learn_people(body)
-            if route == "/api/people/relink":
-                return self.relink_people(body)
             if route == "/api/people/review/defer":
                 return self.defer_people_review(body)
             if route == "/api/tag/add-batch":
@@ -2478,7 +2475,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
 <section class="card" id="people-links"><h2>People</h2><p>A person&rsquo;s photos are links kept by LensLedger. If photos are renamed or moved, the links can be lost while the names stay saved in the photo files.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="restoreFromNames" {"checked" if people_settings.get("restore_from_photo_names", True) else ""}><span class="slider"></span></label><label for="restoreFromNames">Restore people from photo names after each scan</label></div>
-<span class="hint hint-under-toggle">Links a photo to a person when the person&rsquo;s name is saved in the photo file and the link is missing. A person removed from a photo stays removed. No photo file is changed. The People index has the same action as <strong>Restore from photo names</strong>. Default: on</span></section>
+<span class="hint hint-under-toggle">Links a photo to a person when the person&rsquo;s name is saved in the photo file and the link is missing. A person removed from a photo stays removed. No photo file is changed. Default: on</span></section>
 <section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos: into the photo file itself, into a separate .xmp sidecar file next to it, or both, chosen per file type.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="embedTags" {"checked" if write_settings["embed"] else ""}><span class="slider"></span></label><label for="embedTags">Embed tags in photo files</label></div>
 <span class="hint hint-under-toggle">Writes into JPEG, HEIC, PNG, WebP and TIFF files themselves, keeping a safety copy of each photo first.</span>
@@ -2763,7 +2760,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <ul>
 <li><strong>Edit name</strong> &mdash; change a person&rsquo;s primary name (propagates to all JPEG metadata)</li>
 <li><strong>Aliases</strong> &mdash; add alternate names (nicknames, maiden names) that also match in search</li>
-<li><strong>Restore from photo names</strong> &mdash; on the People index, links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, for example after photos were renamed or moved. It shows how many links it would restore and asks first. Rejected matches are left alone. LensLedger also does this after every scan; <strong>Settings &gt; People &gt; Restore people from photo names after each scan</strong> turns that off.</li>
+<li><strong>Restored automatically</strong> &mdash; after every scan, LensLedger links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, for example after photos were renamed or moved. A person removed from a photo, a rejected match and photos in the Review Bin are left alone. <strong>Settings &gt; People &gt; Restore people from photo names after each scan</strong> turns it off.</li>
 <li><strong>Merge</strong> &mdash; combine duplicate person records, preserving aliases and updating metadata</li>
 <li><strong>Find duplicates</strong> &mdash; lists pairs of people who may be the same person: names that match apart from punctuation or accents, an initial that matches a full name, one name contained in the other, a small misspelling, or learned faces that look alike. Text after a comma, such as a band or a role in &ldquo;Name, Band&rdquo;, is left out of name matching. Choose which name to keep, or mark the pair <strong>Not the same person</strong> so it stops appearing. People confirmed together in one photo are never listed.</li>
 </ul>
@@ -3789,8 +3786,6 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
             f'<button type="button" class="secondary" id="findDuplicatesGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Find duplicates</button>'
-            f'<button type="button" class="secondary" id="relinkPeopleGallery" '
-            f'title="Link photos to people whose names are saved in the photo files">Restore from photo names</button>'
             f'<button type="button" id="reviewPeopleGallery">Tag faces ({unidentified_faces_count:,})</button>'
             f'</div></nav>'
         )
@@ -5590,15 +5585,6 @@ class SearchHandler(BaseHTTPRequestHandler):
             "ok": True, "person": person["name"], "days": days,
             "deferred_until": deferred_until,
         })
-
-    def relink_people(self, body):
-        apply = body.get("apply") is True
-        with self.db() as con:
-            summary = relink_people_from_embedded_names(con, apply)
-        if apply:
-            console_log(f"[People] Restored {summary['links']:,} link(s) for {summary['people']:,} "
-                        f"people on {summary['photos']:,} photos from the names in the photo files")
-        self.send_json({"ok": True, "applied": apply, **summary})
 
     def learn_people(self, body):
         console_log("[People] Learning from confirmed faces…")

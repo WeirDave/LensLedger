@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.45.1 — 2026-11-15
+
+- The **Restore from photo names** button on the people index was removed. Missing people links are restored automatically after every completed scan, so the button repeated what a scan already does. The switch under **Settings** > **People** > **Restore people from photo names after each scan** is unchanged and still on by default.
+
 ## 1.45.0 — 2026-11-15
 
 - People are now restored from photo names automatically after every completed scan. When a photo file carries a person's name as people metadata but LensLedger has no link between the photo and that person, as happens after photos are renamed or moved, the link is added and the person's photos show again. **Settings** > **People** > **Restore people from photo names after each scan** controls it and is on by default. The same action stays available as **Restore from photo names** on the people index.

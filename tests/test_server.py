@@ -1955,6 +1955,16 @@ class ServerWorkflowTests(unittest.TestCase):
             [0.1, 0.2, 0.4, 0.6],
         )
 
+    def _restore_from_photo_names(self):
+        from photo_index import connect, relink_people_from_embedded_names
+
+        con = connect(self.database)
+        try:
+            with con:
+                return relink_people_from_embedded_names(con)
+        finally:
+            con.close()
+
     def _people_for_relink(self):
         from photo_index import connect, set_source_tags
 
@@ -1973,20 +1983,10 @@ class ServerWorkflowTests(unittest.TestCase):
         con.close()
         return found, refused
 
-    def test_restore_from_photo_names_counts_without_changing_anything(self):
-        found, _refused = self._people_for_relink()
-        result = self.json_response(self.post("/api/people/relink", {"apply": False}))
-        self.assertEqual((result["applied"], result["links"], result["people"], result["photos"]),
-                         (False, 1, 1, 1))
-        con = sqlite3.connect(self.database)
-        self.assertEqual(con.execute(
-            "SELECT COUNT(*) FROM asset_people WHERE person_id=?", (found,)).fetchone()[0], 0)
-        con.close()
-
     def test_restore_from_photo_names_links_only_exact_embedded_people_names(self):
         found, refused = self._people_for_relink()
-        result = self.json_response(self.post("/api/people/relink", {"apply": True}))
-        self.assertEqual((result["applied"], result["links"]), (True, 1))
+        result = self._restore_from_photo_names()
+        self.assertEqual((result["links"], result["people"], result["photos"]), (1, 1, 1))
         con = sqlite3.connect(self.database)
         link = con.execute(
             "SELECT state, source, face_id, published_at FROM asset_people WHERE asset_id=? AND person_id=?",
@@ -2001,8 +2001,7 @@ class ServerWorkflowTests(unittest.TestCase):
             "SELECT COUNT(*) FROM asset_tags at JOIN tags t ON t.id=at.tag_id "
             "WHERE at.source='person' AND t.name='Casey Example'").fetchone()[0], 1)
         con.close()
-        again = self.json_response(self.post("/api/people/relink", {"apply": True}))
-        self.assertEqual(again["links"], 0)
+        self.assertEqual(self._restore_from_photo_names()["links"], 0)
 
     def test_restore_from_photo_names_skips_photos_in_the_review_bin(self):
         self._people_for_relink()
@@ -2010,8 +2009,7 @@ class ServerWorkflowTests(unittest.TestCase):
         con.execute("UPDATE assets SET in_review_bin=1 WHERE id=?", (self.asset_id,))
         con.commit()
         con.close()
-        result = self.json_response(self.post("/api/people/relink", {"apply": True}))
-        self.assertEqual(result["links"], 0)
+        self.assertEqual(self._restore_from_photo_names()["links"], 0)
 
     def test_restore_from_photo_names_respects_a_name_hidden_from_the_photo(self):
         found, _refused = self._people_for_relink()
@@ -2020,11 +2018,11 @@ class ServerWorkflowTests(unittest.TestCase):
         con.execute("INSERT INTO asset_tag_exclusions(relative_path,tag) VALUES (?, 'Casey Example')", (relative,))
         con.commit()
         con.close()
-        self.assertEqual(self.json_response(self.post("/api/people/relink", {"apply": True}))["links"], 0)
+        self.assertEqual(self._restore_from_photo_names()["links"], 0)
 
     def test_a_person_removed_from_a_photo_stays_removed_after_a_scan(self):
         found, _refused = self._people_for_relink()
-        self.json_response(self.post("/api/people/relink", {"apply": True}))
+        self._restore_from_photo_names()
         with patch.object(self.photo_search.SearchHandler, "_publish_people_metadata",
                           return_value={"path": self.photo, "backup": self.photo, "filename": self.photo.name}):
             self.json_response(self.post("/api/person/state", {"id": self.asset_id, "name": "Casey Example", "state": "rejected"}))
@@ -2093,9 +2091,6 @@ class ServerWorkflowTests(unittest.TestCase):
     def test_settings_page_offers_the_restore_setting_on_by_default(self):
         page = self.get("/settings").read().decode("utf-8")
         self.assertIn('id="restoreFromNames" checked', page)
-
-    def test_people_index_offers_restore_from_photo_names(self):
-        self.assertIn("Restore from photo names", self.get("/?scope=people").read().decode("utf-8"))
 
     def test_merge_people_keeps_aliases_and_strongest_photo_decision(self):
         from photo_index import utc_now
