@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.47.1 — 2026-11-15
+
+- The **Restore people from photo names after each scan** switch under **Settings** > **People** was removed. Missing people links are now always restored after every completed scan. A saved setting left over from 1.45.0 is ignored.
+
 ## 1.47.0 — 2026-11-15
 
 - Face detection now uses an NVIDIA graphics card when the computer has one. Setting up face detection on Windows detects the card and installs the graphics-card version of its runtime in place of the processor-only one.

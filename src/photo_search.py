@@ -917,7 +917,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
             console_log(f"Photo locations: done with {errors:,} error(s) — {changed:,} changed, {removed:,} removed, {total:,} total assets")
         else:
             console_log(f"Photo locations: done — {changed:,} changed, {removed:,} removed, {total:,} total assets")
-        if state == "complete" and get_setting("people", "restore_from_photo_names", default=True):
+        if state == "complete":
             try:
                 with connect(database) as con:
                     restored = relink_people_from_embedded_names(con)
@@ -2503,7 +2503,6 @@ class SearchHandler(BaseHTTPRequestHandler):
         watch = settings.get("watch", {})
         ingest = settings.get("ingest", {})
         publish = settings.get("publish", {})
-        people_settings = settings.get("people", {})
         write_settings = publish_write_settings()
         sidecar_choices = "".join(
             f'<label class="sidecar-type"><input type="checkbox" data-sidecar-type="{key}"'
@@ -2517,7 +2516,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <title>Settings — {APP_NAME}</title><link rel="icon" href="/favicon.png?v={APP_VERSION}"><link rel="stylesheet" href="{asset_url('css/theme.css')}"><link rel="stylesheet" href="{asset_url('css/settings.css')}">
 <link rel="stylesheet" href="{asset_url('css/confirm-dialog.css')}"><script src="{asset_url('js/confirm-dialog.js')}"></script><script src="{asset_url('js/theme.js')}"></script></head><body {bootstrap_attr({"csrf": self.csrf_token, "settings": settings, "libraries": libraries, "currentRoot": str(self.library_root), "models": AVAILABLE_MODELS})}><header><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div><h1>Settings</h1><p>Configure LensLedger's behavior, libraries, and preferences</p></div><span class="spacer"></span><button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></header>
 {nav_menu("settings", str(self.library_root))}
-<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#face-detection">Face detection</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#people-links">People</a></li><li><a href="#metadata-publishing">Metadata publishing</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
+<main class="settings-layout"><nav class="settings-toc"><h3>Settings</h3><ul><li><a href="#libraries">Photo libraries</a></li><li><a href="#scan-prefs">Scan preferences</a></li><li><a href="#meaning-search">Meaning search</a></li><li><a href="#face-detection">Face detection</a></li><li><a href="#folder-watching">Folder watching</a></li><li><a href="#metadata-publishing">Metadata publishing</a></li><li><a href="#auto-import">Auto-import photos</a></li><li><a href="#database">Database</a></li></ul></nav><div class="settings-content">
 <section class="card" id="libraries"><h2>Photo libraries</h2><p>Manage your photo collections. Switch between libraries or add new ones.</p><div class="library-list" id="libraryList"></div><div class="library-actions"><button type="button" class="secondary" id="addLibrary">Add library…</button></div>
 <div class="toggle-row toggle-row-spaced"><label class="toggle-switch"><input type="checkbox" id="showLibraryPicker" {"checked" if startup_cfg.get("show_library_picker") else ""}><span class="slider"></span></label><label for="showLibraryPicker">Ask which library to open at startup</label></div>
 <div class="toggle-row toggle-row-spaced"><label class="toggle-switch"><input type="checkbox" id="terminalTab" {"checked" if startup_cfg.get("terminal_tab", True) is not False else ""}><span class="slider"></span></label><label for="terminalTab">Open the launcher in a Windows Terminal tab</label></div></section>
@@ -2528,9 +2527,6 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card" id="folder-watching"><h2>Folder watching</h2><p>Automatically detect new and changed photos without manually running a scan.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="watchEnabled" {"checked" if watch.get("enabled") else ""}><span class="slider"></span></label><label for="watchEnabled">Enable automatic folder watching</label></div>
 <div class="field"><label for="watchInterval">Check interval (minutes)</label><input type="number" id="watchInterval" min="5" max="1440" value="{int(watch.get('interval_minutes', 5))}"><span class="hint">How often to check for new files when watching is enabled. Default: 5</span></div></section>
-<section class="card" id="people-links"><h2>People</h2><p>A person&rsquo;s photos are links kept by LensLedger. If photos are renamed or moved, the links can be lost while the names stay saved in the photo files.</p>
-<div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="restoreFromNames" {"checked" if people_settings.get("restore_from_photo_names", True) else ""}><span class="slider"></span></label><label for="restoreFromNames">Restore people from photo names after each scan</label></div>
-<span class="hint hint-under-toggle">Links a photo to a person when the person&rsquo;s name is saved in the photo file and the link is missing. A person removed from a photo stays removed. No photo file is changed. Default: on</span></section>
 <section class="card" id="metadata-publishing"><h2>Metadata publishing</h2><p>Control how LensLedger writes tags, people, and descriptions back to your photos: into the photo file itself, into a separate .xmp sidecar file next to it, or both, chosen per file type.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="embedTags" {"checked" if write_settings["embed"] else ""}><span class="slider"></span></label><label for="embedTags">Embed tags in photo files</label></div>
 <span class="hint hint-under-toggle">Writes into JPEG, HEIC, PNG, WebP and TIFF files themselves, keeping a safety copy of each photo first.</span>
@@ -2819,7 +2815,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <ul>
 <li><strong>Edit name</strong> &mdash; change a person&rsquo;s primary name (propagates to all JPEG metadata)</li>
 <li><strong>Aliases</strong> &mdash; add alternate names (nicknames, maiden names) that also match in search</li>
-<li><strong>Restored automatically</strong> &mdash; after every scan, LensLedger links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, for example after photos were renamed or moved. A person removed from a photo, a rejected match and photos in the Review Bin are left alone. <strong>Settings &gt; People &gt; Restore people from photo names after each scan</strong> turns it off.</li>
+<li><strong>Restored automatically</strong> &mdash; after every scan, LensLedger links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, for example after photos were renamed or moved. A person removed from a photo, a rejected match and photos in the Review Bin are left alone.</li>
 <li><strong>Merge</strong> &mdash; combine duplicate person records, preserving aliases and updating metadata</li>
 <li><strong>Find duplicates</strong> &mdash; lists pairs of people who may be the same person: names that match apart from punctuation or accents, an initial that matches a full name, one name contained in the other, a small misspelling, or learned faces that look alike. Text after a comma, such as a band or a role in &ldquo;Name, Band&rdquo;, is left out of name matching. Choose which name to keep, or mark the pair <strong>Not the same person</strong> so it stops appearing. People confirmed together in one photo are never listed.</li>
 </ul>

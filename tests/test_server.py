@@ -2059,17 +2059,6 @@ class ServerWorkflowTests(unittest.TestCase):
             (self.asset_id, refused)).fetchone()[0], "rejected")
         con.close()
 
-    def test_a_scan_leaves_people_alone_when_the_setting_is_off(self):
-        from unittest.mock import patch
-
-        found, _refused = self._people_for_relink()
-        with patch.object(self.photo_search, "get_setting", return_value=False):
-            self._finish_a_scan()
-        con = sqlite3.connect(self.database)
-        self.assertEqual(con.execute(
-            "SELECT COUNT(*) FROM asset_people WHERE person_id=?", (found,)).fetchone()[0], 0)
-        con.close()
-
     def test_a_scan_that_was_paused_does_not_restore_people(self):
         found, _refused = self._people_for_relink()
 
@@ -2087,10 +2076,6 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(con.execute(
             "SELECT COUNT(*) FROM asset_people WHERE person_id=?", (found,)).fetchone()[0], 0)
         con.close()
-
-    def test_settings_page_offers_the_restore_setting_on_by_default(self):
-        page = self.get("/settings").read().decode("utf-8")
-        self.assertIn('id="restoreFromNames" checked', page)
 
     def test_merge_people_keeps_aliases_and_strongest_photo_decision(self):
         from photo_index import utc_now
