@@ -92,7 +92,9 @@ The **Scan your photos** page is the dashboard for all scanning operations. Each
 
 ### Run all scans
 
-Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection (if set up) — so you don't have to start each one manually.
+Runs the scans below back to back — photo locations, then OCR, then meaning search, photo tagging and face detection (if set up) — so you don't have to start each one manually.
+
+Photo tagging gives each photo up to five labels for what it shows, such as deer, bridge or birthday cake, chosen from a built-in list of about 500 subjects, scenes and activities. Only labels that stand out for that photo are kept. The labels appear as **Auto tags** in the photo's details and are written into the photo by **Write all tags**. On the **Publish photos** page, **Classify photos** tags photos that have no automatic tags yet, and **Re-tag all photos** replaces every photo's automatic tags.
 
 ### Photo locations (GPS)
 
@@ -496,7 +498,7 @@ Choose the CLIP model for meaning search. See [Meaning search](#meaning-search-o
 |---------|---------|-------------|
 | Embed tags in photo files | On | Write metadata inside JPEG, HEIC/HEIF, PNG, WebP and TIFF files |
 | Sidecar (.xmp) files for | GIF and BMP | The file types that get an `.xmp` companion file beside each photo |
-| Auto-classify photos after meaning search | Off | Tag photos with categories automatically once meaning search finishes |
+| Auto-classify photos after meaning search | On | Tag photos with what they show automatically once meaning search finishes (Run all scans always tags photos) |
 | Keep photo safety copies for (days) | 30 | Copies older than this are cleared automatically. 0 keeps them forever |
 | Total size limit for safety copies (GB) | 20 | When the copies exceed this, the oldest go first. 0 means no limit |
 

@@ -6,6 +6,16 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.44.0 — 2026-11-15
+
+- Automatic photo tags now come from a built-in list of about 500 subjects, scenes and activities (animals, plants, buildings, vehicles, food, objects, sports and events) instead of about 50 broad categories. A photo of a deer can now be tagged **deer**.
+- A photo keeps only the tags that stand out for it: those close to its best match, up to five, and none when nothing matches well.
+- **Run all scans** now includes a photo tagging step after meaning search, whatever the **Auto-classify photos after meaning search** setting says. That setting is now on by default for new installs.
+- Photos tagged under the earlier 50-category list are tagged again the next time **Classify photos** or **Run all scans** runs; their old automatic tags are replaced.
+- The **Publish photos** page has a new **Re-tag all photos** button that replaces the automatic tags on every photo.
+- **Classify photos** now reads each photo's meaning data with the model that created it, so photos indexed with a model other than the default are tagged too.
+- Photo tagging only loads the meaning-search model when there are photos to tag.
+
 ## 1.43.2 — 2026-11-15
 
 - This release contains everything in 1.43.0 and 1.43.1 together with the changes made in 1.42.2. The 1.43.0 and 1.43.1 downloads were built without the 1.42.2 changes, which include the Trash fix, so both should be replaced by this version.

@@ -287,6 +287,149 @@ class TestSemanticClassify(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(remaining, 0)
 
+    def _encoder_with_cosines(self, cosines: dict[str, float], identity: str = "test-model"):
+        """An encoder whose text vector for each listed term has that cosine
+        with the photo embedding built by _make_embedding (every other term
+        scores 0.05)."""
+        encoder = MagicMock()
+        encoder.identity = identity
+        by_prompt = {f"a photo of {term}": value for term, value in cosines.items()}
+
+        def encode_text(prompt):
+            value = by_prompt.get(prompt, 0.05)
+            return tuple([value, math.sqrt(1 - value * value)] + [0.0] * 510)
+
+        encoder.encode_text = encode_text
+        return encoder
+
+    def _add_photo(self, name: str, model: str = "test-model") -> int:
+        from photo_index import connect
+        with connect(self.db_path) as con:
+            con.execute(
+                "INSERT INTO assets(path, relative_path, folder, filename, extension, media_type, "
+                "size_bytes, mtime_ns, metadata_scanned, location_scanned, face_scanned, in_review_bin, indexed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, 0, datetime('now'))",
+                (f"/test/{name}", name, "test", name, ".jpg", "image", 1000, 0),
+            )
+            asset_id = con.execute("SELECT id FROM assets WHERE relative_path=?", (name,)).fetchone()[0]
+            con.execute(
+                "INSERT INTO semantic_embeddings(asset_id, model, dimensions, embedding_f32, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'))",
+                (asset_id, model, 512, self._make_embedding(1.0)),
+            )
+        return asset_id
+
+    def _auto_tags(self, asset_id: int) -> list[str]:
+        from photo_index import connect
+        with connect(self.db_path) as con:
+            return [row[0] for row in con.execute(
+                "SELECT t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id "
+                "WHERE at.asset_id=? AND at.source='semantic_auto' ORDER BY at.confidence DESC", (asset_id,))]
+
+    def test_vocabulary_names_everyday_subjects(self):
+        from semantic_classify import VOCABULARY
+
+        self.assertGreaterEqual(len(VOCABULARY), 400)
+        self.assertEqual(len(VOCABULARY), len(set(VOCABULARY)), "no term may be listed twice")
+        for term in ("deer", "fox", "horse", "owl", "bridge", "birthday cake", "waterfall",
+                     "sailboat", "pizza", "guitar", "cathedral"):
+            self.assertIn(term, VOCABULARY)
+
+    def test_only_terms_that_stand_out_for_the_photo_are_kept(self):
+        from semantic_classify import classify_asset, _vocab_cache
+        _vocab_cache.clear()
+
+        encoder = self._encoder_with_cosines(
+            {"deer": 0.30, "elk": 0.29, "wildlife": 0.26, "forest": 0.25, "animal": 0.20})
+        results = classify_asset(self._make_embedding(1.0), encoder)
+        self.assertEqual([term for term, _score in results], ["deer", "elk"])
+
+    def test_nothing_is_tagged_when_no_term_reaches_the_floor(self):
+        from semantic_classify import classify_asset, _vocab_cache
+        _vocab_cache.clear()
+
+        encoder = self._encoder_with_cosines({"deer": 0.15, "forest": 0.14})
+        self.assertEqual(classify_asset(self._make_embedding(1.0), encoder), [])
+
+    def test_a_photo_gets_at_most_top_n_terms(self):
+        from semantic_classify import classify_asset, _vocab_cache
+        _vocab_cache.clear()
+
+        encoder = self._encoder_with_cosines(
+            {"deer": 0.30, "elk": 0.30, "moose": 0.30, "horse": 0.30, "fox": 0.30, "wolf": 0.30})
+        self.assertEqual(len(classify_asset(self._make_embedding(1.0), encoder, top_n=3)), 3)
+        self.assertEqual(len(classify_asset(self._make_embedding(1.0), encoder)), 5)
+
+    def test_classification_leaves_tagged_photos_alone_once_the_vocabulary_is_current(self):
+        from semantic_classify import classify_library, _vocab_cache
+        _vocab_cache.clear()
+
+        photo = self._add_photo("a.jpg")
+        encoder = self._encoder_with_cosines({"deer": 0.30})
+        classify_library(self.db_path, encoder=encoder)
+        self.assertEqual(self._auto_tags(photo), ["deer"])
+
+        from photo_index import connect
+        with connect(self.db_path) as con:
+            tag_id = con.execute("INSERT INTO tags(name) VALUES ('kept') RETURNING id").fetchone()[0]
+            con.execute("INSERT INTO asset_tags(asset_id, tag_id, source, confidence) "
+                        "VALUES (?, ?, 'semantic_auto', 0.1)", (photo, tag_id))
+        result = classify_library(self.db_path, encoder=encoder)
+        self.assertEqual(result["total"], 0)
+        self.assertIn("kept", self._auto_tags(photo))
+
+    def test_photos_tagged_under_an_older_vocabulary_are_tagged_again(self):
+        from photo_index import connect
+        from semantic_classify import classify_library, _vocab_cache, VOCABULARY_VERSION_KEY
+        _vocab_cache.clear()
+
+        photo = self._add_photo("a.jpg")
+        with connect(self.db_path) as con:
+            tag_id = con.execute("INSERT INTO tags(name) VALUES ('landscape') RETURNING id").fetchone()[0]
+            con.execute("INSERT INTO asset_tags(asset_id, tag_id, source, confidence) "
+                        "VALUES (?, ?, 'semantic_auto', 0.23)", (photo, tag_id))
+            con.execute("INSERT INTO library_metadata(key, value) VALUES (?, '1')", (VOCABULARY_VERSION_KEY,))
+
+        result = classify_library(self.db_path, encoder=self._encoder_with_cosines({"deer": 0.30}))
+        self.assertEqual(result["classified"], 1)
+        self.assertEqual(self._auto_tags(photo), ["deer"], "the earlier tag is replaced, not added to")
+
+    def test_retag_replaces_automatic_tags_on_every_photo(self):
+        from semantic_classify import classify_library, _vocab_cache
+        _vocab_cache.clear()
+
+        photo = self._add_photo("a.jpg")
+        classify_library(self.db_path, encoder=self._encoder_with_cosines({"deer": 0.30}))
+        _vocab_cache.clear()
+        classify_library(self.db_path, encoder=self._encoder_with_cosines({"fox": 0.30}), retag=True)
+        self.assertEqual(self._auto_tags(photo), ["fox"])
+
+    def test_an_interrupted_pass_does_not_mark_the_library_as_tagged(self):
+        from semantic_classify import classify_library, _stored_vocabulary_version, _vocab_cache
+        _vocab_cache.clear()
+
+        self._add_photo("a.jpg")
+        result = classify_library(self.db_path, encoder=self._encoder_with_cosines({"deer": 0.30}),
+                                  should_cancel=lambda: True)
+        self.assertTrue(result["cancelled"])
+        self.assertEqual(_stored_vocabulary_version(self.db_path), 0)
+
+    def test_the_model_is_not_loaded_when_no_photo_needs_tagging(self):
+        from semantic_classify import classify_library
+
+        with patch("semantic_index.encoder_for", side_effect=AssertionError("model loaded")):
+            result = classify_library(self.db_path)
+        self.assertEqual(result["total"], 0)
+
+    def test_vectors_from_a_different_model_are_not_scored(self):
+        from semantic_classify import classify_library, _vocab_cache
+        _vocab_cache.clear()
+
+        photo = self._add_photo("a.jpg", model="another-model")
+        result = classify_library(self.db_path, encoder=self._encoder_with_cosines({"deer": 0.30}))
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(self._auto_tags(photo), [])
+
 
 class TestPublishSettings(unittest.TestCase):
     def setUp(self):
@@ -302,8 +445,8 @@ class TestPublishSettings(unittest.TestCase):
         settings = load_settings()
         publish = settings.get("publish", {})
         self.assertEqual(publish["write_mode"], "embedded")
-        self.assertFalse(publish["auto_classify"])
-        self.assertAlmostEqual(publish["classify_threshold"], 0.22)
+        self.assertTrue(publish["auto_classify"])
+        self.assertAlmostEqual(publish["classify_threshold"], 0.19)
         self.assertEqual(publish["classify_top_n"], 5)
 
     def test_save_and_load_publish_settings(self):

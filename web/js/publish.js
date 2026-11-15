@@ -176,14 +176,16 @@ document.addEventListener('click', e => { if (!e.target.closest('.menu-panel') &
 document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{closeMenu();if(b.dataset.panel==='about'){const o=document.getElementById('aboutOverlay');if(o)o.classList.add('open')}else if(b.dataset.panel==='guide'||b.dataset.panel==='update')window.location='/?panel='+b.dataset.panel});
 document.getElementById('aboutClose').onclick=document.getElementById('aboutOverlay').onclick=function(e){if(e.target===this||e.target.id==='aboutClose')document.getElementById('aboutOverlay').classList.remove('open')};
 
-if ($('classifyPhotos')) {
-  $('classifyPhotos').onclick = async () => {
-    $('classifyPhotos').disabled = true;
+function runClassify(retag) {
+  const buttons = [$('classifyPhotos'), $('retagPhotos')].filter(Boolean);
+  const setDisabled = value => buttons.forEach(b => { b.disabled = value; });
+  return async () => {
+    setDisabled(true);
     const status = $('classifyStatus');
     status.hidden = false;
     status.textContent = 'Starting classification…';
     try {
-      await api('/api/classify/start', {});
+      await api('/api/classify/start', {retag});
       const poll = setInterval(async () => {
         try {
           const r = await fetch('/api/classify/status');
@@ -191,16 +193,18 @@ if ($('classifyPhotos')) {
           status.textContent = s.message || s.state;
           if (s.state !== 'running') {
             clearInterval(poll);
-            $('classifyPhotos').disabled = false;
+            setDisabled(false);
           }
         } catch {}
       }, 1000);
     } catch (e) {
       status.textContent = 'Error: ' + e.message;
-      $('classifyPhotos').disabled = false;
+      setDisabled(false);
     }
   };
 }
+if ($('classifyPhotos')) $('classifyPhotos').onclick = runClassify(false);
+if ($('retagPhotos')) $('retagPhotos').onclick = runClassify(true);
 
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch (_) {}

@@ -1536,6 +1536,51 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
             handler_class.face_scan_job = {"state": "error", "message": str(exc)}
 
 
+def _run_classify_job(handler_class, database, retag=False, should_cancel=None):
+    """Tag photos with what they show, updating handler_class.classify_job as it goes.
+
+    The caller holds handler_class.classify_lock."""
+    action = Action("Classify photos", "every photo with meaning data, replacing earlier automatic tags"
+                                       if retag else "photos with meaning data but no tags yet")
+    try:
+        started_reported = False
+
+        def on_progress(c):
+            nonlocal started_reported
+            if not started_reported:
+                started_reported = True
+                action.note(f"{int(c['total']):,} photos to look at" if c["total"]
+                            else "no photos need classifying")
+            action.progress(
+                f"{int(c['classified']):,} of {int(c['total']):,} photos, "
+                f"{int(c['tags_added']):,} tags added"
+            )
+            handler_class.classify_job = {
+                "state": "running",
+                "message": f"Classified {c['classified']}/{c['total']} photos ({c['tags_added']} tags)",
+            }
+
+        result = classify_library(
+            database, progress=on_progress, should_cancel=should_cancel, retag=retag,
+        )
+        summary = (f"{result['classified']:,} photos looked at, "
+                   f"{result['tags_added']:,} tags added")
+        if not result["total"]:
+            summary = "nothing needed classifying"
+        if result["cancelled"]:
+            action.cancelled(summary)
+            handler_class.classify_job = {"state": "cancelled", "message": "Classification was cancelled"}
+        else:
+            action.finish(summary)
+            handler_class.classify_job = {
+                "state": "complete",
+                "message": f"Classified {result['classified']} photos, added {result['tags_added']} tags",
+            }
+    except Exception as exc:
+        action.failed(str(exc))
+        handler_class.classify_job = {"state": "error", "message": str(exc)}
+
+
 class _ScanAllStopped(Exception):
     """Raised internally to unwind _run_scan_all_job after a cancel request."""
 
@@ -1544,12 +1589,13 @@ _SCAN_ALL_LABELS = {
     "location": "Scanning photo locations",
     "ocr": "Running local text recognition (OCR)",
     "semantic": "Building the meaning-search index",
+    "classify": "Tagging photos with what they show",
     "face": "Scanning for faces",
 }
 
 
 def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
-    """Run location -> OCR -> meaning search -> face detection back to back.
+    """Run location -> OCR -> meaning search -> photo tagging -> face detection back to back.
 
     Meaning search and face detection are only run if the user already
     installed their optional local models; installing is a separate,
@@ -1573,9 +1619,10 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             raise _ScanAllStopped()
 
     action = Action("Run all scans", "photo locations, then text recognition, "
-                                    "then meaning search and face detection if set up")
+                                    "then meaning search, photo tagging and face detection if set up")
     ran: list[str] = []
     skipped: list[str] = []
+    tagging_problem = ""
     try:
         set_step("location")
         with handler_class.library_lock:
@@ -1613,6 +1660,25 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             _run_semantic_index_job(handler_class, database, 16, handler_class.semantic_job["started_at"])
             check_step(handler_class.semantic_job, "meaning indexing failed")
             ran.append("meaning search")
+
+            set_step("classify")
+            if handler_class.classify_lock.acquire(blocking=False):
+                try:
+                    handler_class.classify_cancel.clear()
+                    handler_class.classify_job = {"state": "running", "message": "Tagging photos…"}
+                    _run_classify_job(handler_class, database, False,
+                                      lambda: handler_class.scan_all_cancel.is_set()
+                                      or handler_class.classify_cancel.is_set())
+                finally:
+                    handler_class.classify_lock.release()
+                if handler_class.scan_all_cancel.is_set():
+                    raise _ScanAllStopped()
+                if handler_class.classify_job.get("state") == "error":
+                    tagging_problem = str(handler_class.classify_job.get("message") or "")
+                else:
+                    ran.append("photo tagging")
+            else:
+                console_log("Run all scans: photo tagging skipped because classification is already running")
         else:
             skipped.append("meaning search")
 
@@ -1639,9 +1705,13 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         message = "Ran: " + ", ".join(ran) + "."
         if total_errors:
             message += f" {total_errors:,} error{'s' if total_errors != 1 else ''} — check each section below for details."
+        if tagging_problem:
+            message += f" Photo tagging failed: {tagging_problem}"
         if skipped:
             message += " Skipped (not set up yet): " + ", ".join(skipped) + " — set up below."
         summary = "ran " + ", ".join(ran) if ran else "nothing ran"
+        if tagging_problem:
+            summary += f"; photo tagging failed: {tagging_problem}"
         if total_errors:
             summary += f", {total_errors:,} problem{'s' if total_errors != 1 else ''}"
         if skipped:
@@ -2522,7 +2592,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h2>3. Scanning Your Photos</h2>
 <p>The <a href="/scan-photos">Scan your photos</a> page is the dashboard for all scanning operations. Each scan runs in the background and can be paused and resumed.</p>
 <h3>Run all scans</h3>
-<p>Runs photo locations, OCR, meaning search, and face detection back to back, so you don&rsquo;t have to start each one manually.</p>
+<p>Runs photo locations, OCR, meaning search, photo tagging, and face detection back to back, so you don&rsquo;t have to start each one manually. Photo tagging gives each photo up to five labels for what it shows (deer, bridge, birthday cake and so on), chosen from a built-in list of about 500 subjects, scenes and activities.</p>
 <h3>Photo locations (GPS)</h3>
 <p>An incremental library scan that discovers new and changed files and extracts embedded GPS coordinates. These coordinates power the <a href="/map">Photo map</a>. Safe to run any time.</p>
 <h3>Local text recognition (OCR)</h3>
@@ -3965,6 +4035,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Write all accumulated metadata (auto-classified tags, people, subject, and any text found in the picture) to your photos. Choose whether that goes inside the photo files or into companion sidecar files in <a href="/settings#metadata-publishing">Settings</a>. Anything a particular file cannot carry is listed below the button rather than dropped.</p>
 <div class="publish-actions">
 <button type="button" class="secondary" id="classifyPhotos">Classify photos</button>
+<button type="button" class="secondary" id="retagPhotos">Re-tag all photos</button>
 <button type="button" class="secondary" id="writeAllTags">Write all tags</button>
 <button type="button" class="secondary" id="cancelWriteTags" hidden>Stop writing</button>
 </div>
@@ -4842,50 +4913,12 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.send_json({"state": "running", "message": "Classification is already running"})
         SearchHandler.classify_cancel.clear()
         SearchHandler.classify_job = {"state": "running", "message": "Starting classification…"}
+        retag = bool(body.get("retag"))
+        database = self.db_path
 
         def run():
-            action = Action("Classify photos", "photos with meaning data but no tags yet")
             try:
-                action.note("loading the meaning-search model…")
-                encoder = semantic_encoder_for()
-                started_reported = False
-
-                def on_progress(c):
-                    nonlocal started_reported
-                    if not started_reported:
-                        started_reported = True
-                        action.note(f"{int(c['total']):,} photos to look at" if c["total"]
-                                    else "no photos need classifying")
-                    action.progress(
-                        f"{int(c['classified']):,} of {int(c['total']):,} photos, "
-                        f"{int(c['tags_added']):,} tags added"
-                    )
-                    SearchHandler.classify_job = {
-                        "state": "running",
-                        "message": f"Classified {c['classified']}/{c['total']} photos ({c['tags_added']} tags)",
-                    }
-
-                result = classify_library(
-                    self.db_path, encoder=encoder,
-                    progress=on_progress,
-                    should_cancel=SearchHandler.classify_cancel.is_set,
-                )
-                summary = (f"{result['classified']:,} photos looked at, "
-                           f"{result['tags_added']:,} tags added")
-                if not result["total"]:
-                    summary = "nothing needed classifying"
-                if result["cancelled"]:
-                    action.cancelled(summary)
-                    SearchHandler.classify_job = {"state": "cancelled", "message": "Classification was cancelled"}
-                else:
-                    action.finish(summary)
-                    SearchHandler.classify_job = {
-                        "state": "complete",
-                        "message": f"Classified {result['classified']} photos, added {result['tags_added']} tags",
-                    }
-            except Exception as exc:
-                action.failed(str(exc))
-                SearchHandler.classify_job = {"state": "error", "message": str(exc)}
+                _run_classify_job(SearchHandler, database, retag, SearchHandler.classify_cancel.is_set)
             finally:
                 SearchHandler.classify_lock.release()
 

@@ -40,8 +40,8 @@ DEFAULTS: dict[str, object] = {
     },
     "publish": {
         "write_mode": "embedded",
-        "auto_classify": False,
-        "classify_threshold": 0.22,
+        "auto_classify": True,
+        "classify_threshold": 0.19,
         "classify_top_n": 5,
         "backup_keep_days": 30,
         "backup_max_gb": 20,
