@@ -1141,6 +1141,47 @@ def sync_person_tags(con: sqlite3.Connection, asset_id: int) -> None:
     set_source_tags(con, asset_id, "person", names)
 
 
+def relink_people_from_embedded_names(con: sqlite3.Connection, apply: bool) -> dict[str, int]:
+    """Link photos to the people whose names their files carry as people metadata.
+
+    A person's photos are rows in asset_people keyed on the photo's database
+    record, so a photo whose record was removed and re-added (a moved file, a
+    rescan) comes back with its names as tags only. This restores the link
+    where a photo's embedded people name matches a person exactly, ignoring
+    case. A pair that already has any row, including a rejected one, is left
+    alone. The file already carries the name, so the link counts as published.
+    """
+    rows = con.execute(
+        """SELECT DISTINCT a.id AS asset_id, p.id AS person_id
+           FROM assets a
+           JOIN asset_tags at ON at.asset_id = a.id AND at.source = 'embedded_people'
+           JOIN tags t ON t.id = at.tag_id
+           JOIN people p ON p.name = t.name COLLATE NOCASE
+           WHERE a.in_review_bin = 0
+             AND NOT EXISTS (SELECT 1 FROM asset_people x
+                             WHERE x.asset_id = a.id AND x.person_id = p.id)"""
+    ).fetchall()
+    summary = {
+        "links": len(rows),
+        "people": len({row[1] for row in rows}),
+        "photos": len({row[0] for row in rows}),
+    }
+    if not apply or not rows:
+        return summary
+    now = utc_now()
+    for asset_id, person_id in rows:
+        con.execute(
+            """INSERT OR IGNORE INTO asset_people
+                   (asset_id, person_id, state, confidence, face_id, source, updated_at, published_at)
+               VALUES (?, ?, 'confirmed', NULL, NULL, 'embedded_names', ?, ?)""",
+            (asset_id, person_id, now, now),
+        )
+    for asset_id in sorted({row[0] for row in rows}):
+        sync_person_tags(con, asset_id)
+        rebuild_search_row(con, asset_id)
+    return summary
+
+
 def apply_asset_annotation(con: sqlite3.Connection, asset_id: int, relative_path: str) -> None:
     row = con.execute(
         "SELECT subject, tags FROM asset_annotations WHERE relative_path = ?", (relative_path,)

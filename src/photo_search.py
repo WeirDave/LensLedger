@@ -76,7 +76,7 @@ import metadata_backups
 from photo_index import (
     EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, SCHEMA_VERSION, VIDEO_EXTENSIONS, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
     extract_embedded_rating, extract_embedded_tags, is_cloud_placeholder, record_file_rating,
-    refresh_embedded_tags, store_embedded_tags, ocr_assets,
+    refresh_embedded_tags, relink_people_from_embedded_names, store_embedded_tags, ocr_assets,
     ocr_is_available, pending_scan_counts, rebuild_search_row, scan_library,
     set_source_tags, sync_person_tags, sync_rating_from_file, utc_now,
 )
@@ -965,6 +965,7 @@ ACTION_LABELS = {
     "/api/people/duplicates/dismiss": "Mark two people as not the same person",
     "/api/person/card-photo": "Change a person's photo",
     "/api/people/learn": "Learn from confirmed people",
+    "/api/people/relink": "Restore people from photo names",
     "/api/people/review/decision": "People review decision",
     "/api/people/review/batch": "People review, bulk decision",
     "/api/people/review/undo": "Undo a people review decision",
@@ -2121,6 +2122,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.undo_people_review_batch(body)
             if route == "/api/people/learn":
                 return self.learn_people(body)
+            if route == "/api/people/relink":
+                return self.relink_people(body)
             if route == "/api/people/review/defer":
                 return self.defer_people_review(body)
             if route == "/api/tag/add-batch":
@@ -2677,6 +2680,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <ul>
 <li><strong>Edit name</strong> &mdash; change a person&rsquo;s primary name (propagates to all JPEG metadata)</li>
 <li><strong>Aliases</strong> &mdash; add alternate names (nicknames, maiden names) that also match in search</li>
+<li><strong>Restore from photo names</strong> &mdash; on the People index, links photos to the people whose names are saved in the photo files but whose link in LensLedger is missing, for example after photos were renamed or moved. It shows how many links it would restore and asks first. Rejected matches are left alone.</li>
 <li><strong>Merge</strong> &mdash; combine duplicate person records, preserving aliases and updating metadata</li>
 <li><strong>Find duplicates</strong> &mdash; lists pairs of people who may be the same person: names that match apart from punctuation or accents, an initial that matches a full name, one name contained in the other, a small misspelling, or learned faces that look alike. Text after a comma, such as a band or a role in &ldquo;Name, Band&rdquo;, is left out of name matching. Choose which name to keep, or mark the pair <strong>Not the same person</strong> so it stops appearing. People confirmed together in one photo are never listed.</li>
 </ul>
@@ -3702,6 +3706,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             f'{" disabled" if len(people_directory) < 2 else ""}>Merge people</button>'
             f'<button type="button" class="secondary" id="findDuplicatesGallery"'
             f'{" disabled" if len(people_directory) < 2 else ""}>Find duplicates</button>'
+            f'<button type="button" class="secondary" id="relinkPeopleGallery" '
+            f'title="Link photos to people whose names are saved in the photo files">Restore from photo names</button>'
             f'<button type="button" id="reviewPeopleGallery">Tag faces ({unidentified_faces_count:,})</button>'
             f'</div></nav>'
         )
@@ -5538,6 +5544,15 @@ class SearchHandler(BaseHTTPRequestHandler):
             "ok": True, "person": person["name"], "days": days,
             "deferred_until": deferred_until,
         })
+
+    def relink_people(self, body):
+        apply = body.get("apply") is True
+        with self.db() as con:
+            summary = relink_people_from_embedded_names(con, apply)
+        if apply:
+            console_log(f"[People] Restored {summary['links']:,} link(s) for {summary['people']:,} "
+                        f"people on {summary['photos']:,} photos from the names in the photo files")
+        self.send_json({"ok": True, "applied": apply, **summary})
 
     def learn_people(self, body):
         console_log("[People] Learning from confirmed faces…")
