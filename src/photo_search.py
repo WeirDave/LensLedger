@@ -93,6 +93,12 @@ from semantic_index import (
     build_index as build_semantic_index,
     clear_available_cache as semantic_clear_cache,
     delete_cached_model as semantic_delete_model,
+    cuda_torch_pip_args as semantic_cuda_torch_pip_args,
+    cuda_wheel_tag as semantic_cuda_wheel_tag,
+    device_status as semantic_device_status,
+    gpu_switch_available as semantic_gpu_switch_available,
+    GPU_SWITCH_MARKER as SEMANTIC_GPU_SWITCH_MARKER,
+    run_pip as semantic_run_pip,
     encoder_for as semantic_encoder_for,
     face_crop_pending as semantic_face_crop_pending,
     is_available as semantic_is_available,
@@ -420,6 +426,35 @@ def optional_requirements(section: str) -> list[str]:
     if not packages:
         raise ValueError(f"requirements.txt lists no packages for {section}")
     return packages
+
+
+def torch_requirement(packages: list[str]) -> str:
+    """The torch line from a requirements section ("torch>=2.13,<3")."""
+    return next((package for package in packages if package.lower().startswith("torch")), "torch")
+
+
+def apply_pending_gpu_switch() -> None:
+    """Carry out a queued switch to the NVIDIA build of PyTorch. Runs at the very
+    start, before anything has loaded PyTorch, because Windows will not replace
+    files a running program holds open."""
+    marker = data_root() / SEMANTIC_GPU_SWITCH_MARKER
+    if not marker.exists():
+        return
+    try:
+        marker.unlink()
+    except OSError:
+        pass
+    tag = semantic_cuda_wheel_tag()
+    if not tag:
+        console_log("Graphics-card support: no NVIDIA card found, nothing to switch")
+        return
+    requirement = torch_requirement(optional_requirements("meaning-search"))
+    console_log("Graphics-card support: downloading PyTorch with NVIDIA support (about 2.5 GB). "
+                "LensLedger opens when this finishes.")
+    ok, _tail = semantic_run_pip(semantic_cuda_torch_pip_args(requirement, tag), timeout=3600, stream=True)
+    console_log("Graphics-card support: installed, meaning search will now use your graphics card" if ok
+                else "Graphics-card support: the download failed, meaning search keeps using the processor. "
+                     "Try again from the Scan your photos page.")
 
 
 EXIFTOOL_PATH = Path(__file__).parent.parent / "tools" / "ExifTool" / "ExifTool.exe"
@@ -913,6 +948,7 @@ ACTION_LABELS = {
     "/api/semantic/start": "Meaning search",
     "/api/semantic/cancel": "Meaning search — stop requested",
     "/api/semantic/install": "Meaning search setup",
+    "/api/semantic/gpu-setup": "Use my graphics card",
     "/api/semantic/download-model": "Meaning search model download",
     "/api/semantic/delete-model": "Meaning search model removal",
     "/api/faces/start": "Face detection",
@@ -1382,7 +1418,8 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
             action.note(f"loading the {model_id} model…")
 
         encoder = semantic_encoder_for(model_id)
-        action.note("model ready, looking for photos to index")
+        action.note("model ready. " + (semantic_device_status().get("summary") or "")
+                    + " Looking for photos to index")
 
         _sem_started_logged = False
         _reported_failures = 0
@@ -2246,6 +2283,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.start_semantic_index(body)
             if route == "/api/semantic/cancel":
                 return self.cancel_semantic_index(body)
+            if route == "/api/semantic/gpu-setup":
+                return self.semantic_gpu_setup(body)
             if route == "/api/semantic/install":
                 return self.install_semantic_requirements(body)
             if route == "/api/semantic/delete-model":
@@ -2426,7 +2465,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card job-card"><div class="section-title"><h2>Run all scans</h2><button type="button" class="info-button" data-help="scanAllHelp" aria-label="About Run all scans">i</button></div><div class="help-popover" id="scanAllHelp">Runs the scans below back to back — photo locations, then OCR, then meaning search and face detection if you've already set them up — so you do not have to start each one by hand.</div><div class="job-status"><span class="spinner" id="scanAllSpinner"></span><p id="scanAllMessage">Checking status…</p><span class="elapsed" id="scanAllElapsed"></span></div><div class="progress-bar" id="scanAllBarWrap" hidden><span id="scanAllBar"></span></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseScanAll">Stop after this step</button><button type="button" id="startScanAll">Run all scans</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="progress-bar" id="locationBarWrap" hidden><span id="locationBar"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions" id="ocrActions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" class="secondary" id="useGpu" hidden title="Switch meaning search to the NVIDIA build of PyTorch so it runs on your graphics card">Use my graphics card</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div><h3 class="backup-subhead">Photo safety copies</h3><p class="backup-note">Before LensLedger writes tags into a photo it keeps a complete copy of the original, so any write can be undone. These build up as you publish. How long they are kept is set under "Metadata publishing" in <a href="/settings#metadata-publishing">Settings</a>.</p><div class="health-summary ocr-summary" id="photoBackupMetrics"></div><div class="interrupted-writes" id="interruptedWrites" hidden></div><div class="backup-row"><button type="button" class="secondary" id="prunePhotoBackups">Clear copies past the limit</button><button type="button" class="secondary" id="clearPhotoBackups">Clear all safety copies</button><span id="photoBackupStatus"></span></div></section>
 </main>
@@ -2628,6 +2667,9 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Fill in missing</strong> &mdash; indexes every photo with no meaning data at all, <em>including ones an earlier run could not read</em>. An ordinary run skips those permanently, so use this when the <strong>Missing</strong> count is not zero.</li>
 <li><strong>Re-scan everything</strong> &mdash; reads every photo again from scratch. Asks first.</li>
 </ul>
+<h4>Using your NVIDIA graphics card</h4>
+<p>Meaning search runs many times faster on an NVIDIA graphics card than on the processor. LensLedger looks for a card when meaning search is set up and, if it finds one, downloads the version of PyTorch that can use it (about 2.5 GB) in place of the processor-only version. Nothing needs configuring.</p>
+<p>The status line under <strong>Meaning search</strong> on the <strong>Scan your photos</strong> page, and the activity log, say which is in use. &ldquo;Using the processor, not your graphics card&rdquo; means a card was found but the installed PyTorch cannot use it. A <strong>Use my graphics card</strong> button then appears beside <strong>Pause</strong>: it restarts LensLedger, downloads the graphics-card version while the terminal window shows progress, and opens again when it is done. Photos already indexed stay indexed.</p>
 <h3>Face detection (optional)</h3>
 <p>Finds faces in your photos so they can be identified in <a href="/people">People</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
 <h3>Backups</h3>
@@ -7731,7 +7773,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         cache = semantic_model_cache_info() if coverage.get("installed") else {}
         with type(self).model_download_lock:
             download = dict(type(self).model_download_job)
-        self.send_json({**coverage, **job, "install": install, "model_cache": cache, "model_download": download})
+        device = semantic_device_status() if coverage.get("installed") else {}
+        self.send_json({**coverage, **job, "install": install, "model_cache": cache, "model_download": download,
+                        "device_summary": device.get("summary", ""), "device": device.get("device", ""),
+                        "gpu_switch_available": semantic_gpu_switch_available() if device else False})
 
     def semantic_errors(self):
         with self.db() as con:
@@ -7819,11 +7864,33 @@ class SearchHandler(BaseHTTPRequestHandler):
         def worker():
             action = Action("Meaning search setup", "installing the optional software with pip")
             try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", *packages],
-                    capture_output=True, text=True, timeout=1800,
-                )
-                if result.returncode == 0:
+                tag = semantic_cuda_wheel_tag()
+                if tag:
+                    # An NVIDIA card is present: fetch the PyTorch build that can
+                    # use it first, so the packages below find it already
+                    # installed rather than pulling the card-less one from PyPI.
+                    action.note(f"NVIDIA graphics card found; downloading PyTorch with graphics-card support ({tag})")
+                    with handler_class.semantic_install_lock:
+                        handler_class.semantic_install_job = {
+                            "state": "installing",
+                            "message": "Your NVIDIA graphics card was found. Downloading the PyTorch build that "
+                                       "uses it (about 2.5 GB)…",
+                            "started_at": utc_now(),
+                        }
+                    gpu_ok, gpu_tail = semantic_run_pip(
+                        semantic_cuda_torch_pip_args(torch_requirement(packages), tag), timeout=3600)
+                    if not gpu_ok:
+                        action.note("graphics-card support could not be installed, continuing with the processor build: "
+                                    + (gpu_tail.splitlines()[-1] if gpu_tail else "unknown error"))
+                        with handler_class.semantic_install_lock:
+                            handler_class.semantic_install_job = {
+                                "state": "installing",
+                                "message": "Graphics-card support could not be downloaded. Installing the "
+                                           "processor version instead…",
+                                "started_at": utc_now(),
+                            }
+                ok, tail = semantic_run_pip(["install", *packages], timeout=1800)
+                if ok:
                     semantic_clear_cache()
                     with handler_class.semantic_install_lock:
                         handler_class.semantic_install_job = {
@@ -7832,7 +7899,6 @@ class SearchHandler(BaseHTTPRequestHandler):
                         }
                     action.finish("installed")
                 else:
-                    tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-8:])
                     with handler_class.semantic_install_lock:
                         handler_class.semantic_install_job = {
                             "state": "error",
@@ -7846,6 +7912,20 @@ class SearchHandler(BaseHTTPRequestHandler):
 
         threading.Thread(target=worker, name="LensLedger-semantic-install", daemon=True).start()
         self.send_json({"ok": True, "state": "installing"}, 202)
+
+    def semantic_gpu_setup(self, body):
+        """Switch an installed, card-less PyTorch to the NVIDIA build. PyTorch is
+        in use by this very process, so the swap cannot happen here: it is queued
+        in a marker file and carried out by the next start, before PyTorch loads."""
+        if not semantic_gpu_switch_available():
+            raise ValueError("Nothing to switch: no NVIDIA graphics card was found, or PyTorch already uses it.")
+        if self._refuse_restart_while_busy(body):
+            return
+        (data_root() / SEMANTIC_GPU_SWITCH_MARKER).write_text("1", encoding="ascii")
+        self._restart_in_place(
+            "Restarting LensLedger to download graphics-card support for meaning search…",
+            "Restarting. The terminal window shows the download (about 2.5 GB); LensLedger reopens when it is done.",
+        )
 
     def delete_semantic_model(self, body):
         model_id = str(body.get("model", ""))
@@ -8830,6 +8910,7 @@ def main():
         # together -- a test run cannot half-escape into the real folder.
         os.environ["LENSLEDGER_DATA_DIR"] = str(args.data_dir.expanduser().resolve())
         console_log(f"Data folder: {os.environ['LENSLEDGER_DATA_DIR']} (set by --data-dir)")
+    apply_pending_gpu_switch()
     root = (args.root or load_library_state()).resolve()
     database = (args.db or library_db_path(root)).resolve()
     associate_db_path(root, database)

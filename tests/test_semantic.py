@@ -278,5 +278,114 @@ class FaceAppearanceTests(unittest.TestCase):
             )
 
 
+class GraphicsCardSetupTests(unittest.TestCase):
+    def test_the_cuda_version_is_read_from_both_driver_header_styles(self):
+        from semantic_index import parse_cuda_version
+
+        older = "| NVIDIA-SMI 552.22    Driver Version: 552.22    CUDA Version: 12.4     |"
+        newer = "| NVIDIA-SMI 621.24    KMD Version: 621.24    CUDA UMD Version: 13.5     |"
+        self.assertEqual(parse_cuda_version(older), (12, 4))
+        self.assertEqual(parse_cuda_version(newer), (13, 5))
+        self.assertIsNone(parse_cuda_version("NVIDIA-SMI has failed"))
+
+    def test_the_pytorch_build_follows_what_the_driver_supports(self):
+        from semantic_index import wheel_tag_for_driver
+
+        self.assertEqual(wheel_tag_for_driver((13, 2)), "cu130")
+        self.assertEqual(wheel_tag_for_driver((13, 0)), "cu130")
+        self.assertEqual(wheel_tag_for_driver((12, 9)), "cu126")
+        self.assertEqual(wheel_tag_for_driver((12, 6)), "cu126")
+        self.assertEqual(wheel_tag_for_driver((12, 5)), "", "a driver too old for any build gets none")
+        self.assertEqual(wheel_tag_for_driver(None), "")
+
+    def test_only_a_build_without_card_support_is_swapped(self):
+        from semantic_index import torch_lacks_gpu_support
+
+        self.assertTrue(torch_lacks_gpu_support("2.13.0+cpu", "cu126"))
+        self.assertTrue(torch_lacks_gpu_support("2.13.0", "cu126"))
+        self.assertFalse(torch_lacks_gpu_support("2.14.1+cu126", "cu126"))
+        self.assertFalse(torch_lacks_gpu_support("2.13.0+cpu", ""), "no usable card: nothing to switch to")
+        self.assertFalse(torch_lacks_gpu_support("", "cu126"), "PyTorch is not installed: setup handles that")
+
+    def test_the_card_build_comes_only_from_pytorchs_own_site(self):
+        from semantic_index import cuda_torch_pip_args
+
+        args = cuda_torch_pip_args("torch>=2.13,<3", "cu126")
+        self.assertEqual(args[:3], ["install", "--upgrade", "torch>=2.13,<3"])
+        self.assertEqual(args[3:], ["--index-url", "https://download.pytorch.org/whl/cu126"])
+        self.assertNotIn("--extra-index-url", args)
+
+    def test_a_queued_switch_is_carried_out_once_at_start(self):
+        import os
+        from unittest.mock import patch
+        import photo_search
+
+        with tempfile.TemporaryDirectory() as temporary:
+            previous = os.environ.get("LENSLEDGER_DATA_DIR")
+            os.environ["LENSLEDGER_DATA_DIR"] = temporary
+            try:
+                marker = Path(temporary) / photo_search.SEMANTIC_GPU_SWITCH_MARKER
+                with patch.object(photo_search, "semantic_run_pip", return_value=(True, "")) as run, \
+                        patch.object(photo_search, "console_log"), \
+                        patch.object(photo_search, "semantic_cuda_wheel_tag", return_value="cu126"):
+                    photo_search.apply_pending_gpu_switch()
+                    run.assert_not_called()
+                    marker.write_text("1")
+                    photo_search.apply_pending_gpu_switch()
+                    self.assertFalse(marker.exists())
+                    run.assert_called_once()
+                    self.assertIn("https://download.pytorch.org/whl/cu126", run.call_args[0][0])
+                    photo_search.apply_pending_gpu_switch()
+                    run.assert_called_once()
+            finally:
+                if previous is None:
+                    os.environ.pop("LENSLEDGER_DATA_DIR", None)
+                else:
+                    os.environ["LENSLEDGER_DATA_DIR"] = previous
+
+    def test_setup_requirement_line_is_taken_from_the_package_list(self):
+        import photo_search
+
+        self.assertEqual(photo_search.torch_requirement(["open_clip_torch>=3.3,<4", "torch>=2.13,<3"]),
+                         "torch>=2.13,<3")
+        self.assertEqual(photo_search.torch_requirement(["open_clip_torch>=3.3,<4"]), "torch")
+
+
+class DeviceReportTests(unittest.TestCase):
+    def test_a_usable_graphics_card_is_named(self):
+        from semantic_index import describe_device
+
+        report = describe_device("Example GPU 1000", "Example GPU 1000")
+        self.assertEqual(report["device"], "cuda")
+        self.assertIn("Example GPU 1000", report["summary"])
+
+    def test_an_unused_nvidia_card_is_called_out_with_the_fix(self):
+        from semantic_index import describe_device
+
+        report = describe_device("", "Example GPU 1000")
+        self.assertEqual(report["device"], "cpu")
+        self.assertIn("Example GPU 1000", report["summary"])
+        self.assertIn("Use my graphics card", report["summary"])
+
+    def test_a_computer_without_a_graphics_card_just_says_processor(self):
+        from semantic_index import describe_device
+
+        self.assertEqual(describe_device("", "")["summary"], "Using the processor.")
+
+    def test_batches_grow_to_what_the_device_handles_but_never_shrink(self):
+        from semantic_index import effective_batch_size
+
+        class OnCard:
+            preferred_batch_size = 64
+
+        class OnProcessor:
+            preferred_batch_size = 0
+
+        self.assertEqual(effective_batch_size(OnCard(), 16), 64)
+        self.assertEqual(effective_batch_size(OnCard(), 128), 128)
+        self.assertEqual(effective_batch_size(OnProcessor(), 16), 16)
+        self.assertEqual(effective_batch_size(FakeEncoder(), 16), 16)
+
+
 if __name__ == "__main__":
     unittest.main()

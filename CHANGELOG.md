@@ -6,6 +6,14 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.46.0 — 2026-11-15
+
+- Meaning search now uses an NVIDIA graphics card when the computer has one. Setting up meaning search on Windows detects the card and downloads the version of PyTorch that can use it (about 2.5 GB) instead of the processor-only version.
+- The **Scan your photos** page and the activity log now say what meaning search is running on: "Using your graphics card (...)" or "Using the processor". When a card was found but the installed PyTorch cannot use it, the line says so.
+- A new **Use my graphics card** button beside **Pause** under **Meaning search** appears in that case. It restarts LensLedger, downloads the graphics-card version of PyTorch while the terminal window shows progress, and reopens when done. Photos already indexed stay indexed.
+- Indexing on a graphics card is faster: photos are encoded in batches of 64 in half precision, and the photos of a batch are opened side by side.
+- Photos in a batch are now opened side by side on the processor too.
+
 ## 1.45.1 — 2026-11-15
 
 - The **Restore from photo names** button on the people index was removed. Missing people links are restored automatically after every completed scan, so the button repeated what a scan already does. The switch under **Settings** > **People** > **Restore people from photo names after each scan** is unchanged and still on by default.

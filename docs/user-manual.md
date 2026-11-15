@@ -131,6 +131,14 @@ Three buttons start a meaning-search run, and they do different things:
 
 The counts above the buttons show **Indexed**, **Remaining**, **Missing** (photos with no meaning data at all — click it to list them), **This pass**, and **Errors**.
 
+#### Using your NVIDIA graphics card
+
+Meaning search runs many times faster on an NVIDIA graphics card than on the processor. LensLedger looks for a card when meaning search is set up and, if it finds one, downloads the version of PyTorch that can use it (about 2.5 GB) in place of the processor-only version. Nothing needs configuring.
+
+The status line under **Meaning search** on the **Scan your photos** page, and the activity log, say which is in use. "Using your graphics card (...)" means the card is working. "Using the processor, not your graphics card" means a card was found but the installed PyTorch cannot use it, which happens when meaning search was set up before LensLedger looked for a card. In that case a **Use my graphics card** button appears beside **Pause**. It restarts LensLedger, downloads the graphics-card version while the terminal window shows progress, and opens again when it is done. Photos already indexed stay indexed.
+
+Graphics-card support is set up automatically on Windows with an NVIDIA card and a current driver. Other computers use the processor, and macOS and Linux already use the card where PyTorch supports it.
+
 ### Face detection (optional)
 
 Finds faces in your photos so they can be identified in **People review**. This is optional and a separate download (~500 MB) because the face-detection model's license does not allow LensLedger to bundle it.

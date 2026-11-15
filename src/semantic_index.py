@@ -7,9 +7,14 @@ import argparse
 import array
 import math
 import os
+import re
+import shutil
+import subprocess
 import sys
 import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -34,6 +39,12 @@ def default_db() -> Path:
     """The database a command-line run uses when none is given."""
     return libraries_root() / "default.sqlite3"
 DEFAULT_MODEL = "ViT-B-32/openai"
+
+# Photos opened side by side within one batch, and the batch size used when a
+# graphics card does the encoding (the card handles far more than the 16 a
+# processor is given at a time).
+IMAGE_LOAD_THREADS = max(2, min(8, os.cpu_count() or 4))
+GPU_BATCH_SIZE = 64
 
 
 def encode_vector(values: Iterable[float]) -> bytes:
@@ -79,6 +90,7 @@ class OpenClipEncoder:
         Image.MAX_IMAGE_PIXELS = 300_000_000
         self.torch = torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.preferred_batch_size = GPU_BATCH_SIZE if self.device == "cuda" else 0
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             model_name, pretrained=pretrained, device=self.device
         )
@@ -86,25 +98,49 @@ class OpenClipEncoder:
         self.tokenizer = open_clip.get_tokenizer(model_name)
         self.identity = f"{model_name}/{pretrained}"
 
+    def _encode_batch(self, tensors):
+        """Unit-length image vectors for a list of preprocessed tensors. On a
+        graphics card the model runs in half precision, which is much faster
+        and changes the vectors only in the fourth decimal place."""
+        with self.torch.no_grad(), self.torch.autocast(
+            device_type="cuda", dtype=self.torch.float16, enabled=self.device == "cuda"
+        ):
+            batch = self.torch.stack(tensors).to(self.device)
+            vectors = self.model.encode_image(batch).float()
+            vectors = vectors / vectors.norm(dim=-1, keepdim=True)
+        return vectors.cpu().tolist()
+
     def encode_images(self, paths: list[Path]) -> list[tuple[float, ...] | str | None]:
         """Return a vector per image, or a string error reason, or None."""
-        tensors = []
-        positions = []
         result: list[tuple[float, ...] | str | None] = [None] * len(paths)
-        for index, path in enumerate(paths):
+
+        def load(path):
             try:
                 with Image.open(path) as image:
-                    tensors.append(self.preprocess(image.convert("RGB")))
-                    positions.append(index)
+                    return self.preprocess(image.convert("RGB")), None
             except (OSError, ValueError) as exc:
-                result[index] = str(exc) or "Unreadable image file"
+                return None, str(exc) or "Unreadable image file"
+
+        # Opening and shrinking photos is what keeps a graphics card waiting,
+        # and Pillow releases the interpreter lock while it decodes, so the
+        # photos of one batch are opened side by side.
+        workers = max(1, min(len(paths), IMAGE_LOAD_THREADS))
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                loaded = list(pool.map(load, paths))
+        else:
+            loaded = [load(path) for path in paths]
+        tensors = []
+        positions = []
+        for index, (tensor, error) in enumerate(loaded):
+            if tensor is None:
+                result[index] = error
+            else:
+                tensors.append(tensor)
+                positions.append(index)
         if not tensors:
             return result
-        with self.torch.no_grad():
-            batch = self.torch.stack(tensors).to(self.device)
-            vectors = self.model.encode_image(batch)
-            vectors = vectors / vectors.norm(dim=-1, keepdim=True)
-        for index, vector in zip(positions, vectors.cpu().tolist()):
+        for index, vector in zip(positions, self._encode_batch(tensors)):
             result[index] = tuple(float(value) for value in vector)
         return result
 
@@ -112,11 +148,8 @@ class OpenClipEncoder:
         """Return a vector for each already-loaded RGB image."""
         if not crops:
             return []
-        with self.torch.no_grad():
-            batch = self.torch.stack([self.preprocess(crop) for crop in crops]).to(self.device)
-            vectors = self.model.encode_image(batch)
-            vectors = vectors / vectors.norm(dim=-1, keepdim=True)
-        return [tuple(float(value) for value in vector) for vector in vectors.cpu().tolist()]
+        vectors = self._encode_batch([self.preprocess(crop) for crop in crops])
+        return [tuple(float(value) for value in vector) for vector in vectors]
 
     def encode_text(self, text: str) -> tuple[float, ...]:
         with self.torch.no_grad():
@@ -152,6 +185,151 @@ def clear_available_cache() -> None:
     """Allow ``is_available()`` to re-check after a pip install."""
     global _available_cache
     _available_cache = None
+
+
+@lru_cache(maxsize=1)
+def nvidia_gpu_name() -> str:
+    """The name of an NVIDIA graphics card in this computer, or "" when there
+    is none (or its driver tool is missing). Asked once per run."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return ""
+    try:
+        done = subprocess.run(
+            [exe, "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
+    return lines[0] if done.returncode == 0 and lines else ""
+
+
+def describe_device(cuda_name: str, nvidia_name: str) -> dict[str, str]:
+    """What meaning search runs on, and why, in words for the person using it.
+
+    ``cuda_name`` is the card PyTorch can use ("" if it cannot use one);
+    ``nvidia_name`` is an NVIDIA card found in the computer whether or not
+    PyTorch can use it."""
+    if cuda_name:
+        return {"device": "cuda", "name": cuda_name,
+                "summary": f"Using your graphics card ({cuda_name})."}
+    if nvidia_name:
+        return {"device": "cpu", "name": "",
+                "summary": (f"Using the processor, not your graphics card ({nvidia_name}): the installed "
+                            "PyTorch has no NVIDIA support, so indexing is far slower than it needs to be. "
+                            "Use the \"Use my graphics card\" button on the Scan your photos page to fix it.")}
+    return {"device": "cpu", "name": "", "summary": "Using the processor."}
+
+
+def device_status() -> dict[str, str]:
+    """The device meaning search would use now, without loading the model.
+    Empty when the optional packages are not installed."""
+    if not is_available():
+        return {"device": "", "name": "", "summary": ""}
+    import torch
+    cuda_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
+    return describe_device(cuda_name, nvidia_gpu_name())
+
+
+CUDA_WHEEL_BASE = "https://download.pytorch.org/whl"
+GPU_SWITCH_MARKER = "gpu-torch-pending"
+
+
+def cuda_driver_version() -> tuple[int, int] | None:
+    """The newest CUDA version the installed NVIDIA driver supports, from the
+    header of ``nvidia-smi``, or None when it cannot be read."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    try:
+        done = subprocess.run(
+            [exe], capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_cuda_version(done.stdout or "")
+
+
+def parse_cuda_version(header: str) -> tuple[int, int] | None:
+    """The CUDA version in an ``nvidia-smi`` header. Older drivers print
+    "CUDA Version: 12.6", newer ones "CUDA UMD Version: 13.5"."""
+    found = re.search(r"CUDA\s+(?:\w+\s+)?Version:\s*(\d+)\.(\d+)", header)
+    return (int(found.group(1)), int(found.group(2))) if found else None
+
+
+def wheel_tag_for_driver(version: tuple[int, int] | None) -> str:
+    """The PyTorch download folder that suits a driver's CUDA version: the
+    newest build the driver can run, or "" when it is too old for any."""
+    if version is None:
+        return ""
+    if version >= (13, 0):
+        return "cu130"
+    if version >= (12, 6):
+        return "cu126"
+    return ""
+
+
+@lru_cache(maxsize=1)
+def cuda_wheel_tag() -> str:
+    """The PyTorch build to use for this computer's NVIDIA card. Only Windows
+    needs asking: PyPI's Windows PyTorch has no card support, while Linux's
+    already has it and macOS has none to give."""
+    if sys.platform != "win32" or not nvidia_gpu_name():
+        return ""
+    return wheel_tag_for_driver(cuda_driver_version())
+
+
+def installed_torch_version() -> str:
+    """The version string of the installed PyTorch ("2.13.0+cpu"), without
+    importing it; "" when it is not installed."""
+    try:
+        from importlib.metadata import version
+        return version("torch")
+    except Exception:
+        return ""
+
+
+def torch_lacks_gpu_support(installed: str, tag: str) -> bool:
+    """True when a card PyTorch could use exists but the installed build is one
+    without card support."""
+    return bool(tag and installed and "+cu" not in installed)
+
+
+def gpu_switch_available() -> bool:
+    return torch_lacks_gpu_support(installed_torch_version(), cuda_wheel_tag())
+
+
+def cuda_torch_pip_args(requirement: str, tag: str) -> list[str]:
+    """pip arguments that install the NVIDIA build of PyTorch. The build lives
+    on PyTorch's own download site, which carries what it needs, so PyPI is
+    not consulted for it (that is what keeps pip from picking the card-less
+    PyPI build over it)."""
+    return ["install", "--upgrade", requirement, "--index-url", f"{CUDA_WHEEL_BASE}/{tag}"]
+
+
+def run_pip(args: list[str], timeout: int, stream: bool = False) -> tuple[bool, str]:
+    """Run ``python -m pip`` with ``args``; return (succeeded, last lines of output)."""
+    command = [sys.executable, "-m", "pip", *args]
+    try:
+        if stream:
+            done = subprocess.run(command, timeout=timeout)
+            return done.returncode == 0, ""
+        done = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+    tail = "\n".join(((done.stderr or "") + (done.stdout or "")).strip().splitlines()[-8:])
+    return done.returncode == 0, tail
+
+
+def effective_batch_size(encoder, requested: int) -> int:
+    """The requested batch size, raised to what the encoder's device handles well."""
+    preferred = getattr(encoder, "preferred_batch_size", 0)
+    if isinstance(preferred, int) and not isinstance(preferred, bool):
+        return max(requested, preferred)
+    return requested
 
 
 SUPPORTED_MODELS = {
@@ -316,11 +494,12 @@ def build_index(
 
     if progress:
         progress(snapshot())
-    for start in range(0, len(rows), max(1, batch_size)):
+    batch_size = effective_batch_size(encoder, max(1, batch_size))
+    for start in range(0, len(rows), batch_size):
         if should_cancel and should_cancel():
             counts["cancelled"] = True
             break
-        batch = rows[start:start + max(1, batch_size)]
+        batch = rows[start:start + batch_size]
         vectors = encoder.encode_images([Path(row["path"]) for row in batch])
         with connect(db_path) as con:
             for row, vector in zip(batch, vectors):

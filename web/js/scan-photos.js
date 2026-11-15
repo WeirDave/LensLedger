@@ -448,7 +448,8 @@ async function pollOnce() {
       $('semanticBarWrap').hidden = !semanticInstalling;
       $('semanticBarWrap').classList.toggle('indeterminate', semanticInstalling);
     } else {
-      $('semanticMessage').textContent = semantic.message || 'Ready. Build the index below to make your photos searchable by meaning.';
+      $('semanticMessage').textContent = (semantic.message || 'Ready. Build the index below to make your photos searchable by meaning.')
+        + (semantic.device_summary ? ' ' + semantic.device_summary : '');
       const semanticErrorCount = Math.max(semantic.failed || 0, semantic.errors || 0);
       const semanticMissing = semantic.missing || 0;
       $('semanticMetrics').replaceChildren(
@@ -464,6 +465,8 @@ async function pollOnce() {
     $('fillSemantic').disabled = semanticRunning || scanAllRunning;
     $('rescanSemantic').disabled = semanticRunning || scanAllRunning;
     $('pauseSemantic').disabled = !semanticRunning || scanAllRunning;
+    $('useGpu').hidden = !semantic.gpu_switch_available;
+    $('useGpu').disabled = semanticRunning || scanAllRunning;
     setSpinner('semanticSpinner', semanticRunning || semanticInstalling);
     $('semanticElapsed').textContent = semanticInstalling ? elapsedText(semanticInstall.started_at)
       : (semanticRunning
@@ -557,6 +560,12 @@ $('fillSemantic').onclick = () => startSemantic('missing', $('fillSemantic'));
 $('rescanSemantic').onclick = async () => {
   if (!await askConfirm('Read every photo again?', ['Read every photo again from scratch, including ones already indexed?', 'This can take a long time on a large library.'], 'Read again', false)) return;
   startSemantic('all', $('rescanSemantic'));
+};
+$('useGpu').onclick = async () => {
+  if (!await askConfirm('Use your graphics card?', ['LensLedger will restart and download the PyTorch build that can use your NVIDIA graphics card (about 2.5 GB).', 'The terminal window shows the download, and LensLedger reopens when it is done. Photos already indexed stay indexed.'], 'Restart and download', false)) return;
+  $('useGpu').disabled = true;
+  try { await api('/api/semantic/gpu-setup', {}); $('semanticMessage').textContent = 'Restarting to download graphics-card support. LensLedger reopens when it is done…'; }
+  catch (error) { $('semanticMessage').textContent = error.message; $('useGpu').disabled = false; }
 };
 $('pauseSemantic').onclick = async () => {
   try { await api('/api/semantic/cancel', {}); $('semanticMessage').textContent = 'Pausing after the active image batch…'; }
