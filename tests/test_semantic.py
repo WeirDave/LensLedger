@@ -311,8 +311,9 @@ class GraphicsCardSetupTests(unittest.TestCase):
         from semantic_index import cuda_torch_pip_args
 
         args = cuda_torch_pip_args("torch>=2.13,<3", "cu126")
-        self.assertEqual(args[:3], ["install", "--upgrade", "torch>=2.13,<3"])
-        self.assertEqual(args[3:], ["--index-url", "https://download.pytorch.org/whl/cu126"])
+        self.assertEqual(args[:4], ["install", "--upgrade", "torch>=2.13,<3", "torchvision"],
+                         "torchvision moves with PyTorch, each release works with one PyTorch release")
+        self.assertEqual(args[4:], ["--index-url", "https://download.pytorch.org/whl/cu126"])
         self.assertNotIn("--extra-index-url", args)
 
     def test_a_queued_switch_is_carried_out_once_at_start(self):

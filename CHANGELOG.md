@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.48.0 — 2026-11-15
+
+- pip and LensLedger's Python packages are now kept up to date. About once a week, at startup, **Start LensLedger.cmd** updates pip, the packages LensLedger always needs, and any optional feature packages that are installed (meaning search, face detection) to the newest versions LensLedger supports. The check waits for a launch with LensLedger not already running, retries a failed update the next day, and prints what it is doing in the launcher window.
+- Packages with a graphics-card version are updated safely: an installed NVIDIA build of PyTorch is updated from PyTorch's NVIDIA download site and the graphics-card face-detection runtime stays in place, so neither is replaced by the slower processor version.
+- New setting **Keep pip and LensLedger's Python packages up to date** under **Settings > Startup** (on by default) switches the weekly update off.
+- Switching meaning search to an NVIDIA graphics card now installs the matching version of torchvision with PyTorch. Previously torchvision stayed at the version built for the earlier PyTorch; it kept working, but the two were no longer a matching pair.
+
 ## 1.47.2 — 2026-11-15
 
 - The version number shown beside the LensLedger name at the top of every page is larger and easier to read: 15px text on a roomier badge, up from 10–11px.

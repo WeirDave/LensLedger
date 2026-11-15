@@ -37,6 +37,7 @@ DEFAULTS: dict[str, object] = {
     "startup": {
         "show_library_picker": False,
         "terminal_tab": True,
+        "update_packages": True,
     },
     "publish": {
         "write_mode": "embedded",
@@ -80,6 +81,7 @@ _RULES: dict[tuple[str, str], tuple[str, float | None, float | None, str]] = {
     ("ingest", "rules"): ("list", None, None, "Auto-import override rules"),
     ("startup", "show_library_picker"): ("bool", None, None, "Ask which library to open at startup"),
     ("startup", "terminal_tab"): ("bool", None, None, "Terminal tab"),
+    ("startup", "update_packages"): ("bool", None, None, "Weekly package updates"),
     ("publish", "embed"): ("bool", None, None, "Embed tags in photos"),
     ("publish", "write_mode"): ("text", None, None, "Write mode"),
     ("publish", "sidecar_types"): ("dict", None, None, "Sidecar file types"),

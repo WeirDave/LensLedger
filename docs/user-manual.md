@@ -498,6 +498,15 @@ Manage your library list: add, switch, relocate, or remove libraries. See [Libra
 |---------|-------|---------|-------------|
 | Meaning search batch | 1–128 | 16 | Images per CLIP encoding batch |
 
+### Startup
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Open the launcher in a Windows Terminal tab | On | Start LensLedger in a tab of the Windows Terminal window already open |
+| Keep pip and LensLedger's Python packages up to date | On | About once a week, at startup, update pip and the installed packages to the newest versions LensLedger supports |
+
+The weekly update runs only when LensLedger is not already running, and a failed update is retried the next day. Packages that have a graphics-card version, such as PyTorch, are updated from the download site their installed version came from, so an NVIDIA build is never replaced by the slower processor one. Python itself is not updated.
+
 ### Meaning search model
 
 Choose the CLIP model for meaning search. See [Meaning search](#meaning-search-optional).

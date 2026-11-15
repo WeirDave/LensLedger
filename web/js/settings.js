@@ -125,6 +125,7 @@ function collectSettings(){
   s.startup=s.startup||{};
   s.startup.show_library_picker=c('showLibraryPicker');
   s.startup.terminal_tab=c('terminalTab');
+  s.startup.update_packages=c('updatePackages');
   s.publish=s.publish||{};
   delete s.publish.write_mode;
   s.publish.embed=c('embedTags');

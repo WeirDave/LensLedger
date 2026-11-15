@@ -1,4 +1,6 @@
 import io
+import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -120,6 +122,135 @@ class CommandLine(unittest.TestCase):
     def test_python_only_ignores_packages(self):
         with patch.object(check, "unmet_requirements", side_effect=AssertionError("packages were checked")):
             self.assertEqual(self.run_main("--python-only")[0], 0)
+
+
+class WeeklyPackageUpdates(unittest.TestCase):
+    REAL = REPOSITORY / "requirements.txt"
+    DAY = 24 * 3600
+
+    def plan(self, installed, tag=""):
+        return check.update_plan(self.REAL, installed.get, tag)
+
+    def test_the_optional_packages_are_read_from_the_file(self):
+        sections = check.optional_sections(self.REAL)
+        self.assertIn("meaning-search", sections)
+        self.assertIn("face-locations", sections)
+        self.assertIn("torch>=2.13,<3", sections["meaning-search"])
+
+    def test_with_no_optional_features_only_pip_and_the_base_packages_are_updated(self):
+        plan = self.plan({"torch": None})
+        self.assertEqual(plan[0], ["install", "--upgrade", "pip"])
+        self.assertEqual(plan[1][:3], ["install", "--upgrade", "-r"])
+        self.assertEqual(len(plan), 2)
+
+    def test_a_graphics_card_pytorch_is_upgraded_from_its_own_index_not_pypi(self):
+        plan = self.plan({"torch": "2.14.1+cu130", "torchvision": "0.28.0+cpu", "open-clip-torch": "3.3.0"}, "cu130")
+        torch_steps = [args for args in plan if "torch>=2.13,<3" in args]
+        self.assertEqual(len(torch_steps), 1)
+        self.assertIn("--index-url", torch_steps[0])
+        self.assertIn("https://download.pytorch.org/whl/cu130", torch_steps[0])
+        self.assertIn("torchvision", torch_steps[0])
+        later = [args for args in plan if "open_clip_torch>=3.3,<4" in args]
+        self.assertEqual(len(later), 1)
+        self.assertNotIn("torch>=2.13,<3", later[0], "the PyPI upgrade never touches PyTorch")
+
+    def test_a_processor_pytorch_is_upgraded_together_with_torchvision(self):
+        plan = self.plan({"torch": "2.13.0+cpu", "torchvision": "0.28.0+cpu"})
+        step = next(args for args in plan if "torch>=2.13,<3" in args)
+        self.assertEqual(step, ["install", "--upgrade", "torch>=2.13,<3", "torchvision"])
+
+    def test_the_graphics_card_onnx_runtime_is_not_swapped_for_the_processor_one(self):
+        plan = self.plan({"insightface": "1.0.1", "onnxruntime-gpu": "1.32.0"})
+        step = next(args for args in plan if any(a.startswith("insightface") for a in args))
+        self.assertIn("onnxruntime-gpu>=1.28,<2", step)
+        self.assertNotIn("onnxruntime>=1.28,<2", step)
+
+    def test_the_processor_onnx_runtime_stays_as_it_is(self):
+        plan = self.plan({"insightface": "1.0.1", "onnxruntime": "1.29.0"})
+        step = next(args for args in plan if any(a.startswith("insightface") for a in args))
+        self.assertIn("onnxruntime>=1.28,<2", step)
+
+    def test_an_update_is_due_a_week_after_the_last_success(self):
+        now = 100 * self.DAY
+        self.assertFalse(check.update_due({}, now), "no record yet: the clock starts, nothing runs")
+        self.assertFalse(check.update_due({"last_success": now - 6 * self.DAY, "last_attempt": now - 6 * self.DAY}, now))
+        self.assertTrue(check.update_due({"last_success": now - 8 * self.DAY, "last_attempt": now - 8 * self.DAY}, now))
+        self.assertFalse(check.update_due({"last_success": now - 8 * self.DAY, "last_attempt": now - 3600}, now),
+                         "a failed attempt waits a day before trying again")
+        self.assertTrue(check.update_due({"last_success": now - 8 * self.DAY, "last_attempt": now - 2 * self.DAY}, now))
+
+    def test_switching_updates_off_in_settings_is_honoured(self):
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Path(folder) / "settings.json"
+            self.assertTrue(check.updates_wanted(settings), "no settings file: on")
+            settings.write_text('{"startup": {"update_packages": false}}', encoding="utf-8")
+            self.assertFalse(check.updates_wanted(settings))
+            settings.write_text('{"startup": {"terminal_tab": true}}', encoding="utf-8")
+            self.assertTrue(check.updates_wanted(settings))
+
+
+class RefreshRunsOnlyWhenDue(unittest.TestCase):
+    DAY = 24 * 3600
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.previous = os.environ.get("LENSLEDGER_DATA_DIR")
+        os.environ["LENSLEDGER_DATA_DIR"] = self.folder.name
+        self.addCleanup(self.restore)
+        self.state = Path(self.folder.name) / check.STATE_FILE
+
+    def restore(self):
+        if self.previous is None:
+            os.environ.pop("LENSLEDGER_DATA_DIR", None)
+        else:
+            os.environ["LENSLEDGER_DATA_DIR"] = self.previous
+
+    def run_refresh(self, now, running=False, returncode=0):
+        class Done:
+            pass
+
+        done = Done()
+        done.returncode = returncode
+        with patch.object(check.subprocess, "run", return_value=done) as run, \
+                patch.object(check, "server_running", return_value=running), \
+                patch.object(check, "cuda_wheel_tag", return_value=""), \
+                patch.object(check, "installed_version", return_value=None), \
+                redirect_stdout(io.StringIO()):
+            check.refresh_packages(REPOSITORY / "requirements.txt", now)
+        return run
+
+    def test_the_first_launch_only_starts_the_clock(self):
+        run = self.run_refresh(1000 * self.DAY)
+        run.assert_not_called()
+        self.assertEqual(json.loads(self.state.read_text())["last_success"], 1000 * self.DAY)
+
+    def test_a_due_update_runs_pip_and_records_the_time(self):
+        self.state.write_text(json.dumps({"last_success": 0, "last_attempt": 0}))
+        run = self.run_refresh(1000 * self.DAY)
+        self.assertEqual(run.call_count, 2, "pip itself, then the base packages")
+        self.assertEqual(json.loads(self.state.read_text())["last_success"], 1000 * self.DAY)
+
+    def test_a_failed_update_is_retried_tomorrow_not_next_week(self):
+        self.state.write_text(json.dumps({"last_success": 0, "last_attempt": 0}))
+        self.run_refresh(1000 * self.DAY, returncode=1)
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["last_success"], 0)
+        self.assertEqual(saved["last_attempt"], 1000 * self.DAY)
+
+    def test_nothing_is_updated_while_LensLedger_is_running(self):
+        self.state.write_text(json.dumps({"last_success": 0, "last_attempt": 0}))
+        self.run_refresh(1000 * self.DAY, running=True).assert_not_called()
+
+    def test_an_update_that_is_not_due_does_nothing(self):
+        now = 1000 * self.DAY
+        self.state.write_text(json.dumps({"last_success": now - 2 * self.DAY, "last_attempt": now - 2 * self.DAY}))
+        self.run_refresh(now).assert_not_called()
+
+    def test_updates_switched_off_in_settings_do_nothing(self):
+        (Path(self.folder.name) / "settings.json").write_text('{"startup": {"update_packages": false}}')
+        self.state.write_text(json.dumps({"last_success": 0, "last_attempt": 0}))
+        self.run_refresh(1000 * self.DAY).assert_not_called()
 
 
 class LaunchersUseTheCheck(unittest.TestCase):
