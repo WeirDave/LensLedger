@@ -40,4 +40,22 @@ main{padding:18px 20px 60px;max-width:1200px}
 .write-tags-fallback h4,.write-tags-partial h4,.write-tags-skipped h4{color:var(--accent)}
 .write-tags-more{margin:8px 0 0;font-size:12px;color:var(--text-secondary)}
 
+.code-window{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#14171c;color:#d7dde6;margin-top:4px}
+.code-window-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#1d2128;border-bottom:1px solid #2b313b}
+.code-dots{display:inline-flex;gap:6px}.code-dots i{width:10px;height:10px;border-radius:50%;background:#444b57}
+.code-dots i:nth-child(1){background:#ff5f57}.code-dots i:nth-child(2){background:#febc2e}.code-dots i:nth-child(3){background:#28c840}
+.code-title{flex:1;font-size:12px;color:#9aa4b2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.code-state{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#4cd07d}
+.code-state::before{content:'';display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:currentColor;animation:code-pulse 1.4s ease-in-out infinite}
+.code-state.is-off{color:#e5786d}.code-state.is-off::before{animation:none}
+@keyframes code-pulse{50%{opacity:.25}}
+.code-window-bar button{padding:3px 10px;font-size:12px;background:#2b313b;color:#d7dde6}
+.code-body{margin:0;padding:12px 14px;height:320px;overflow:auto;font:12.5px/1.55 ui-monospace,Cascadia Code,Consolas,monospace;white-space:pre-wrap;word-break:break-word;scrollbar-width:thin}
+.code-body:empty::before{content:'Waiting for activity…';color:#6b7482}
+.code-line{display:block;animation:code-in .25s ease-out}
+@keyframes code-in{from{opacity:0;transform:translateX(-4px)}}
+.code-time{color:#6b7482}.code-action{color:#7fb4ff;font-weight:700}.code-rest{color:#d7dde6}
+.code-line.is-done .code-rest{color:#8fe0a5}.code-line.is-problem .code-rest{color:#ff9b8f}
+@media(prefers-reduced-motion:reduce){.code-line,.code-state::before{animation:none}}
+
 .failure-hint{word-break:normal;overflow-wrap:break-word;margin-top:4px;font-size:12px;color:var(--text-secondary);line-height:1.4}.copy-list{margin:6px 0 10px;font-size:12px;padding:4px 10px}

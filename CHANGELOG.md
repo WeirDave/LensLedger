@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.42.0 — 2026-11-14
+
+- The **Publish photos** page has a new **Activity log** window that shows what LensLedger is doing as it happens: the same lines the terminal window prints, such as each step of **Classify photos** and **Write all tags**, each photo that could not be handled, and how the run ended. **Copy** and **Clear** buttons sit in its title bar.
+
 ## 1.41.3 — 2026-11-14
 
 - The **Tag faces** button on the people index now shows the number of unnamed faces waiting to be tagged, the same number the page it opens reports. Previously it showed the number of suggested matches awaiting review, which is a different and usually much smaller figure. Faces that were skipped are not counted.

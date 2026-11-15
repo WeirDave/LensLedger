@@ -377,6 +377,10 @@ Before it starts, LensLedger works out how much room the safety copies will need
 
 Anything a particular file cannot carry is listed underneath with the reason. A JPEG too damaged to rewrite gets a sidecar file instead and is named as having done so. A photo whose file type is set to get neither embedded tags nor a sidecar is listed as skipped.
 
+### Activity log
+
+Below the buttons, the **Publish photos** page has an **Activity log** window that shows what LensLedger is doing as it happens — the same lines the terminal window prints. Starting **Classify photos** or **Write all tags** shows each step, each photo it could not handle, and how the run ended. **Copy** copies the lines and **Clear** empties the window; neither affects the log file. The lines include real photo paths, so remove them before sharing a copy or a screenshot.
+
 ### Sidecar files
 
 **Settings > Metadata publishing** chooses where metadata goes:

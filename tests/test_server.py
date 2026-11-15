@@ -1210,6 +1210,20 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertTrue(restored_bin["ok"])
         self.assertTrue(self.photo.is_file())
 
+    def test_the_publish_page_has_an_activity_log_fed_by_live_lines(self):
+        import console_log
+
+        page = self.get("/publish").read().decode("utf-8")
+        self.assertIn('id="activityLog"', page)
+        self.assertIn("activity-log.js", page)
+        before = self.json_response(self.get("/api/log/live?after=0"))["last"]
+        console_log._remember("09:00:00 AM", "Activity test: started")
+        data = self.json_response(self.get(f"/api/log/live?after={before}"))
+        self.assertEqual([line["text"] for line in data["lines"]], ["Activity test: started"])
+        self.assertEqual(data["last"], before + 1)
+        junk = self.json_response(self.get("/api/log/live?after=oops"))
+        self.assertTrue(junk["ok"])
+
     def test_a_finished_publish_is_not_reported_as_interrupted(self):
         preview = self.json_response(self.post(
             "/api/publish/preview", {"id": self.asset_id, "description": "Finished write"}

@@ -12,6 +12,7 @@ is the whole point. That makes the file itself private: see PRIVACY_NOTICE.
 
 from __future__ import annotations
 
+import collections
 import datetime as dt
 import shutil
 import sys
@@ -124,8 +125,38 @@ def wrap_for_console(prefix: str, message: str, width: int) -> str:
     )
 
 
+_RECENT_LINES = 500
+_recent: collections.deque = collections.deque(maxlen=_RECENT_LINES)
+_recent_lock = threading.Lock()
+_recent_last = 0
+
+
+def _remember(clock: str, message: str) -> None:
+    global _recent_last
+    with _recent_lock:
+        _recent_last += 1
+        _recent.append((_recent_last, clock, message))
+
+
+def recent_lines(after: int = 0, limit: int = 200) -> dict:
+    """The newest log lines, for showing the log on a page as it is written.
+
+    `after` is the id of the last line the caller already has. A caller that
+    is ahead of this process (the program was restarted) starts over.
+    """
+    with _recent_lock:
+        last = _recent_last
+        if after > last or after < 0:
+            after = 0
+        wanted = [{"id": number, "time": clock, "text": message}
+                  for number, clock, message in _recent if number > after]
+    return {"lines": wanted[-max(1, limit):], "last": last}
+
+
 def log(message: str) -> None:
-    ts = dt.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    now = dt.datetime.now()
+    ts = now.strftime("%Y-%m-%d %I:%M:%S %p")
+    _remember(now.strftime("%I:%M:%S %p"), message)
     line = wrap_for_console(f"  [{ts}] ", message, _console_width())
     try:
         print(line, flush=True)

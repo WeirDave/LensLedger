@@ -34,7 +34,7 @@ try:
 except ImportError:
     pass
 
-from console_log import Action, log as console_log
+from console_log import Action, log as console_log, recent_lines as recent_log_lines
 from app_paths import (
     backup_root, data_root, database_backup_root, review_bin_root, thumbnail_cache_root,
 )
@@ -2003,6 +2003,9 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.photo_backups_status()
         if url.path == "/api/write-tags/status":
             return self.write_tags_status()
+        if url.path == "/api/log/live":
+            after = params.get("after", ["0"])[0]
+            return self.send_json({"ok": True, **recent_log_lines(int(after) if after.lstrip("-").isdecimal() else 0)})
         if url.path == "/api/classify/status":
             return self.send_json(SearchHandler.classify_job)
         if url.path == "/map":
@@ -2740,6 +2743,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Write all tags</h3>
 <p>The <a href="/publish">Publish photos</a> page has a <strong>Write all tags</strong> button that writes everything LensLedger holds &mdash; auto-classified tags, confirmed people, the subject, any text found in the picture, and star ratings &mdash; into every photo with something to write.</p>
 <p>Before starting it works out how much room the safety copies need and refuses if there is not enough, saying how short it is. The run shows progress and <strong>Stop writing</strong> stops it between photos, so nothing is left half-written. Anything a file cannot carry is listed underneath with the reason; a file that cannot hold embedded tags at all gets a sidecar file beside it instead and is named as having done so.</p>
+<h3>Activity log</h3>
+<p>Below the buttons, the <a href="/publish">Publish photos</a> page has an <strong>Activity log</strong> window that shows what LensLedger is doing as it happens &mdash; the same lines the terminal window prints. Starting <strong>Classify photos</strong> or <strong>Write all tags</strong> shows each step, each photo it could not handle, and how the run ended. <strong>Copy</strong> copies the lines and <strong>Clear</strong> empties the window; neither affects the log file. The lines include real photo paths, so remove them before sharing a copy or a screenshot.</p>
 <h3>Sidecar files</h3>
 <p><a href="/settings#metadata-publishing">Settings &gt; Metadata publishing &gt; Write mode</a> chooses where metadata goes: inside the photos, into <code>.xmp</code> companion files beside them, or both. Sidecar mode carries the same information and never modifies an original, which makes it the safer choice if you would rather your photos were not rewritten.</p>
 <p>An <code>.xmp</code> file another program created is never written over, and when several pictures share one name (<code>IMG_0001.jpg</code> and <code>IMG_0001.cr2</code>) only the one that cannot carry tags itself keeps its tags in the shared sidecar. Photos left out are listed under <strong>could not carry everything</strong> with the reason.</p>
@@ -3962,6 +3967,14 @@ class SearchHandler(BaseHTTPRequestHandler):
 <div class="progress-bar-track" id="writeTagsBarWrap" hidden><div class="progress-bar-fill" id="writeTagsBar"></div></div>
 <div class="write-tags-report" id="writeTagsReport" hidden></div>
 </section>
+<section class="card" id="activitySection">
+<h3>Activity log</h3>
+<p>Everything LensLedger is doing appears here as it happens &mdash; the same lines the terminal window shows. Lines include real photo paths, so remove them before sharing a screenshot or a copy.</p>
+<div class="code-window">
+<div class="code-window-bar"><span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="code-title">LensLedger activity log</span><span class="code-state" id="activityState">Connecting…</span><button type="button" class="secondary" id="copyActivity">Copy</button><button type="button" class="secondary" id="clearActivity">Clear</button></div>
+<pre class="code-body" id="activityLog" role="log" tabindex="0" aria-label="Activity log"></pre>
+</div>
+</section>
 <h3>People metadata</h3>
 <div class="publish-summary" id="publishSummary"><div class="loading-spinner"></div> Loading&hellip;</div>
 <div class="publish-table-wrap" id="publishTableWrap" hidden></div>
@@ -3976,6 +3989,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </main>
 <div class="toast" id="toast"></div>
 <script src="{asset_url('js/publish.js')}" defer></script>
+<script src="{asset_url('js/activity-log.js')}" defer></script>
 </body></html>"""
         self.send_html(page)
 

@@ -306,3 +306,62 @@ class TestConsoleWrapping(unittest.TestCase):
         message = "word " * 40
         self.assertEqual(wrap_for_console(self.PREFIX, message, 0), self.PREFIX + message)
         self.assertEqual(wrap_for_console(self.PREFIX, message, 40), self.PREFIX + message)
+
+
+class TestRecentLines(unittest.TestCase):
+    """The activity log on the Publish page reads the same lines the terminal gets."""
+
+    def setUp(self):
+        import console_log
+
+        self.console_log = console_log
+        self.patchers = [
+            patch.object(console_log, "_get_file_logger", return_value=None),
+            patch("builtins.print"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    def test_a_logged_line_can_be_read_back_with_its_time(self):
+        start = self.console_log.recent_lines()["last"]
+        self.console_log.log("Write all tags: started — 3 photos")
+
+        result = self.console_log.recent_lines(after=start)
+
+        self.assertEqual([line["text"] for line in result["lines"]], ["Write all tags: started — 3 photos"])
+        self.assertRegex(result["lines"][0]["time"], r"^\d{2}:\d{2}:\d{2} (AM|PM)$")
+        self.assertEqual(result["last"], start + 1)
+
+    def test_only_lines_after_the_one_already_held_are_returned(self):
+        self.console_log.log("first")
+        held = self.console_log.recent_lines()["last"]
+        self.console_log.log("second")
+        self.console_log.log("third")
+
+        texts = [line["text"] for line in self.console_log.recent_lines(after=held)["lines"]]
+
+        self.assertEqual(texts, ["second", "third"])
+        self.assertEqual(self.console_log.recent_lines(after=self.console_log.recent_lines()["last"])["lines"], [])
+
+    def test_a_caller_ahead_of_this_process_starts_over(self):
+        """After LensLedger restarts the ids begin again, and the page must not wait forever."""
+        self.console_log.log("after a restart")
+        last = self.console_log.recent_lines()["last"]
+
+        result = self.console_log.recent_lines(after=last + 1000)
+
+        self.assertTrue(result["lines"])
+        self.assertEqual(result["lines"][-1]["text"], "after a restart")
+
+    def test_only_the_newest_lines_are_kept(self):
+        for number in range(self.console_log._RECENT_LINES + 25):
+            self.console_log.log(f"line {number}")
+
+        result = self.console_log.recent_lines(limit=10000)
+
+        self.assertEqual(len(result["lines"]), self.console_log._RECENT_LINES)
+        self.assertEqual(result["lines"][-1]["text"], f"line {self.console_log._RECENT_LINES + 24}")
