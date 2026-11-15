@@ -55,6 +55,20 @@ def list_errors(db_path: Path, limit: int = 200) -> list[dict[str, str]]:
     return [{"path": row["relative_path"], "full_path": row["path"], "error": row["face_scan_error"]} for row in rows]
 
 
+_SAME_FACE_OVERLAP = 0.3
+
+
+def _overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
+    """Intersection over union of two (left, top, right, bottom) boxes."""
+    width = min(a[2], b[2]) - max(a[0], b[0])
+    height = min(a[3], b[3]) - max(a[1], b[1])
+    if width <= 0 or height <= 0:
+        return 0.0
+    inter = width * height
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
 def scan_for_faces(
     database: Path,
     library_root: Path,
@@ -62,10 +76,16 @@ def scan_for_faces(
     model_name: str = "buffalo_l",
     model_root: Path | None = None,
     limit: int | None = None,
+    rescan: bool = False,
     progress: Callable[[dict], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> dict:
     """Detect faces in every eligible image not yet face-scanned.
+
+    With ``rescan`` set, photos already scanned are scanned again. A face the
+    earlier scan already stored (same place in the photo) is left exactly as it
+    is, so names and decisions made in People survive; only faces the earlier
+    scan missed are added.
 
     A photo with zero faces in it is still marked face_scanned so it is
     never retried forever just because it never got a face_embeddings row
@@ -73,12 +93,13 @@ def scan_for_faces(
     cv2, np, analyzer = load_insightface_runtime(model_name, model_root)
     skip_exts = unsupported_image_extensions() | {".gif"}
     ext_clause = " AND ".join(["a.extension != ?"] * len(skip_exts))
+    scanned_clause = "" if rescan else "AND a.face_scanned=0 "
     con = connect(database)
     try:
         rows = con.execute(
             f"""SELECT a.id,a.relative_path FROM assets a
                WHERE a.in_review_bin=0 AND a.media_type='image' AND a.metadata_scanned=1
-                 AND a.face_scanned=0 AND {ext_clause}
+                 {scanned_clause}AND {ext_clause}
                ORDER BY a.capture_date,a.relative_path""",
             tuple(sorted(skip_exts)),
         ).fetchall()
@@ -108,6 +129,18 @@ def scan_for_faces(
                         image = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
                 height, width = image.shape[:2]
                 faces = analyzer.get(image)
+                known_boxes: list[tuple[float, float, float, float]] = []
+                if rescan:
+                    existing = con.execute(
+                        "SELECT box_left,box_top,box_right,box_bottom FROM face_embeddings WHERE asset_id=?",
+                        (int(asset["id"]),),
+                    ).fetchall()
+                    if any(None in tuple(row) for row in existing):
+                        # A stored face without a position cannot be matched, so
+                        # adding anything here could duplicate it.
+                        faces = []
+                    known_boxes = [tuple(float(value) for value in row) for row in existing
+                                   if None not in tuple(row)]
                 for face in faces:
                     embedding = getattr(face, "normed_embedding", None)
                     box = getattr(face, "bbox", None)
@@ -119,6 +152,10 @@ def scan_for_faces(
                     bottom = max(0.0, min(1.0, float(box[3]) / height))
                     if right <= left or bottom <= top:
                         continue
+                    if any(_overlap((left, top, right, bottom), known) >= _SAME_FACE_OVERLAP
+                           for known in known_boxes):
+                        continue
+                    known_boxes.append((left, top, right, bottom))
                     con.execute(
                         """INSERT INTO face_embeddings(
                                source,source_face_id,asset_id,relative_path,dimensions,embedding_f32,
@@ -158,9 +195,10 @@ def main() -> int:
     parser.add_argument("--model", default="buffalo_l")
     parser.add_argument("--model-root", type=Path)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--rescan", action="store_true", help="scan photos already scanned, adding only faces not stored yet")
     args = parser.parse_args()
     result = scan_for_faces(
-        args.db, args.library, model_name=args.model, model_root=args.model_root, limit=args.limit,
+        args.db, args.library, model_name=args.model, model_root=args.model_root, limit=args.limit, rescan=args.rescan,
         progress=lambda state: print(
             f"face scan progress: {state['processed']}/{state['total']} ({state['faces_found']} faces found)",
             flush=True,

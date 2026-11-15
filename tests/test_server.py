@@ -2873,6 +2873,31 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertEqual(job["state"], "complete")
         self.assertEqual(job["faces_found"], 3)
 
+    def test_face_rescan_everything_passes_the_mode_through(self):
+        seen = {}
+
+        def fake_scan(_database, _library, **kwargs):
+            seen["rescan"] = kwargs.get("rescan")
+            counts = {"total": 1, "processed": 1, "faces_found": 0, "errors": 0, "cancelled": False}
+            kwargs["progress"](counts)
+            return counts
+
+        with patch.object(self.photo_search, "face_is_available", return_value=True),              patch.object(self.photo_search, "scan_for_faces", side_effect=fake_scan):
+            self.post("/api/faces/start", {"mode": "all"})
+            for _ in range(100):
+                job = self.json_response(self.get("/api/faces/status"))
+                if job["state"] != "running":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(job["state"], "complete")
+        self.assertIs(seen["rescan"], True)
+
+    def test_face_scan_rejects_an_unknown_mode(self):
+        with patch.object(self.photo_search, "face_is_available", return_value=True):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post("/api/faces/start", {"mode": "sideways"})
+        self.assertEqual(caught.exception.code, 400)
+
     def test_scan_all_chains_location_then_ocr_when_optional_scans_not_set_up(self):
         with patch.object(self.photo_search, "semantic_is_available", return_value=False), \
              patch.object(self.photo_search, "face_is_available", return_value=False), \

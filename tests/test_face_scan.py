@@ -130,5 +130,75 @@ class FaceScanTests(unittest.TestCase):
             self.assertEqual(result["processed"], 0)
 
 
+    def test_rescan_adds_only_missed_faces_and_keeps_existing_ones(self):
+        from face_scan import scan_for_faces
+        from photo_index import connect, scan_library
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "library.sqlite3"
+            library = root / "photos"
+            library.mkdir()
+            (library / "group.jpg").write_bytes(b"image")
+            self.assertEqual(scan_library(library, database), 0)
+
+            first_face = SimpleNamespace(normed_embedding=[1.0, 0.0], bbox=[20, 10, 80, 60])
+            cv2, np, analyzer = _fake_runtime([first_face])
+            with patch("face_scan.load_insightface_runtime", return_value=(cv2, np, analyzer)):
+                scan_for_faces(database, library)
+            con = connect(database)
+            con.execute("INSERT INTO people(name) VALUES ('Example Person')")
+            person_id = int(con.execute("SELECT id FROM people").fetchone()[0])
+            con.execute("UPDATE face_embeddings SET person_id=?", (person_id,))
+            con.commit()
+            con.close()
+
+            nudged = SimpleNamespace(normed_embedding=[0.9, 0.1], bbox=[22, 11, 82, 61])
+            missed = SimpleNamespace(normed_embedding=[0.0, 1.0], bbox=[120, 10, 180, 60])
+            cv2, np, analyzer = _fake_runtime([nudged, missed])
+            with patch("face_scan.load_insightface_runtime", return_value=(cv2, np, analyzer)):
+                plain = scan_for_faces(database, library)
+                self.assertEqual(plain["total"], 0)
+                again = scan_for_faces(database, library, rescan=True)
+
+            self.assertEqual(again["total"], 1)
+            self.assertEqual(again["faces_found"], 1)
+            con = connect(database)
+            rows = con.execute("SELECT person_id, box_left FROM face_embeddings ORDER BY id").fetchall()
+            con.close()
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["person_id"], person_id)
+            self.assertIsNone(rows[1]["person_id"])
+
+    def test_rescan_leaves_a_photo_alone_when_a_stored_face_has_no_position(self):
+        from face_scan import scan_for_faces
+        from photo_index import connect, scan_library
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "library.sqlite3"
+            library = root / "photos"
+            library.mkdir()
+            (library / "imported.jpg").write_bytes(b"image")
+            self.assertEqual(scan_library(library, database), 0)
+            con = connect(database)
+            asset_id = int(con.execute("SELECT id FROM assets").fetchone()[0])
+            con.execute(
+                """INSERT INTO face_embeddings(source,source_face_id,asset_id,relative_path,dimensions,embedding_f32)
+                   VALUES ('recovered_face',1,?,'imported.jpg',2,?)""",
+                (asset_id, b"\x00\x00\x80\x3f\x00\x00\x00\x00"),
+            )
+            con.execute("UPDATE assets SET face_scanned=1")
+            con.commit()
+            con.close()
+
+            face = SimpleNamespace(normed_embedding=[1.0, 0.0], bbox=[20, 10, 80, 60])
+            cv2, np, analyzer = _fake_runtime([face])
+            with patch("face_scan.load_insightface_runtime", return_value=(cv2, np, analyzer)):
+                result = scan_for_faces(database, library, rescan=True)
+            self.assertEqual(result["processed"], 1)
+            self.assertEqual(result["faces_found"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

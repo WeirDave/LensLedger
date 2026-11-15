@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.50.0 — 2026-11-15
+
+- Added a **Re-scan everything** button under **Face detection** on the **Scan your photos** page. It looks for faces in every photo again, including ones already scanned, and asks for confirmation first.
+- A re-scan keeps every face already found, together with any name given to it, and adds only faces that were missed before.
+- **Scan for faces** keeps its role as the everyday button: photos not yet scanned, and photos that failed last time.
+- The user manual and the in-app manual describe both face-detection buttons.
+
 ## 1.49.0 — 2026-11-15
 
 - The version badge in the top bar of every page now works as an update button. Double-clicking it opens the **LensLedger updates** panel and checks for a new release straight away. Pressing Enter or Space while the badge has keyboard focus does the same.

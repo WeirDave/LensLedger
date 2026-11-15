@@ -147,6 +147,11 @@ Finds faces in your photos so they can be identified in **People review**. This 
 
 To set up face detection, go to **Scan your photos** and click **Set up face detection**.
 
+Two buttons start a face-detection run on **Scan your photos**:
+
+- **Scan for faces** — the everyday one. Looks at photos that have not been scanned before, and tries again any that failed last time.
+- **Re-scan everything** — looks at every photo again, including ones already scanned. Asks for confirmation first. Faces already found, and the names given to them, are kept; only faces missed before are added.
+
 ### Backups
 
 Click **Create verified database backup** to make a verified copy of your database with an integrity check.

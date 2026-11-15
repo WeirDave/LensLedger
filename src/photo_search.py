@@ -1056,6 +1056,19 @@ SEMANTIC_MODE_LABELS = {
 }
 
 
+FACE_SCAN_MODES = ("new", "all")
+
+FACE_ACTION_NAMES = {
+    "new": "Face detection",
+    "all": "Re-scan everything for faces",
+}
+
+FACE_MODE_LABELS = {
+    "new": "photos not yet looked at",
+    "all": "every photo again, including ones already scanned; faces already found are kept",
+}
+
+
 LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -1236,6 +1249,10 @@ def describe_action_scope(route: str, body: dict) -> str:
         mode = str(body.get("mode", "new") or "new")
         parts.append(SEMANTIC_ACTION_NAMES.get(mode, mode))
         parts.append(SEMANTIC_MODE_LABELS.get(mode, mode))
+    elif route == "/api/faces/start":
+        mode = str(body.get("mode", "new") or "new")
+        parts.append(FACE_ACTION_NAMES.get(mode, mode))
+        parts.append(FACE_MODE_LABELS.get(mode, mode))
     elif route == "/api/ocr/start":
         parts.append("re-reading photos already read" if body.get("rescan")
                      else "photos not yet read")
@@ -1528,9 +1545,9 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
             handler_class.semantic_job = {"state": "error", "message": str(exc)}
 
 
-def _run_face_scan_job(handler_class, database, library_root, started_at):
+def _run_face_scan_job(handler_class, database, library_root, started_at, mode="new"):
     """Run one face-detection pass, updating handler_class.face_scan_job as it goes."""
-    action = Action("Face detection", "photos not yet looked at")
+    action = Action(FACE_ACTION_NAMES.get(mode, "Face detection"), FACE_MODE_LABELS.get(mode, mode))
     try:
 
         _face_started_logged = False
@@ -1559,7 +1576,7 @@ def _run_face_scan_job(handler_class, database, library_root, started_at):
 
         result = scan_for_faces(
             database, library_root, progress=update_progress,
-            should_cancel=handler_class.face_scan_cancel.is_set,
+            should_cancel=handler_class.face_scan_cancel.is_set, rescan=(mode == "all"),
         )
         with handler_class.face_scan_lock:
             current = dict(handler_class.face_scan_job)
@@ -2482,7 +2499,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <section class="card job-card"><div class="section-title"><h2>Photo locations (GPS)</h2><button type="button" class="info-button" data-help="locationHelp" aria-label="About Photo locations">i</button></div><div class="help-popover" id="locationHelp">Finds GPS coordinates embedded in your photos so they appear on the Photo Map. This runs a full incremental scan of your library — it also picks up any new or changed files — and is safe to run any time.</div><div class="job-status"><span class="spinner" id="locationSpinner"></span><p id="locationMessage">Checking status…</p><span class="elapsed" id="locationElapsed"></span></div><div class="progress-bar" id="locationBarWrap" hidden><span id="locationBar"></span></div><div class="health-summary ocr-summary" id="locationMetrics"></div><div class="job-actions"><span class="spacer"></span><button type="button" class="secondary" id="pauseLocation">Pause</button><button type="button" id="startLocation">Scan for photo locations</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Local text recognition (OCR)</h2><button type="button" class="info-button" data-help="ocrHelp" aria-label="About OCR">i</button></div><div class="help-popover" id="ocrHelp">Reads visible text in photos — signs, screenshots, receipts — so it becomes searchable.</div><div class="job-status"><span class="spinner" id="ocrSpinner"></span><p id="ocrMessage">Loading OCR status…</p><span class="elapsed" id="ocrElapsed"></span></div><div class="progress-bar" id="ocrBarWrap" hidden><span id="ocrBar"></span></div><div class="health-summary ocr-summary" id="ocrMetrics"></div><div class="job-actions" id="ocrActions"><label>Skip photos before <input type="date" id="ocrSince" title="Only process photos taken on or after this date — leave empty to scan everything"></label><label class="rescan-toggle"><input type="checkbox" id="ocrRescan"> Read photos again that have already been read</label><span class="spacer"></span><button type="button" class="secondary" id="pauseOcr">Pause</button><button type="button" id="startOcr">Start / resume OCR</button></div></section>
 <section class="card job-card"><div class="section-title"><h2>Meaning search (optional)</h2><button type="button" class="info-button" data-help="semanticHelp" aria-label="About Meaning search">i</button></div><div class="help-popover" id="semanticHelp">Search photos by what they show, not just their tags — try "a birthday cake" or "someone holding a dog." Runs entirely on this computer; nothing is ever uploaded. It is optional because the model software is a large download (roughly 1-2 GB) most people do not need.</div><div class="job-status"><span class="spinner" id="semanticSpinner"></span><p id="semanticMessage">Checking status…</p><span class="elapsed" id="semanticElapsed"></span></div><div class="progress-bar" id="semanticBarWrap" hidden><span id="semanticBar"></span></div><div class="health-summary ocr-summary" id="semanticMetrics"></div><div class="job-actions" id="semanticInstallActions"><span class="spacer"></span><a href="/settings#meaning-search" class="setup-link" id="installSemantic">Set up meaning search in Settings</a></div><div class="job-actions" id="semanticBuildActions"><button type="button" class="secondary" id="fillSemantic" title="Index every photo that has no meaning data yet, including ones an earlier run could not read">Fill in missing</button><button type="button" class="secondary" id="rescanSemantic" title="Read every photo again from scratch, including ones already indexed">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseSemantic">Pause</button><button type="button" class="secondary" id="useGpu" hidden title="Switch meaning search to the NVIDIA build of PyTorch so it runs on your graphics card">Use my graphics card</button><button type="button" id="startSemantic">Build / resume meaning index</button></div></section>
-<section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" class="secondary" id="useGpuFaces" hidden title="Switch face detection to the graphics-card runtime so it runs on your NVIDIA graphics card">Use my graphics card</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
+<section class="card job-card"><div class="section-title"><h2>Face detection (optional)</h2><button type="button" class="info-button" data-help="faceHelp" aria-label="About Face detection">i</button></div><div class="help-popover" id="faceHelp">Find faces in photos LensLedger has not looked at yet, so more of your library becomes eligible for People suggestions. Runs entirely on this computer using a local model; nothing is ever uploaded. Scanning tens of thousands of photos can take a while, so it runs in the background and can be paused any time. It is optional and a separate download (roughly 500 MB) because the face-detection model's license does not allow LensLedger to bundle or redistribute it.</div><div class="job-status"><span class="spinner" id="faceScanSpinner"></span><p id="faceScanMessage">Checking status…</p><span class="elapsed" id="faceScanElapsed"></span></div><div class="progress-bar" id="faceScanBarWrap" hidden><span id="faceScanBar"></span></div><div class="health-summary ocr-summary" id="faceScanMetrics"></div><div class="job-actions" id="faceInstallActions"><span class="spacer"></span><a href="/settings#face-detection" class="setup-link" id="installFaceScan">Set up face detection in Settings</a></div><div class="job-actions" id="faceScanActions"><button type="button" class="secondary" id="rescanFaces" title="Scan every photo again, including ones already scanned. Faces already found, and the names given to them, are kept">Re-scan everything</button><span class="spacer"></span><button type="button" class="secondary" id="pauseFaceScan">Pause</button><button type="button" class="secondary" id="useGpuFaces" hidden title="Switch face detection to the graphics-card runtime so it runs on your NVIDIA graphics card">Use my graphics card</button><button type="button" id="startFaceScan">Scan for faces</button></div></section>
 <section class="card"><h2>Backups</h2><div class="backup-row"><button type="button" class="secondary" id="backupDatabase">Create verified database backup</button><span id="backupStatus"></span></div><h3 class="backup-subhead">Photo safety copies</h3><p class="backup-note">Before LensLedger writes tags into a photo it keeps a complete copy of the original, so any write can be undone. These build up as you publish. How long they are kept is set under "Metadata publishing" in <a href="/settings#metadata-publishing">Settings</a>.</p><div class="health-summary ocr-summary" id="photoBackupMetrics"></div><div class="interrupted-writes" id="interruptedWrites" hidden></div><div class="backup-row"><button type="button" class="secondary" id="prunePhotoBackups">Clear copies past the limit</button><button type="button" class="secondary" id="clearPhotoBackups">Clear all safety copies</button><span id="photoBackupStatus"></span></div></section>
 </main>
 <div class="modal-backdrop" id="scanModalBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="scanModalTitle"><div class="modal-head"><h2 id="scanModalTitle"></h2><button type="button" class="modal-close" id="scanModalClose">Close</button></div><div id="scanModalBody"></div></section></div>
@@ -2686,6 +2703,11 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>Face detection works the same way: its status line under <strong>Face detection</strong> says what it is using, and a <strong>Use my graphics card</strong> button appears there when a card was found but face detection is still on the processor. It needs an NVIDIA driver that supports CUDA 13 or newer; if the driver is too old the status line says so.</p>
 <h3>Face detection (optional)</h3>
 <p>Finds faces in your photos so they can be identified in <a href="/people">People</a>. Separate download (~500 MB). Set up from Scan your photos.</p>
+<p>Two buttons start a run on <strong>Scan your photos</strong>:</p>
+<ul>
+<li><strong>Scan for faces</strong> &mdash; the everyday one. Looks at photos not scanned before, and tries again any that failed last time.</li>
+<li><strong>Re-scan everything</strong> &mdash; looks at every photo again, including ones already scanned. Asks first. Faces already found, and the names given to them, are kept; only faces missed before are added.</li>
+</ul>
 <h3>Backups</h3>
 <p>Click <strong>Create verified database backup</strong> to make a verified copy of your database with an integrity check.</p>
 <h3>Photo safety copies</h3>
@@ -8005,7 +8027,10 @@ class SearchHandler(BaseHTTPRequestHandler):
     def face_scan_errors(self):
         self.send_json({"errors": face_scan_list_errors(type(self).db_path)})
 
-    def start_face_scan(self, _body):
+    def start_face_scan(self, body):
+        mode = str(body.get("mode", "new") or "new")
+        if mode not in FACE_SCAN_MODES:
+            raise ValueError(f"Unknown face-detection mode: {mode}")
         with type(self).face_scan_lock:
             if type(self).face_scan_job.get("state") == "running":
                 raise ValueError("Face detection is already running")
@@ -8028,7 +8053,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         library_root = handler_class.library_root
         started_at = handler_class.face_scan_job["started_at"]
         threading.Thread(
-            target=_run_face_scan_job, args=(handler_class, database, library_root, started_at),
+            target=_run_face_scan_job, args=(handler_class, database, library_root, started_at, mode),
             name="LensLedger-face-scan", daemon=True,
         ).start()
         self.send_json({"ok": True, "state": "running"}, 202)

@@ -501,6 +501,7 @@ async function pollOnce() {
     }
     const faceScanRunning = faceScan.state === 'running';
     $('startFaceScan').disabled = faceScanRunning || scanAllRunning;
+    $('rescanFaces').disabled = faceScanRunning || scanAllRunning;
     $('useGpuFaces').hidden = !faceScan.gpu_switch_available;
     $('useGpuFaces').disabled = faceScanRunning || scanAllRunning;
     $('pauseFaceScan').disabled = !faceScanRunning || scanAllRunning;
@@ -578,10 +579,15 @@ $('pauseSemantic').onclick = async () => {
 };
 
 // Face detection install moved to Settings page
-$('startFaceScan').onclick = async () => {
-  $('startFaceScan').disabled = true;
-  try { await api('/api/faces/start', {}); refresh(); }
-  catch (error) { $('faceScanMessage').textContent = error.message; $('startFaceScan').disabled = false; }
+async function startFaceScan(mode, button) {
+  button.disabled = true;
+  try { await api('/api/faces/start', { mode }); refresh(); }
+  catch (error) { $('faceScanMessage').textContent = error.message; button.disabled = false; }
+}
+$('startFaceScan').onclick = () => startFaceScan('new', $('startFaceScan'));
+$('rescanFaces').onclick = async () => {
+  if (!await askConfirm('Scan every photo again?', ['Look for faces in every photo again, including ones already scanned?', 'Faces already found, and the names given to them, are kept; only faces missed before are added.', 'This can take a long time on a large library.'], 'Scan again', false)) return;
+  startFaceScan('all', $('rescanFaces'));
 };
 $('pauseFaceScan').onclick = async () => {
   try { await api('/api/faces/cancel', {}); $('faceScanMessage').textContent = 'Pausing after the active photo finishes…'; }
