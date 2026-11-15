@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.52.0 — 2026-11-15
+
+- The filmstrip along the bottom of the photo viewer has a left and a right arrow button at its edges. Each click scrolls about four-fifths of the visible width. The left arrow is hidden at the start, and the right arrow is hidden at the end once every photo has loaded. Neither shows in the results grid.
+
 ## 1.51.0 — 2026-11-15
 
 - The photo viewer's side panel is shorter and easier to scan. The paragraph under each heading is now a single line, and the "Metadata for this photo" block at the top is gone.
