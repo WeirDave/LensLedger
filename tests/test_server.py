@@ -1329,6 +1329,30 @@ class ServerWorkflowTests(unittest.TestCase):
         listed = self.json_response(self.get("/api/faces/unidentified"))
         self.assertEqual(listed["total"], 2)
 
+    def test_overview_people_to_review_counts_people_not_suggestions(self):
+        from photo_index import utc_now
+
+        con = sqlite3.connect(self.database)
+        first = int(con.execute("INSERT INTO people(name) VALUES ('First Person')").lastrowid)
+        second = int(con.execute("INSERT INTO people(name) VALUES ('Second Person')").lastrowid)
+        for number, person_id in enumerate((first, first, second)):
+            name = f"suggested-{number}.jpg"
+            fake_asset = int(con.execute(
+                """INSERT INTO assets(path,relative_path,folder,filename,extension,media_type,size_bytes,mtime_ns,indexed_at)
+                   VALUES (?,?,'',?,'.jpg','image',1,1,?)""",
+                (name, name, name, utc_now()),
+            ).lastrowid)
+            con.execute(
+                """INSERT INTO asset_people(asset_id,person_id,state,confidence,source,updated_at)
+                   VALUES (?,?,'suggested',0.9,'test',?)""",
+                (fake_asset, person_id, utc_now()),
+            )
+        con.commit()
+        con.close()
+
+        counts = self.json_response(self.get("/api/diagnostics"))["counts"]
+        self.assertEqual(counts["people_pending"], 2)
+
     def test_people_queue_returns_the_exact_face_bounds(self):
         from photo_index import utc_now
 

@@ -7223,10 +7223,16 @@ class SearchHandler(BaseHTTPRequestHandler):
                 "scan_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE scan_error<>''").fetchone()[0]),
                 "semantic_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE semantic_error<>''").fetchone()[0]),
                 "face_scan_errors": int(con.execute("SELECT COUNT(*) FROM assets WHERE face_scan_error<>''").fetchone()[0]),
-                "people_pending": int(con.execute("SELECT COUNT(*) FROM asset_people WHERE state='suggested'").fetchone()[0]),
+                "people_pending": int(con.execute(
+                    """SELECT COUNT(DISTINCT ap.person_id) FROM asset_people ap JOIN assets a ON a.id=ap.asset_id
+                       WHERE ap.state='suggested' AND a.in_review_bin=0 AND ap.person_id NOT IN (
+                           SELECT person_id FROM person_review_deferrals
+                       )"""
+                ).fetchone()[0]),
                 "unidentified_faces": int(con.execute(
                     """SELECT COUNT(*) FROM face_embeddings f JOIN assets a ON a.id=f.asset_id
-                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.person_id IS NULL
+                       WHERE f.ignored_at IS NULL AND f.unknown_at IS NULL AND f.skipped_at IS NULL
+                         AND f.person_id IS NULL
                          AND a.in_review_bin=0
                          AND f.box_left IS NOT NULL AND f.box_top IS NOT NULL
                          AND f.box_right IS NOT NULL AND f.box_bottom IS NOT NULL"""

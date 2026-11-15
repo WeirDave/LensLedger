@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.42.1 — 2026-11-15
+
+- **People to review** on the **Scan your photos** overview now counts the people who have suggested matches waiting, not the individual suggested photos, and clicking it opens **Review suggestions** (`/people/review`). Previously it opened the Tag faces page, which lists unnamed faces. People set aside for now and photos in the review bin are not counted.
+- **Unidentified faces** on the same overview no longer counts faces that were skipped, so it matches the total on the Tag faces page.
+
 ## 1.42.0 — 2026-11-14
 
 - The **Publish photos** page has a new **Activity log** window that shows what LensLedger is doing as it happens: the same lines the terminal window prints, such as each step of **Classify photos** and **Write all tags**, each photo that could not be handled, and how the run ended. **Copy** and **Clear** buttons sit in its title bar.
