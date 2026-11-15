@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.49.0 — 2026-11-15
+
+- The version badge in the top bar of every page now works as an update button. Double-clicking it opens the **LensLedger updates** panel and checks for a new release straight away. Pressing Enter or Space while the badge has keyboard focus does the same.
+- While a newer release is available, the badge shows a green dot and a green outline, and a single click opens the updates panel. Hovering over the badge shows the new version number.
+- On pages other than the home page, the badge opens the updates panel on the home page.
+
 ## 1.48.0 — 2026-11-15
 
 - pip and LensLedger's Python packages are now kept up to date. About once a week, at startup, **Start LensLedger.cmd** updates pip, the packages LensLedger always needs, and any optional feature packages that are installed (meaning search, face detection) to the newest versions LensLedger supports. The check waits for a launch with LensLedger not already running, retries a failed update the next day, and prints what it is doing in the launcher window.

@@ -153,3 +153,32 @@ class FaceNamesAreNeverParsedAsHtml(unittest.TestCase):
         source = script("viewer.js")
         self.assertNotRegex(source, r"innerHTML\s*=[^;\n]*person_name")
         self.assertRegex(source, r"label\.textContent\s*=\s*face\.person_name")
+
+
+class VersionBadgeIsTheUpdateButton(unittest.TestCase):
+    def test_the_shared_script_wires_the_badge_on_every_page(self):
+        source = script("theme.js")
+        self.assertIn("header .version", source)
+        self.assertIn("'dblclick'", source)
+        self.assertIn("/api/update/status", source)
+        self.assertIn("update-available", source)
+
+    def test_other_pages_hand_over_to_the_home_page_panel(self):
+        self.assertIn("/?panel=update", script("theme.js"))
+        self.assertIn("get('check')==='1'", script("viewer.js"))
+
+    def test_the_home_page_starts_a_check_when_asked(self):
+        source = script("viewer.js")
+        self.assertIn("openUpdatePanel(forceCheck)", source)
+        self.assertIn("if(forceCheck)check.onclick()", source)
+
+    def test_no_page_script_binds_the_badge_itself(self):
+        binders = [path.name for path in WEB_JS.glob("*.js")
+                   if path.name != "theme.js"
+                   and re.search(r"""querySelector(All)?\(\s*['"][^'"]*\.version\b""", path.read_text(encoding="utf-8"))]
+        self.assertEqual(binders, [])
+
+    def test_the_badge_has_hover_and_update_styles(self):
+        css = (WEB_JS.parent / "css" / "theme.css").read_text(encoding="utf-8")
+        self.assertIn(".version.update-available", css)
+        self.assertIn('.version[role="button"]', css)

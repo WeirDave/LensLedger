@@ -209,3 +209,47 @@ document.addEventListener('DOMContentLoaded', function() {
     sync();
   });
 })();
+
+// The version badge in the page header doubles as the update button: a
+// double-click opens the updates panel and runs a check, and while a newer
+// release is available a single click opens the panel to install it. The
+// panel itself lives on the home page, so every other page navigates there.
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    var pill = document.querySelector('header .version');
+    if (!pill || !document.getElementById('menuPanel')) return;
+    var available = false;
+    var baseTitle = 'Double-click to check for updates';
+    pill.setAttribute('role', 'button');
+    pill.tabIndex = 0;
+    pill.title = baseTitle;
+
+    function openUpdates(check) {
+      if (typeof openMenuPanel === 'function') {
+        openMenuPanel('update', { check: !!check });
+      } else {
+        window.location = '/?panel=update' + (check ? '&check=1' : '');
+      }
+    }
+
+    pill.addEventListener('dblclick', function() { openUpdates(true); });
+    pill.addEventListener('click', function() { if (available) openUpdates(false); });
+    pill.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openUpdates(!available); }
+    });
+
+    function watch(attempt) {
+      fetch('/api/update/status').then(function(r) { return r.json(); }).then(function(s) {
+        pill.classList.toggle('update-checking', s.state === 'checking');
+        if (s.state === 'available' && s.release && !s.restart_ready) {
+          available = true;
+          pill.classList.add('update-available');
+          pill.title = 'Update available: v' + s.release.version + '. Click to install, double-click to check again';
+        } else if (s.state === 'checking' && attempt < 20) {
+          setTimeout(function() { watch(attempt + 1); }, 700);
+        }
+      }).catch(function() {});
+    }
+    setTimeout(function() { watch(0); }, 100);
+  });
+})();
