@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.50.2 — 2026-11-15
+
+- The **Photo map** page now shows the version badge at the far right of its top bar, like every other page. Double-clicking it checks for updates, and while a newer release is available a single click opens the updates panel.
+
 ## 1.50.1 — 2026-11-15
 
 - The version badge now sits at the far right of the top bar on every page. On the home page, People, Set-aside faces, Publish photos and Manage groups it was previously next to the LensLedger name; it now follows the light/dark theme button, matching Settings, Scan photos, Auto-import, Dev Tools and the User Manual.
