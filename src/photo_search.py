@@ -8281,21 +8281,14 @@ class SearchHandler(BaseHTTPRequestHandler):
         moves: list[tuple[Path, Path]] = []
         try:
             with self.db() as con:
+                # Hold the write lock from before the photo is read until the
+                # move is committed, so a library scan cannot remove the
+                # photo's row while its file is out of the folder.
+                con.execute("BEGIN IMMEDIATE")
                 asset = self.get_active_asset(con, asset_id)
-                source = Path(asset["path"]).resolve(); source.relative_to(self.library_root)
-                if any(part in {"!LensLedger", "_PhotoIndex", "_FaceData"} for part in source.relative_to(self.library_root).parts) or not source.is_file():
+                review_id = self._move_asset_to_review_bin(con, asset, moves)
+                if review_id is None:
                     raise ValueError("refusing to move this path")
-                review_root = review_bin_root().resolve()
-                destination = review_root / Path(asset["relative_path"])
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if destination.exists():
-                    destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
-                destination.resolve().relative_to(review_root)
-                shutil.move(str(source), str(destination))
-                moves.append((source, destination))
-                review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
-                    VALUES (?,?,?,?,?)""", (asset_id, str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
-                con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), asset_id))
                 console_log("Move a photo to the Review Bin: moved out of the library — "
                             f"{asset['relative_path']}")
         except Exception:
@@ -8317,11 +8310,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         if destination.exists():
             destination = destination.with_name(f"{destination.stem}-{dt.datetime.now():%Y%m%d-%H%M%S}{destination.suffix}")
         destination.resolve().relative_to(review_root)
-        shutil.move(str(source), str(destination))
-        moves.append((source, destination))
         review_id = con.execute("""INSERT INTO review_bin(asset_id,original_path,original_relative_path,review_path,moved_at)
             VALUES (?,?,?,?,?)""", (int(asset["id"]), str(source), asset["relative_path"], str(destination), utc_now())).lastrowid
         con.execute("UPDATE assets SET path=?,in_review_bin=1 WHERE id=?", (str(destination), int(asset["id"])))
+        shutil.move(str(source), str(destination))
+        moves.append((source, destination))
         return review_id
 
     def _keep_best_plan(self, con, body):
@@ -8377,6 +8370,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         review_ids: list[int] = []
         try:
             with self.db() as con:
+                con.execute("BEGIN IMMEDIATE")
                 plan = self._keep_best_plan(con, body)
                 if not token or token != plan_token(plan):
                     raise ValueError("The duplicate sets changed since they were previewed. Preview them again.")
@@ -8422,6 +8416,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         moves: list[tuple[Path, Path]] = []
         try:
             with self.db() as con:
+                con.execute("BEGIN IMMEDIATE")
                 for asset_id in ids:
                     asset_id = int(asset_id)
                     asset = self.get_active_asset(con, asset_id)

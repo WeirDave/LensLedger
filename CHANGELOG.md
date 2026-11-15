@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.42.2 — 2026-11-15
+
+- Moving a photo to Trash no longer fails with "FOREIGN KEY constraint failed" when a library scan is running at the same time. **Trash this photo**, **Trash selected** and **Keep best copies** wait for the scan to finish, then move the file.
+- A library scan no longer removes a photo, together with its tags and people, when the photo was moved to Trash or its file reappeared while the scan was running.
+
 ## 1.42.1 — 2026-11-15
 
 - **People to review** on the **Scan your photos** overview now counts the people who have suggested matches waiting, not the individual suggested photos, and clicking it opens **Review suggestions** (`/people/review`). Previously it opened the Tag faces page, which lists unnamed faces. People set aside for now and photos in the review bin are not counted.

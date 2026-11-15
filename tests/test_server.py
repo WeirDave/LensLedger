@@ -1210,6 +1210,39 @@ class ServerWorkflowTests(unittest.TestCase):
         self.assertTrue(restored_bin["ok"])
         self.assertTrue(self.photo.is_file())
 
+    def test_trashing_a_photo_waits_for_the_database_before_its_file_moves(self):
+        from photo_index import connect
+
+        holder = connect(self.database)
+        holder.execute("BEGIN IMMEDIATE")
+        result: dict = {}
+
+        def trash():
+            result["response"] = self.json_response(self.post("/api/review-bin", {"id": self.asset_id}))
+
+        worker = threading.Thread(target=trash)
+        worker.start()
+        worker.join(timeout=1.5)
+        self.assertTrue(worker.is_alive(), "the request has to wait for the write lock")
+        self.assertTrue(self.photo.is_file(), "the file must not move before the database change can be recorded")
+        holder.commit()
+        holder.close()
+        worker.join(timeout=20)
+        self.assertTrue(result["response"]["ok"])
+        self.assertFalse(self.photo.exists())
+
+    def test_trashing_a_photo_a_scan_already_removed_leaves_the_file_alone(self):
+        from photo_index import connect
+
+        con = connect(self.database)
+        con.execute("DELETE FROM assets WHERE id=?", (self.asset_id,))
+        con.commit()
+        con.close()
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.post("/api/review-bin", {"id": self.asset_id})
+        refused.exception.close()
+        self.assertTrue(self.photo.is_file())
+
     def test_the_publish_page_has_an_activity_log_fed_by_live_lines(self):
         import console_log
 

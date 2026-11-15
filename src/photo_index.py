@@ -1455,6 +1455,14 @@ def scan_library(
         report()
         for rel_text in missing:
             asset_id = int(known[rel_text]["id"])
+            # The list of missing photos was taken before the walk. A photo
+            # trashed or put back since then must not be removed on that old
+            # view, or its tags and people go with it.
+            current = con.execute(
+                "SELECT path, in_review_bin FROM assets WHERE id = ?", (asset_id,)
+            ).fetchone()
+            if current is None or current["in_review_bin"] or Path(current["path"]).exists():
+                continue
             con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
             con.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
             counts["removed"] += 1

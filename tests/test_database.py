@@ -312,6 +312,66 @@ class DatabaseTests(unittest.TestCase):
         con.close()
         self.assertEqual(kept, set(), "two moved files with the same size and time are never guessed between")
 
+    def test_scan_keeps_a_photo_that_was_trashed_after_the_scan_listed_it_as_missing(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "one.jpg").write_bytes(b"one")
+        gone = library / "two.jpg"
+        gone.write_bytes(b"two")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+        gone.unlink()
+
+        import photo_index
+
+        opened = []
+        done: list[bool] = []
+        real_connect = photo_index.connect
+
+        def remember_connect(path):
+            con = real_connect(path)
+            opened.append(con)
+            return con
+
+        def trash_while_scanning(counts):
+            # The scan holds the write lock, so the change is made on its own
+            # connection to stand in for a trash that landed in between.
+            if counts.get("removing_total") == 1 and not done:
+                done.append(True)
+                opened[-1].execute("UPDATE assets SET in_review_bin=1 WHERE relative_path='two.jpg'")
+
+        with patch.object(photo_index, "connect", remember_connect):
+            self.assertEqual(scan_library(library, database, quiet=True, progress=trash_while_scanning), 0)
+        con = sqlite3.connect(database)
+        self.assertEqual(
+            con.execute("SELECT in_review_bin FROM assets WHERE relative_path='two.jpg'").fetchall(), [(1,)],
+            "a trashed photo's row, with its tags and people, must outlive a scan that saw its file missing",
+        )
+        con.close()
+
+    def test_scan_keeps_a_photo_whose_file_is_back_by_the_time_it_would_be_removed(self):
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        (library / "one.jpg").write_bytes(b"one")
+        gone = library / "two.jpg"
+        gone.write_bytes(b"two")
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database), 0)
+        gone.unlink()
+
+        def put_back_while_scanning(counts):
+            if counts.get("removing_total") == 1:
+                gone.write_bytes(b"two")
+
+        self.assertEqual(scan_library(library, database, quiet=True, progress=put_back_while_scanning), 0)
+        con = sqlite3.connect(database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets WHERE relative_path='two.jpg'").fetchone()[0], 1)
+        con.close()
+
     def test_cancelled_scan_is_resumable_and_does_not_remove_unseen_assets(self):
         from photo_index import scan_library
 
