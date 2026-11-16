@@ -55,15 +55,15 @@ class CaptureDateTests(unittest.TestCase):
 
         self.assertEqual(self.dates(), {"IMG_0001.jpg": "2019-12-31"})
 
-    def test_a_date_in_the_name_beats_the_date_an_editor_last_saved(self):
+    def test_the_date_an_editor_or_scanner_last_saved_is_not_a_capture_date(self):
         from photo_index import scan_library
 
         save_with_exif(self.library / "2018-03-04 walk.jpg", modified="2024:09:09 10:00:00")
-        save_with_exif(self.library / "edited.jpg", modified="2024:09:09 10:00:00")
+        save_with_exif(self.library / "scanned.jpg", modified="2014:03:22 10:00:00")
 
         scan_library(self.library, self.database)
 
-        self.assertEqual(self.dates(), {"2018-03-04 walk.jpg": "2018-03-04", "edited.jpg": "2024-09-09"})
+        self.assertEqual(self.dates(), {"2018-03-04 walk.jpg": "2018-03-04", "scanned.jpg": None})
 
     def test_an_unset_camera_clock_is_not_a_date(self):
         from photo_index import scan_library

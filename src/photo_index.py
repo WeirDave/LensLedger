@@ -78,7 +78,7 @@ COMPACT_DATE_RE = re.compile(r"(?<!\d)(?P<year>19\d{2}|20\d{2})(?P<month>\d{2})(
 EXIF_DATE_RE = re.compile(r"^\s*(?P<year>\d{4})[:-](?P<month>\d{2})[:-](?P<day>\d{2})")
 # Raised whenever capture_date learns another source, so the next scan
 # re-reads the date of unchanged files once.
-CAPTURE_DATE_VERSION = 2
+CAPTURE_DATE_VERSION = 3
 # Raised whenever the visual hash changes, so unchanged photos are re-hashed once.
 VISUAL_HASH_VERSION = 1
 # Raised whenever the camera, size and shape details read from a photo change,
@@ -661,28 +661,25 @@ def capture_date_from_path(path: Path) -> str | None:
     return None
 
 
-def extract_exif_dates(path: Path) -> tuple[str | None, str | None]:
-    """(taken, modified) from EXIF, without changing or hydrating the file.
+def extract_exif_taken(path: Path) -> str | None:
+    """DateTimeOriginal, else DateTimeDigitized, without changing or hydrating the file.
 
-    "Taken" is DateTimeOriginal, else DateTimeDigitized. "Modified" is the
-    main-image DateTime, which editors rewrite on save, so it only beats
-    nothing at all.
+    The main-image DateTime is deliberately not read: scanners and editors
+    write the day the file was saved there, which for a scanned print is
+    years after the picture was taken.
     """
     if media_type(path) != "image":
-        return None, None
+        return None
     try:
         with Image.open(path) as image:
-            exif = image.getexif()
-            details = exif.get_ifd(ExifTags.IFD.Exif)
-            taken = None
+            details = image.getexif().get_ifd(ExifTags.IFD.Exif)
             for tag in (0x9003, 0x9004):  # DateTimeOriginal, DateTimeDigitized
                 taken = _date_from_match(EXIF_DATE_RE.match(str(details.get(tag) or "")))
                 if taken:
-                    break
-            modified = _date_from_match(EXIF_DATE_RE.match(str(exif.get(0x0132) or "")))
-            return taken, modified
+                    return taken
     except (KeyError, OSError, TypeError, ValueError, SyntaxError):
-        return None, None
+        pass
+    return None
 
 
 def visual_hash(path: Path) -> str:
@@ -760,8 +757,7 @@ def capture_date_for(path: Path) -> str | None:
         return local or capture_date_from_path(path) or utc
     if kind == "raw":
         return raw_date(path) or capture_date_from_path(path)
-    taken, modified = extract_exif_dates(path)
-    return taken or capture_date_from_path(path) or modified
+    return extract_exif_taken(path) or capture_date_from_path(path)
 
 
 def _unique(values) -> list[str]:

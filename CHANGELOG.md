@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.2 — 2026-11-15
+
+- Photos with no capture date in the image and no date in the file or folder name are no longer dated by the day the file was last saved. Scanned prints were listed under the year they were scanned. They now have no date, so they are left out of the **Year** menu and date filters and sort after dated photos. The next library scan re-reads the dates of photos already indexed.
+
 ## 1.53.1 — 2026-11-15
 
 - The automated test suite no longer writes to the application's own data folder. Running the tests previously added entries to the import log and the application log in the user's data folder. They now go to a temporary folder that is removed afterwards. Nothing changes for the running application.
