@@ -193,6 +193,10 @@ Use the scope selector next to the search box to choose what to search:
 - **Oldest first** — by capture date, oldest on the left
 - **Filename A–Z** — alphabetical by filename
 
+### Year
+
+The **Year** menu beside Sort lists every year that has photos, newest first, with the number of photos in each (for example "2019 (1,204)"). Choosing a year shows only that year's photos in the grid; **All years** shows everything again. It sets the **Taken from** and **Taken until** range to 1 January – 31 December of that year, replaces a single **Date** that was chosen, and keeps the search, Sort and other filters. The counts cover the whole library, not only the current search. The menu is not shown on the People page.
+
 ### Rating filter
 
 Use the **Rating** menu next to Sort to show only photos with at least one to five stars, or **★★★★★ only**. It combines with search, the date filter, People, **More filters** and Meaning search.

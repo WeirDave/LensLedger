@@ -38,6 +38,19 @@ class FilterParsingTests(unittest.TestCase):
         self.assertEqual(span("2015-13", "2015-02-30"), ("", ""))
         self.assertEqual(span("15", "last year"), ("", ""))
 
+    def test_a_whole_calendar_year_is_recognised_as_a_chosen_year(self):
+        from photo_filters import parse_filters, selected_year
+
+        def chosen(start, end):
+            return selected_year(parse_filters({"from": [start], "to": [end]}))
+
+        self.assertEqual(chosen("2015", "2015"), 2015)
+        self.assertEqual(chosen("2015-01-01", "2015-12-31"), 2015)
+        self.assertIsNone(chosen("2015-02-01", "2015-12-31"))
+        self.assertIsNone(chosen("2015", "2016"))
+        self.assertIsNone(chosen("2015", ""))
+        self.assertIsNone(selected_year(None))
+
     def test_nothing_set_means_not_active_and_no_conditions(self):
         from photo_filters import filter_clauses, parse_filters
 
@@ -97,6 +110,14 @@ class FilterQueryTests(unittest.TestCase):
                          ["2021-07-09 tall.jpg", "2022-01-05 square.jpg"])
         self.assertEqual(self.names(**{"from": "2022-01-06"}), ["2022-02-01 clip.mp4"])
         self.assertEqual(self.names(to="2021-07-04"), ["2021-07-04 wide.jpg"])
+
+    def test_years_are_counted_newest_first_and_skip_photos_in_the_bin(self):
+        from photo_filters import year_counts
+
+        self.assertEqual(year_counts(self.con), [(2022, 2), (2021, 2)])
+        self.con.execute("UPDATE assets SET in_review_bin=1 WHERE filename='2022-02-01 clip.mp4'")
+        self.con.execute("UPDATE assets SET capture_date=NULL WHERE filename='2021-07-04 wide.jpg'")
+        self.assertEqual(year_counts(self.con), [(2022, 1), (2021, 1)])
 
     def test_taken_until_a_bare_year_includes_that_whole_year(self):
         self.assertEqual(self.names(to="2020"), [])

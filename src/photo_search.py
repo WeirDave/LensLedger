@@ -50,7 +50,7 @@ from face_locations import (
 )
 from photo_filters import (
     LOCATIONS, KINDS, SHAPES, collection_query, delete_collection, filter_clauses, keep_matching_ids,
-    list_collections, parse_filters, save_collection,
+    list_collections, parse_filters, save_collection, selected_year, year_counts,
 )
 from photo_duplicates import (
     cached_groups, find_exact_duplicate_groups, library_has_identical_file, merge_into_keeper,
@@ -2738,6 +2738,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li><strong>Newest first</strong> / <strong>Oldest first</strong> &mdash; by capture date</li>
 <li><strong>Filename A&ndash;Z</strong> &mdash; alphabetical</li>
 </ul>
+<h3>Year</h3>
+<p>The <strong>Year</strong> menu beside Sort lists every year that has photos, newest first, with the number of photos in each (for example &ldquo;2019 (1,204)&rdquo;). Choosing a year shows only that year&rsquo;s photos in the grid; <strong>All years</strong> shows everything again. It sets the <strong>Taken from</strong> and <strong>Taken until</strong> range to 1 January &ndash; 31 December of that year, replaces a single <strong>Date</strong> that was chosen, and keeps the search, Sort and other filters. The counts cover the whole library, not only the current search. The menu is not shown on the People page.</p>
 <h3>Rating filter</h3>
 <p>Open <strong>Filters</strong> and use the <strong>Rating</strong> menu to show only photos with at least one to five stars, or <strong>★★★★★ only</strong>. It combines with search, the date filter, People, the other filters and Meaning search.</p>
 <h3>Filters</h3>
@@ -3602,9 +3604,11 @@ class SearchHandler(BaseHTTPRequestHandler):
         untagged_count = 0
         filter_people: list[dict] = []
         collection_count = 0
+        years_in_library: list[tuple[int, int]] = []
         try:
             with self.db() as con:
                 untagged_count = count_untagged(con)
+                years_in_library = year_counts(con)
                 filter_people = [dict(row) for row in con.execute(
                     "SELECT id,name FROM people ORDER BY name COLLATE NOCASE")]
                 collection_count = int(con.execute("SELECT COUNT(*) FROM saved_searches").fetchone()[0])
@@ -3775,6 +3779,16 @@ class SearchHandler(BaseHTTPRequestHandler):
             )
             if value != "relevance" or (query and scope == "all")
         )
+        year_field_html = (
+            '<label class="year-field">Year<select id="yearPicker" aria-label="Year">'
+            '<option value="">All years</option>'
+            + "".join(
+                f'<option value="{year}"{" selected" if year == selected_year(filters) else ""}>{year} ({count:,})</option>'
+                for year, count in years_in_library
+            )
+            + "</select></label>"
+            if years_in_library and not (scope == "people" and not person_id) else ""
+        )
         rating_options = "".join(
             f'<option value="{value}"{" selected" if min_rating == value else ""}>{label}</option>'
             for value, label in (
@@ -3918,10 +3932,14 @@ class SearchHandler(BaseHTTPRequestHandler):
             filter_chips.append((f"On {selected_date}", url_without("date")))
         if min_rating:
             filter_chips.append((f"Rated {'★' * min_rating}{'+' if min_rating < 5 else ''}", url_without("rating")))
-        if filters.from_date:
-            filter_chips.append((f"From {filters.from_date}", url_without("from")))
-        if filters.to_date:
-            filter_chips.append((f"To {filters.to_date}", url_without("to")))
+        chosen_year = selected_year(filters)
+        if chosen_year:
+            filter_chips.append((f"Year {chosen_year}", url_without("from", "to")))
+        else:
+            if filters.from_date:
+                filter_chips.append((f"From {filters.from_date}", url_without("from")))
+            if filters.to_date:
+                filter_chips.append((f"To {filters.to_date}", url_without("to")))
         for person in filters.people:
             remaining = [other for other in filters.people if other != person]
             filter_chips.append((people_names.get(person, "Unknown person"),
@@ -4032,7 +4050,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <header role="banner"><div class="top"><button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button><img src="/logo.png?v={APP_VERSION}" alt=""><div class="identity"><h1>{APP_NAME}</h1><div class="tagline">{APP_TAGLINE}</div></div><span class="summary">{html.escape(summary)} <span class="error-inline">{html.escape(error)}</span></span>{needs_tags_link}{keep_best_button}<button type="button" class="theme-toggle" aria-label="Toggle theme"></button><span class="version">v{APP_VERSION}</span></div>
 <form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<input type="hidden" name="scope" id="scopePicker" value="{scope}">
 <div class="search-row"><label class="search-field"><span class="visually-hidden">Search</span><input type="search" name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}" autocomplete="off"></label><button class="search-submit">Search</button>{filter_controls_html}</div>
-<div class="scope-row"><div class="scope-pills" role="radiogroup" aria-label="Search in">{scope_pills}</div><label class="view-field"><span class="visually-hidden">Special views</span><select id="viewPicker" aria-label="Special views">{special_view_options}</select></label><label class="sort-field">Sort<select name="sort" id="sortPicker">{sort_options}</select></label></div>
+<div class="scope-row"><div class="scope-pills" role="radiogroup" aria-label="Search in">{scope_pills}</div><label class="view-field"><span class="visually-hidden">Special views</span><select id="viewPicker" aria-label="Special views">{special_view_options}</select></label>{year_field_html}<label class="sort-field">Sort<select name="sort" id="sortPicker">{sort_options}</select></label></div>
 {filter_panel_html}</form>{filter_chips_html}</header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><button type="button" class="secondary back-to-results" id="backToResults">← Back to results</button><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">

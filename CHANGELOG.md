@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.0 — 2026-11-15
+
+- A **Year** menu sits beside **Sort** on the home page. It lists every year that has photos, newest first, with the number of photos in each, and choosing a year shows only that year's photos in the grid. **All years** shows everything again.
+- Choosing a year fills in **Taken from** and **Taken until** under **Filters** as 1 January to 31 December of that year, clears any single **Date**, and keeps the search, Sort and other filters. The active filter appears as a single **Year** chip that removes it when selected.
+- The menu is not shown on the People page.
+- The user manual and the in-app manual describe the **Year** menu.
+
 ## 1.52.1 — 2026-11-15
 
 - The filmstrip's left and right arrow buttons are larger (52 px) and fully opaque, with a solid light fill on the dark theme and a solid dark fill on the light theme. They are centred vertically on the strip, and highlight in gold on hover or keyboard focus.

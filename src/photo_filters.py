@@ -97,6 +97,26 @@ def parse_filters(params: dict[str, list[str]]) -> Filters:
     )
 
 
+def year_counts(con: sqlite3.Connection) -> list[tuple[int, int]]:
+    """Each year that has photos and how many, newest year first."""
+    rows = con.execute(
+        """SELECT substr(capture_date, 1, 4) AS year, COUNT(*) AS photos FROM assets
+           WHERE in_review_bin=0 AND capture_date GLOB '[0-9][0-9][0-9][0-9]-*'
+           GROUP BY year ORDER BY year DESC"""
+    ).fetchall()
+    return [(int(row[0]), int(row[1])) for row in rows]
+
+
+def selected_year(filters: Filters | None) -> int | None:
+    """The year when the date range is exactly one whole calendar year, else None."""
+    if filters is None or not filters.from_date or not filters.to_date:
+        return None
+    year = filters.from_date[:4]
+    if year.isdecimal() and filters.from_date == f"{year}-01-01" and filters.to_date == f"{year}-12-31":
+        return int(year)
+    return None
+
+
 def filter_clauses(filters: Filters | None) -> tuple[list[str], list[object]]:
     """SQL conditions on the ``assets a`` row for every active filter."""
     clauses: list[str] = []

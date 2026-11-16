@@ -203,6 +203,36 @@ class ServerWorkflowTests(unittest.TestCase):
         response = self.raw_request("GET", "/people-review?person=abc")
         self.assertEqual(response.getheader("Location"), "/people/review")
 
+    def test_year_picker_lists_years_and_narrows_the_grid(self):
+        from photo_index import connect, scan_library
+
+        Image.new("RGB", (32, 24), (140, 80, 24)).save(self.library / "2019-03-01 old.jpg", quality=92)
+        scan_library(self.library, self.database)
+        con = connect(self.database)
+        try:
+            con.execute("UPDATE assets SET capture_date='2026-08-09' WHERE id=?", (self.asset_id,))
+            con.execute("UPDATE assets SET capture_date='2019-03-01' WHERE filename='2019-03-01 old.jpg'")
+            con.commit()
+        finally:
+            con.close()
+
+        page = self.get("/").read().decode("utf-8")
+        self.assertIn('id="yearPicker"', page)
+        self.assertLess(page.index('value="2026"'), page.index('value="2019"'), "newest year first")
+        self.assertIn(">2019 (1)</option>", page)
+        self.assertNotIn('<option value="2019" selected>', page)
+
+        page = self.get("/?from=2019-01-01&to=2019-12-31").read().decode("utf-8")
+        self.assertIn('<option value="2019" selected>', page)
+        self.assertIn("Year 2019", page)
+        self.assertNotIn("From 2019-01-01", page)
+        listed = self.json_response(self.get("/api/library/items?from=2019-01-01&to=2019-12-31"))
+        self.assertEqual([item["filename"] for item in listed["items"]], ["2019-03-01 old.jpg"])
+
+        page = self.get("/?from=2019-02-01&to=2019-12-31").read().decode("utf-8")
+        self.assertNotIn('<option value="2019" selected>', page)
+        self.assertIn("From 2019-02-01", page)
+
     def test_paths_from_requests_must_stay_inside_the_library(self):
         from photo_search import resolve_inside
         self.assertEqual(resolve_inside(self.library, self.photo.name), Path(os.path.realpath(self.photo)))

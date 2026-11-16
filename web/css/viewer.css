@@ -111,6 +111,9 @@ form.toolbar{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:
 .view-field select{font-size:13px;padding:5px 8px}
 .sort-field{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px}
 .sort-field select{font-size:13px;padding:5px 8px}
+.year-field{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px}
+.year-field select{font-size:13px;padding:5px 8px}
+.year-field+.sort-field{margin-left:0}
 .filter-panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 10px;align-items:end;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
 .filter-panel[hidden]{display:none}
 .date-field{position:relative;display:grid;gap:3px}
@@ -137,7 +140,7 @@ body.results-mode .batch-bar{bottom:16px}
 .search-row{gap:6px}
 .search-row button{padding:8px 10px}
 .scope-pill{white-space:nowrap;min-height:40px}
-.sort-field{margin-left:0}
+.sort-field,.year-field{margin-left:0}
 body.results-mode .filmstrip{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;padding:10px 10px 90px}
 }
 .filter-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
