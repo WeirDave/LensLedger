@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,13 @@ class TestIngestRequestsAScan(unittest.TestCase):
         patcher = mock.patch("ingest_pipeline.STABILITY_SECONDS", 0)
         patcher.start()
         self.addCleanup(patcher.stop)
+        data = mock.patch.dict(os.environ, {"LENSLEDGER_DATA_DIR": str(Path(self.tmp.name) / "data")})
+        data.start()
+        self.addCleanup(data.stop)
+
+        import console_log
+
+        self.addCleanup(console_log.shutdown)
 
     def make(self):
         return self.IngestPipeline(
@@ -40,6 +48,15 @@ class TestIngestRequestsAScan(unittest.TestCase):
 
         self.assertEqual(delta["imported"], 2)
         self.assertEqual(self.batches, [2])
+
+    def test_the_import_log_is_written_to_the_test_data_folder_not_the_real_one(self):
+        from ingest_pipeline import ingest_log_path
+
+        self.add_photo("sample_one.jpg")
+        self.make().run_once()
+
+        self.assertEqual(ingest_log_path(), (Path(self.tmp.name) / "data" / "ingest-log.json").resolve())
+        self.assertTrue(ingest_log_path().is_file())
 
     def test_run_once_requests_no_scan_when_nothing_was_imported(self):
         self.make().run_once()

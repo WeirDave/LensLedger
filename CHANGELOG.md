@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.1 — 2026-11-15
+
+- The automated test suite no longer writes to the application's own data folder. Running the tests previously added entries to the import log and the application log in the user's data folder. They now go to a temporary folder that is removed afterwards. Nothing changes for the running application.
+
 ## 1.53.0 — 2026-11-15
 
 - A **Year** menu sits beside **Sort** on the home page. It lists every year that has photos, newest first, with the number of photos in each, and choosing a year shows only that year's photos in the grid. **All years** shows everything again.
