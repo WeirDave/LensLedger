@@ -1424,8 +1424,12 @@ def _run_face_crop_pass(database, encoder=None, should_cancel=None):
         action.failed(str(exc))
 
 
-def _run_semantic_index_job(handler_class, database, batch_size, started_at, mode="new"):
-    """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes."""
+def _run_semantic_index_job(handler_class, database, batch_size, started_at, mode="new",
+                            tag_new=False):
+    """Run one meaning-search indexing pass, updating handler_class.semantic_job as it goes.
+
+    ``tag_new`` tags the photos this pass indexed even when the setting for
+    tagging after meaning search is off."""
     settings = load_settings()
     model_id = settings.get("scan", {}).get("semantic_model", "ViT-B-32/openai")
     if model_id not in SEMANTIC_SUPPORTED_MODELS:
@@ -1518,7 +1522,10 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
             }
         if not result["cancelled"]:
             _run_face_crop_pass(database, encoder, handler_class.semantic_cancel.is_set)
-        if not result["cancelled"] and get_setting("publish", "auto_classify", default=False):
+        if not result["cancelled"] and (
+            (tag_new and int(result["indexed"]))
+            or get_setting("publish", "auto_classify", default=False)
+        ):
             if not handler_class.classify_lock.acquire(blocking=False):
                 console_log("Auto-classify: skipped because classification is already running")
             else:
@@ -1825,6 +1832,124 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
         action.failed(str(exc))
         with handler_class.scan_all_lock:
             handler_class.scan_all_job = {"state": "error", "step": None, "message": str(exc)}
+
+
+def _run_automatic_scan(handler_class):
+    """The scan behind folder watching and Auto-import: every step "Run all
+    scans" has, each one only when something is waiting for it.
+
+    Returns False when it did nothing because another scan was running, so a
+    requested scan can be tried again.
+    """
+    def _any_scan_running():
+        with handler_class.library_lock:
+            if handler_class.library_job.get("state") == "scanning":
+                return True
+        for lock_attr, job_attr in (
+            ("scan_all_lock", "scan_all_job"),
+            ("semantic_lock", "semantic_job"),
+            ("ocr_lock", "ocr_job"),
+            ("face_scan_lock", "face_scan_job"),
+        ):
+            with getattr(handler_class, lock_attr):
+                if getattr(handler_class, job_attr).get("state") == "running":
+                    return True
+        return False
+
+    if _any_scan_running():
+        console_log("Automatic check: skipped this time — a scan is already running")
+        return False
+    if not handler_class.library_is_chosen():
+        # The startup root is only a guess until a library is picked;
+        # scanning it would index and OCR the whole Pictures or home
+        # folder unasked, then greet the user with "Welcome back".
+        console_log("Automatic check: skipped — no photo library has been chosen yet")
+        return
+
+    root = handler_class.library_root
+    db = handler_class.db_path
+    ran = []
+    watcher_action = Action("Automatic check", "scheduled folder watch")
+    try:
+        # Step 1: library/location scan
+        with handler_class.library_lock:
+            handler_class.library_job = {
+                "state": "scanning", "message": "Discovering photos and videos…",
+                "target_root": str(root), "scanned": 0, "changed": 0,
+                "unchanged": 0, "removed": 0, "errors": 0, "placeholders": 0,
+                "started_at": utc_now(),
+            }
+            handler_class.library_cancel.clear()
+        _run_library_scan_job(handler_class, root, db, handler_class.library_job["started_at"])
+        lib_state = handler_class.library_job.get("state")
+        if lib_state not in ("complete",):
+            watcher_action.cancelled(
+                f"stopped at the photo location scan ({lib_state or 'no result'})"
+            )
+            return
+        ran.append("photo locations")
+
+        pending = pending_scan_counts(db)
+
+        # Step 2: OCR
+        if pending["ocr"] > 0:
+            with handler_class.ocr_lock:
+                handler_class.ocr_job = {
+                    "state": "running", "message": "Preparing local text recognition…",
+                    "total": 0, "attempted": 0, "with_text": 0, "errors": 0,
+                    "started_at": utc_now(),
+                }
+                handler_class.ocr_cancel.clear()
+            _run_ocr_job(handler_class, db, None, 4, handler_class.ocr_job["started_at"])
+            if handler_class.ocr_job.get("state") == "complete":
+                ran.append("OCR")
+            else:
+                watcher_action.cancelled(
+                    "stopped at text recognition"
+                    + (f"; ran {', '.join(ran)}" if ran else "")
+                )
+                return
+
+        # Step 3: semantic indexing (only if installed)
+        if semantic_is_available() and pending["semantic"] > 0:
+            with handler_class.semantic_lock:
+                handler_class.semantic_job = {
+                    "state": "running", "message": "Loading the optional local meaning model…",
+                    "total": 0, "indexed_this_pass": 0, "errors": 0,
+                    "started_at": utc_now(),
+                }
+                handler_class.semantic_cancel.clear()
+            tagging_before = handler_class.classify_job
+            _run_semantic_index_job(handler_class, db, 16, handler_class.semantic_job["started_at"],
+                                    tag_new=True)
+            if handler_class.semantic_job.get("state") == "complete":
+                ran.append("meaning search")
+                tagging = handler_class.classify_job
+                if tagging is not tagging_before and tagging.get("state") == "complete":
+                    ran.append("photo tagging")
+            else:
+                watcher_action.cancelled(
+                    "stopped at meaning search"
+                    + (f"; ran {', '.join(ran)}" if ran else "")
+                )
+                return
+
+        # Step 4: face detection (only if installed)
+        if face_is_available() and pending["face"] > 0:
+            with handler_class.face_scan_lock:
+                handler_class.face_scan_job = {
+                    "state": "running", "message": "Preparing local face detection…",
+                    "total": 0, "processed": 0, "faces_found": 0, "errors": 0,
+                    "started_at": utc_now(),
+                }
+                handler_class.face_scan_cancel.clear()
+            _run_face_scan_job(handler_class, db, root, handler_class.face_scan_job["started_at"])
+            if handler_class.face_scan_job.get("state") == "complete":
+                ran.append("face detection")
+
+        watcher_action.finish("ran " + ", ".join(ran) if ran else "nothing needed doing")
+    except Exception as exc:
+        watcher_action.failed(str(exc))
 
 
 class _LibraryAttr:
@@ -2890,7 +3015,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 </ul>
 <p>If a file with the same name already exists at the destination, a numeric suffix is added automatically.</p>
 <p>A photo or video that is already in your library, byte for byte, is not moved. It stays in the source folder and the activity log shows it once as a skipped duplicate. The date used for the destination folder is the photo&rsquo;s capture time; for a video or camera RAW file it is the date stored inside the file, and the file&rsquo;s modified time is used only when no date can be found. After a file is first seen, LensLedger waits a few seconds once for the whole batch to confirm that uploads have finished.</p>
-<p>Whenever auto-import moves new photos into your library &mdash; on its timer or from <strong>Run now</strong>, and whether or not folder watching is switched on &mdash; LensLedger scans them a few seconds later: photo locations first, then text recognition, meaning search and face detection where they are installed. If another scan is already running at that moment, the new photos are picked up on the next scheduled check instead.</p>
+<p>Whenever auto-import moves new photos into your library &mdash; on its timer or from <strong>Run now</strong>, and whether or not folder watching is switched on &mdash; LensLedger scans them a few seconds later, in the same order as <strong>Run all scans</strong>: photo locations, then text recognition, meaning search, photo tagging and face detection where they are set up. If another scan is already running at that moment, the new photos are picked up on the next scheduled check, or, with folder watching off, the scan is tried again every five minutes until it can run.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 
@@ -8986,116 +9111,11 @@ def main():
     SearchHandler.root_given_at_launch = args.root is not None
     SearchHandler.current_library = (root, database); SearchHandler.csrf_token = secrets.token_urlsafe(32)
     server = LensLedgerHTTPServer(("localhost", args.port), SearchHandler); url = f"http://localhost:{args.port}/"
-    def watcher_scan():
-        def _any_scan_running():
-            with SearchHandler.library_lock:
-                if SearchHandler.library_job.get("state") == "scanning":
-                    return True
-            for lock_attr, job_attr in (
-                ("scan_all_lock", "scan_all_job"),
-                ("semantic_lock", "semantic_job"),
-                ("ocr_lock", "ocr_job"),
-                ("face_scan_lock", "face_scan_job"),
-            ):
-                with getattr(SearchHandler, lock_attr):
-                    if getattr(SearchHandler, job_attr).get("state") == "running":
-                        return True
-            return False
-
-        if _any_scan_running():
-            console_log("Automatic check: skipped this time — a scan is already running")
-            return
-        if not SearchHandler.library_is_chosen():
-            # The startup root is only a guess until a library is picked;
-            # scanning it would index and OCR the whole Pictures or home
-            # folder unasked, then greet the user with "Welcome back".
-            console_log("Automatic check: skipped — no photo library has been chosen yet")
-            return
-
-        root = SearchHandler.library_root
-        db = SearchHandler.db_path
-        ran = []
-        watcher_action = Action("Automatic check", "scheduled folder watch")
-        try:
-            # Step 1: library/location scan
-            with SearchHandler.library_lock:
-                SearchHandler.library_job = {
-                    "state": "scanning", "message": "Discovering photos and videos…",
-                    "target_root": str(root), "scanned": 0, "changed": 0,
-                    "unchanged": 0, "removed": 0, "errors": 0, "placeholders": 0,
-                    "started_at": utc_now(),
-                }
-                SearchHandler.library_cancel.clear()
-            _run_library_scan_job(SearchHandler, root, db, SearchHandler.library_job["started_at"])
-            lib_state = SearchHandler.library_job.get("state")
-            if lib_state not in ("complete",):
-                watcher_action.cancelled(
-                    f"stopped at the photo location scan ({lib_state or 'no result'})"
-                )
-                return
-            ran.append("photo locations")
-
-            pending = pending_scan_counts(db)
-
-            # Step 2: OCR
-            if pending["ocr"] > 0:
-                with SearchHandler.ocr_lock:
-                    SearchHandler.ocr_job = {
-                        "state": "running", "message": "Preparing local text recognition…",
-                        "total": 0, "attempted": 0, "with_text": 0, "errors": 0,
-                        "started_at": utc_now(),
-                    }
-                    SearchHandler.ocr_cancel.clear()
-                _run_ocr_job(SearchHandler, db, None, 4, SearchHandler.ocr_job["started_at"])
-                if SearchHandler.ocr_job.get("state") == "complete":
-                    ran.append("OCR")
-                else:
-                    watcher_action.cancelled(
-                        "stopped at text recognition"
-                        + (f"; ran {', '.join(ran)}" if ran else "")
-                    )
-                    return
-
-            # Step 3: semantic indexing (only if installed)
-            if semantic_is_available() and pending["semantic"] > 0:
-                with SearchHandler.semantic_lock:
-                    SearchHandler.semantic_job = {
-                        "state": "running", "message": "Loading the optional local meaning model…",
-                        "total": 0, "indexed_this_pass": 0, "errors": 0,
-                        "started_at": utc_now(),
-                    }
-                    SearchHandler.semantic_cancel.clear()
-                _run_semantic_index_job(SearchHandler, db, 16, SearchHandler.semantic_job["started_at"])
-                if SearchHandler.semantic_job.get("state") == "complete":
-                    ran.append("meaning search")
-                else:
-                    watcher_action.cancelled(
-                        "stopped at meaning search"
-                        + (f"; ran {', '.join(ran)}" if ran else "")
-                    )
-                    return
-
-            # Step 4: face detection (only if installed)
-            if face_is_available() and pending["face"] > 0:
-                with SearchHandler.face_scan_lock:
-                    SearchHandler.face_scan_job = {
-                        "state": "running", "message": "Preparing local face detection…",
-                        "total": 0, "processed": 0, "faces_found": 0, "errors": 0,
-                        "started_at": utc_now(),
-                    }
-                    SearchHandler.face_scan_cancel.clear()
-                _run_face_scan_job(SearchHandler, db, root, SearchHandler.face_scan_job["started_at"])
-                if SearchHandler.face_scan_job.get("state") == "complete":
-                    ran.append("face detection")
-
-            watcher_action.finish("ran " + ", ".join(ran) if ran else "nothing needed doing")
-        except Exception as exc:
-            watcher_action.failed(str(exc))
     settings = load_settings()
     watch_cfg = settings.get("watch", {})
     watcher = FolderWatcher(
         interval_minutes=int(watch_cfg["interval_minutes"]),
-        scan_fn=watcher_scan,
+        scan_fn=lambda: _run_automatic_scan(SearchHandler),
     )
     SearchHandler.folder_watcher = watcher
     if watch_cfg.get("enabled"):

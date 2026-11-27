@@ -2630,6 +2630,67 @@ class ServerWorkflowTests(unittest.TestCase):
         classify.assert_not_called()
         self.assertTrue(still_held, "the running classification keeps its lock")
 
+    def run_automatic_scan(self, indexed: int, auto_classify: bool):
+        """The folder watching / Auto-import scan, with every engine faked."""
+        handler = self.photo_search.SearchHandler
+        handler.classify_job = {"state": "idle", "message": ""}
+        order: list[str] = []
+
+        def finishes(step, job_attr):
+            def run(handler_class, *_args):
+                order.append(step)
+                setattr(handler_class, job_attr, {"state": "complete"})
+            return run
+
+        def index(*_args, **_kwargs):
+            order.append("meaning search")
+            return {"indexed": indexed, "errors": 0, "total": indexed, "cancelled": False, "failures": []}
+
+        def classify(*_args, **_kwargs):
+            order.append("photo tagging")
+            return {"classified": indexed, "tags_added": 1}
+
+        search = self.photo_search
+        with patch.object(search, "pending_scan_counts", return_value={"ocr": 1, "semantic": 1, "face": 1}), \
+             patch.object(search, "semantic_is_available", return_value=True), \
+             patch.object(search, "face_is_available", return_value=True), \
+             patch.object(search, "_run_ocr_job", finishes("text recognition", "ocr_job")), \
+             patch.object(search, "_run_face_scan_job", finishes("face detection", "face_scan_job")), \
+             patch.object(search, "_run_face_crop_pass"), \
+             patch.object(search, "semantic_model_cache_info",
+                          return_value={"ViT-B-32/openai": {"downloaded": True}}), \
+             patch.object(search, "semantic_encoder_for", return_value=object()), \
+             patch.object(search, "build_semantic_index", index), \
+             patch.object(search, "get_setting", return_value=auto_classify), \
+             patch.object(search, "classify_library", classify):
+            result = search._run_automatic_scan(handler)
+        self.assertFalse(handler.classify_lock.locked())
+        return result, order
+
+    def test_an_automatic_scan_runs_every_scan_with_tagging_after_meaning_search_off(self):
+        result, order = self.run_automatic_scan(indexed=2, auto_classify=False)
+
+        self.assertIsNot(result, False)
+        self.assertEqual(order, ["text recognition", "meaning search", "photo tagging", "face detection"])
+        self.assertEqual(self.photo_search.SearchHandler.library_job["state"], "complete")
+
+    def test_an_automatic_scan_tags_once_when_the_tagging_setting_is_on(self):
+        _result, order = self.run_automatic_scan(indexed=2, auto_classify=True)
+
+        self.assertEqual(order.count("photo tagging"), 1)
+
+    def test_an_automatic_scan_that_indexes_nothing_new_does_not_force_tagging(self):
+        _result, order = self.run_automatic_scan(indexed=0, auto_classify=False)
+
+        self.assertNotIn("photo tagging", order)
+
+    def test_an_automatic_scan_reports_that_it_was_skipped_for_a_running_scan(self):
+        handler = self.photo_search.SearchHandler
+        handler.ocr_job = {"state": "running", "message": ""}
+
+        self.assertIs(self.photo_search._run_automatic_scan(handler), False)
+        self.assertEqual(handler.library_job["state"], "idle", "nothing may start")
+
     def test_possible_duplicate_people_can_be_listed_and_dismissed(self):
         con = sqlite3.connect(self.database)
         left = int(con.execute("INSERT INTO people(name) VALUES ('Katherine Vollmer')").lastrowid)

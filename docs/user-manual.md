@@ -376,7 +376,7 @@ You can add rules that route specific files to different destinations based on f
 
 A photo or video that is already in your library, byte for byte, is not moved. It stays in the source folder and the activity log shows it once as a skipped duplicate. The date used for the destination folder is the photo's capture time; for a video or camera RAW file it is the date stored inside the file, and the file's modified time is used only when no date can be found. After a file is first seen, LensLedger waits a few seconds once for the whole batch to confirm that uploads have finished.
 
-Whenever auto-import moves new photos into your library — on its timer or from **Run now**, and whether or not folder watching is switched on — LensLedger scans them a few seconds later: photo locations first, then text recognition, meaning search and face detection where they are installed. If another scan is already running at that moment, the new photos are picked up on the next scheduled check instead.
+Whenever auto-import moves new photos into your library — on its timer or from **Run now**, and whether or not folder watching is switched on — LensLedger scans them a few seconds later, in the same order as **Run all scans**: photo locations, then text recognition, meaning search, photo tagging and face detection where they are set up. If another scan is already running at that moment, the new photos are picked up on the next scheduled check, or, with folder watching off, the scan is tried again every five minutes until it can run.
 
 ---
 
@@ -526,7 +526,7 @@ Choose the CLIP model for meaning search. See [Meaning search](#meaning-search-o
 |---------|---------|-------------|
 | Embed tags in photo files | On | Write metadata inside JPEG, HEIC/HEIF, PNG, WebP and TIFF files |
 | Sidecar (.xmp) files for | GIF and BMP | The file types that get an `.xmp` companion file beside each photo |
-| Auto-classify photos after meaning search | On | Tag photos with what they show automatically once meaning search finishes (Run all scans always tags photos) |
+| Auto-classify photos after meaning search | On | Tag photos with what they show automatically once meaning search finishes (Run all scans, folder watching and Auto-import always tag photos) |
 | Keep photo safety copies for (days) | 30 | Copies older than this are cleared automatically. 0 keeps them forever |
 | Total size limit for safety copies (GB) | 20 | When the copies exceed this, the oldest go first. 0 means no limit |
 

@@ -20,12 +20,17 @@ from console_log import log as console_log
 
 
 class FolderWatcher:
-    """Periodically triggers an incremental library scan."""
+    """Periodically triggers an incremental library scan.
+
+    ``scan_fn`` returns False when it could not scan because another scan was
+    running; anything else counts as done.
+    """
 
     def __init__(
         self,
         interval_minutes: int = 30,
-        scan_fn: Callable[[], None] | None = None,
+        scan_fn: Callable[[], object] | None = None,
+        retry_seconds: float = 300,
     ):
         self._interval = max(5, interval_minutes) * 60
         self._scan_fn = scan_fn
@@ -39,6 +44,9 @@ class FolderWatcher:
         self._generation = 0
         self._live_timers: set[threading.Timer] = set()
         self._one_shot: threading.Timer | None = None
+        self._one_shot_scanning = False
+        self._asked_again: float | None = None
+        self._retry_seconds = retry_seconds
 
     @property
     def running(self) -> bool:
@@ -82,26 +90,47 @@ class FolderWatcher:
         Auto-import uses this so photos it has just moved are never left
         unscanned. With watching on it reschedules the regular check, as
         trigger_soon does; with watching off it runs a single scan and leaves
-        the watcher off.
+        the watcher off. A one-off scan that finds another scan running is
+        tried again, and a request made while it is scanning gets its own scan
+        afterwards.
         """
         with self._lock:
             if self._running:
                 self._schedule_next(delay=delay)
                 return
-            if self._one_shot is not None and self._one_shot.is_alive():
+            if self._one_shot is not None:
+                if self._one_shot_scanning:
+                    self._asked_again = delay
                 return
-            timer = threading.Timer(delay, self._on_one_shot)
-            timer.daemon = True
-            self._one_shot = timer
-            timer.start()
+            self._start_one_shot(delay)
+
+    def _start_one_shot(self, delay: float) -> None:
+        """Caller must hold the lock."""
+        timer = threading.Timer(delay, self._on_one_shot)
+        timer.daemon = True
+        self._one_shot = timer
+        timer.start()
 
     def _on_one_shot(self) -> None:
+        with self._lock:
+            self._one_shot_scanning = True
+            self._asked_again = None
+        skipped = False
         try:
             if self._scan_fn:
                 console_log("Folder watcher: scanning newly imported photos")
-                self._scan_fn()
+                skipped = self._scan_fn() is False
         except Exception as exc:
             console_log(f"Folder watcher: scan error — {exc}")
+        with self._lock:
+            self._one_shot = None
+            self._one_shot_scanning = False
+            if self._running:
+                return  # the scheduled checks cover it
+            if skipped:
+                self._start_one_shot(self._retry_seconds)
+            elif self._asked_again is not None:
+                self._start_one_shot(self._asked_again)
 
     def _schedule_next(self, delay: int | None = None) -> None:
         """Caller must hold the lock."""

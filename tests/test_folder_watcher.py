@@ -177,6 +177,46 @@ class TestFolderWatcher(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertLessEqual(watcher.pending_timer_count(), 1)
 
+    def wait_for(self, condition):
+        for _ in range(60):
+            if condition():
+                return
+            time.sleep(0.05)
+
+    def test_a_one_off_scan_skipped_for_another_scan_is_tried_again(self):
+        """With watching off there is no scheduled check to fall back on."""
+        def busy_twice():
+            self.record()
+            return len(self.calls) > 2
+
+        watcher = self.FolderWatcher(scan_fn=busy_twice, retry_seconds=0.05)
+        self.watchers.append(watcher)
+        watcher.scan_soon(delay=0)
+
+        self.wait_for(lambda: len(self.calls) >= 3)
+        time.sleep(0.3)
+        self.assertEqual(len(self.calls), 3, "it must retry until the scan runs, then stop")
+        self.assertFalse(watcher.status()["enabled"])
+
+    def test_a_scan_requested_while_a_one_off_scan_runs_gets_its_own_scan(self):
+        """Photos imported mid-scan may already have been passed over."""
+        def slow_first_scan():
+            self.record()
+            if len(self.calls) == 1:
+                self.started.set()
+                self.release.wait(timeout=5)
+
+        watcher = self.make(scan_fn=slow_first_scan)
+        watcher.scan_soon(delay=0)
+        self.assertTrue(self.started.wait(3), "the first scan never started")
+        watcher.scan_soon(delay=0)
+        watcher.scan_soon(delay=0)
+        self.release.set()
+
+        self.wait_for(lambda: len(self.calls) >= 2)
+        time.sleep(0.3)
+        self.assertEqual(len(self.calls), 2)
+
     def test_a_failing_one_off_scan_is_survivable(self):
         attempts = []
 
