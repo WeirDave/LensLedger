@@ -2684,6 +2684,37 @@ class ServerWorkflowTests(unittest.TestCase):
 
         self.assertNotIn("photo tagging", order)
 
+    def test_an_automatic_scan_with_only_a_video_left_starts_no_photo_scans(self):
+        from photo_index import connect
+
+        (self.library / "clip.mp4").write_bytes(b"video")
+        con = connect(self.database)
+        con.execute("UPDATE assets SET face_scanned=1")
+        con.execute("UPDATE text_data SET ocr_scanned=1")
+        con.execute(
+            """INSERT INTO semantic_embeddings(asset_id,model,dimensions,embedding_f32,updated_at)
+               VALUES (?,'ViT-B-32/openai',1,?,'2026-01-01T00:00:00Z')""",
+            (self.asset_id, array.array("f", [1.0]).tobytes()),
+        )
+        con.commit()
+        con.close()
+        search = self.photo_search
+        with patch.object(search, "semantic_is_available", return_value=True), \
+             patch.object(search, "face_is_available", return_value=True), \
+             patch.object(search, "_run_ocr_job") as ocr, \
+             patch.object(search, "_run_semantic_index_job") as meaning, \
+             patch.object(search, "_run_face_scan_job") as faces:
+            search._run_automatic_scan(search.SearchHandler)
+
+        self.assertEqual(search.SearchHandler.library_job["state"], "complete")
+        con = connect(self.database)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 2,
+                         "the video was indexed by the photo location scan")
+        con.close()
+        ocr.assert_not_called()
+        meaning.assert_not_called()
+        faces.assert_not_called()
+
     def test_an_automatic_scan_reports_that_it_was_skipped_for_a_running_scan(self):
         handler = self.photo_search.SearchHandler
         handler.ocr_job = {"state": "running", "message": ""}

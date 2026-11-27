@@ -543,6 +543,8 @@ Automatically detect new and changed photos without manually running a scan.
 
 Watching starts only once a library has been chosen; before then nothing is scanned.
 
+After the photo location scan, each automatic check starts text recognition, meaning search or face detection only when photos are waiting for it. Videos do not count, and neither does a photo the scan has already failed on. A photo that text recognition or face detection could not read is tried again the next time that scan runs.
+
 ---
 
 ## Stopping a Scan

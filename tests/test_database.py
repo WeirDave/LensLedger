@@ -247,6 +247,79 @@ class DatabaseTests(unittest.TestCase):
         with patch.object(photo_index, "ocr_is_available", return_value=False):
             self.assertEqual(pending_scan_counts(database)["ocr"], 0)
 
+    def mixed_library(self):
+        """Two photos, plus the kinds of file some scans never finish."""
+        from photo_index import scan_library
+
+        library = self.root / "photos"
+        library.mkdir()
+        for name in ("good.jpg", "broken.jpg", "clip.mp4", "negative.dng", "spin.gif"):
+            (library / name).write_bytes(name.encode())
+        database = self.root / "library.sqlite3"
+        self.assertEqual(scan_library(library, database, quiet=True), 0)
+        return library, database
+
+    def test_nothing_is_pending_once_face_detection_has_done_all_it_can(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from face_scan import scan_for_faces
+        from photo_index import pending_scan_counts
+
+        library, database = self.mixed_library()
+        self.assertEqual(pending_scan_counts(database)["face"], 2)
+
+        def detect(image):
+            if image.name == "broken.jpg":
+                raise ValueError("damaged photo")
+            return []
+
+        cv2 = SimpleNamespace(IMREAD_COLOR=1, imdecode=lambda path, _flag: SimpleNamespace(
+            shape=(10, 10, 3), name=Path(path).name))
+        numpy = SimpleNamespace(uint8="uint8", fromfile=lambda path, **_kwargs: path)
+        with patch("face_scan.load_insightface_runtime",
+                   return_value=(cv2, numpy, SimpleNamespace(get=detect))):
+            result = scan_for_faces(database, library)
+
+        self.assertEqual((result["total"], result["errors"]), (2, 1))
+        self.assertEqual(pending_scan_counts(database)["face"], 0)
+
+    def test_nothing_is_pending_once_meaning_search_has_done_all_it_can(self):
+        from semantic_index import build_index
+        from photo_index import pending_scan_counts
+
+        class Encoder:
+            identity = "ViT-B-32/openai"
+
+            def encode_images(self, paths):
+                return ["damaged photo" if path.name == "broken.jpg" else (1.0, 0.0)
+                        for path in paths]
+
+        _library, database = self.mixed_library()
+        self.assertEqual(pending_scan_counts(database, "ViT-B-32/openai")["semantic"], 2)
+
+        result = build_index(database, encoder=Encoder())
+
+        self.assertEqual((result["total"], result["errors"]), (2, 1))
+        self.assertEqual(pending_scan_counts(database, "ViT-B-32/openai")["semantic"], 0)
+        self.assertEqual(pending_scan_counts(database)["semantic"], 0)
+        self.assertEqual(pending_scan_counts(database, "ViT-L-14/openai")["semantic"], 1,
+                         "a newly chosen model still has the readable photo to index")
+
+    def test_a_photo_text_recognition_failed_on_is_not_pending(self):
+        from unittest.mock import patch
+        import photo_index
+        from photo_index import connect, pending_scan_counts
+
+        _library, database = self.mixed_library()
+        with patch.object(photo_index, "ocr_is_available", return_value=True):
+            before = pending_scan_counts(database)["ocr"]
+            con = connect(database)
+            con.execute("""UPDATE text_data SET ocr_error='damaged photo' WHERE asset_id IN
+                           (SELECT id FROM assets WHERE filename='broken.jpg')""")
+            con.commit()
+            con.close()
+            self.assertEqual(pending_scan_counts(database)["ocr"], before - 1)
+
     def test_upgrading_clears_ocr_errors_left_by_running_it_without_windows(self):
         from PIL import Image
         from photo_index import connect, scan_library

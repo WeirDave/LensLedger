@@ -928,7 +928,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
                 console_log(f"[People] Could not restore links from photo names — {exc}")
         if state == "complete":
             try:
-                pending = pending_scan_counts(database)
+                pending = pending_scan_counts(database, _configured_semantic_model())
                 parts = []
                 if pending["ocr"]:
                     parts.append(f"{pending['ocr']:,} need OCR")
@@ -939,7 +939,7 @@ def _run_library_scan_job(handler_class, root, database, started_at):
                 if parts:
                     console_log("Scan status: " + ", ".join(parts))
                 else:
-                    console_log("Scan status: all photos fully processed")
+                    console_log("Scan status: no photos waiting to be scanned")
             except Exception:
                 pass
     except Exception as exc:
@@ -1389,6 +1389,12 @@ def _run_ocr_job(handler_class, database, since, workers, started_at, rescan=Fal
             handler_class.ocr_job = {"state": "error", "message": str(exc)}
 
 
+def _configured_semantic_model() -> str:
+    """The meaning search model chosen under Settings."""
+    model_id = load_settings().get("scan", {}).get("semantic_model", "ViT-B-32/openai")
+    return model_id if model_id in SEMANTIC_SUPPORTED_MODELS else "ViT-B-32/openai"
+
+
 def _run_face_crop_pass(database, encoder=None, should_cancel=None):
     """Index the crop around each located face so a person's appearance (a
     beard, a bald head) can be searched. Quietly does nothing unless meaning
@@ -1397,9 +1403,7 @@ def _run_face_crop_pass(database, encoder=None, should_cancel=None):
     try:
         if not semantic_is_available():
             return
-        model_id = load_settings().get("scan", {}).get("semantic_model", "ViT-B-32/openai")
-        if model_id not in SEMANTIC_SUPPORTED_MODELS:
-            model_id = "ViT-B-32/openai"
+        model_id = _configured_semantic_model()
         if not semantic_model_cache_info().get(model_id, {}).get("downloaded"):
             return
         if not semantic_face_crop_pending(database, model_id):
@@ -1430,10 +1434,7 @@ def _run_semantic_index_job(handler_class, database, batch_size, started_at, mod
 
     ``tag_new`` tags the photos this pass indexed even when the setting for
     tagging after meaning search is off."""
-    settings = load_settings()
-    model_id = settings.get("scan", {}).get("semantic_model", "ViT-B-32/openai")
-    if model_id not in SEMANTIC_SUPPORTED_MODELS:
-        model_id = "ViT-B-32/openai"
+    model_id = _configured_semantic_model()
 
     action_name = SEMANTIC_ACTION_NAMES.get(mode, "Meaning search")
     action = Action(action_name, SEMANTIC_MODE_LABELS.get(mode, mode))
@@ -1803,7 +1804,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             summary += "; skipped (not set up): " + ", ".join(skipped)
         action.finish(summary)
         try:
-            pending = pending_scan_counts(database)
+            pending = pending_scan_counts(database, _configured_semantic_model())
             parts = []
             if pending["ocr"]:
                 parts.append(f"{pending['ocr']:,} need OCR")
@@ -1814,7 +1815,7 @@ def _run_scan_all_job(handler_class, root, database, scan_all_started_at):
             if parts:
                 console_log("Scan status: " + ", ".join(parts))
             else:
-                console_log("Scan status: all photos fully processed")
+                console_log("Scan status: no photos waiting to be scanned")
         except Exception:
             pass
         with handler_class.scan_all_lock:
@@ -1889,7 +1890,7 @@ def _run_automatic_scan(handler_class):
             return
         ran.append("photo locations")
 
-        pending = pending_scan_counts(db)
+        pending = pending_scan_counts(db, _configured_semantic_model())
 
         # Step 2: OCR
         if pending["ocr"] > 0:
@@ -3123,6 +3124,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <tr><td>Check interval</td><td>5&ndash;1440 minutes</td><td>5</td></tr>
 </table>
 <p>Watching starts only once a library has been chosen; before then nothing is scanned.</p>
+<p>After the photo location scan, each automatic check starts text recognition, meaning search or face detection only when photos are waiting for it. Videos do not count, and neither does a photo the scan has already failed on. A photo that text recognition or face detection could not read is tried again the next time that scan runs.</p>
 <div class="back-to-top"><a href="#top">Back to top</a></div>
 </section>
 

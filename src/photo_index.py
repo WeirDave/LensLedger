@@ -1530,26 +1530,37 @@ def ocr_is_available() -> bool:
     return sys.platform == "win32"
 
 
-def pending_scan_counts(db_path: Path) -> dict[str, int]:
-    """Return counts of photos still needing each scan type.
+def pending_scan_counts(db_path: Path, semantic_model: str | None = None) -> dict[str, int]:
+    """Return how many photos each scan has waiting for an automatic pass.
 
-    OCR counts as nothing pending where it cannot run, so the folder watcher
-    and the startup summary do not retry or report it every pass.
+    A photo counts only when that scan would pick it up and has not already
+    failed on it. Videos, camera RAW files and formats a scan cannot open are
+    never finished by it, so counting them would start the scan on every
+    check with nothing to do; a failed photo would do the same.
+
+    With ``semantic_model`` named, meaning search counts photos not yet
+    indexed by that model. OCR counts as nothing pending where it cannot run.
     """
+    skipped = sorted(unsupported_image_extensions() | {".gif"})
+    image = "a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0"
+    openable = f"{image} AND a.extension NOT IN ({','.join('?' for _ in skipped)})"
     con = connect(db_path)
     try:
         ocr = 0 if not ocr_is_available() else int(con.execute(
-            """SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
-               WHERE a.media_type='image' AND a.metadata_scanned=1 AND a.in_review_bin=0
-                 AND x.ocr_scanned=0"""
+            f"""SELECT COUNT(*) FROM text_data x JOIN assets a ON a.id=x.asset_id
+                WHERE {image} AND x.ocr_scanned=0 AND x.ocr_error=''"""
         ).fetchone()[0])
         face = int(con.execute(
-            "SELECT COUNT(*) FROM assets WHERE face_scanned=0 AND metadata_scanned=1 AND in_review_bin=0"
+            f"""SELECT COUNT(*) FROM assets a
+                WHERE {openable} AND a.face_scanned=0 AND a.face_scan_error=''""",
+            skipped,
         ).fetchone()[0])
         semantic = int(con.execute(
-            """SELECT COUNT(*) FROM assets a
-               WHERE a.metadata_scanned=1 AND a.in_review_bin=0
-                 AND NOT EXISTS (SELECT 1 FROM semantic_embeddings e WHERE e.asset_id=a.id)"""
+            f"""SELECT COUNT(*) FROM assets a
+                WHERE {openable} AND a.semantic_error=''
+                  AND NOT EXISTS (SELECT 1 FROM semantic_embeddings e
+                                  WHERE e.asset_id=a.id AND (? IS NULL OR e.model=?))""",
+            (*skipped, semantic_model, semantic_model),
         ).fetchone()[0])
     except Exception:
         return {"ocr": 0, "semantic": 0, "face": 0}

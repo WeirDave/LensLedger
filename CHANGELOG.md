@@ -6,6 +6,13 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.4 — 2026-11-27
+
+- Automatic checks from folder watching and **Auto-import** now start text recognition, meaning search and face detection only when photos are waiting for them. Videos, camera RAW files, GIFs and photos a scan had already failed on were counted as waiting, so those scans could start on every check with nothing to finish.
+- A photo that text recognition or face detection could not read is tried again the next time that scan runs, instead of on every automatic check.
+- After a different meaning search model is chosen under **Settings**, the next automatic check indexes the library with it.
+- The activity log's **Scan status** line reads "no photos waiting to be scanned" when nothing is left to start.
+
 ## 1.53.3 — 2026-11-27
 
 - The scan that follows an **Auto-import** now tags the new photos with what they show, as **Run all scans** does, whether or not **Auto-classify photos after meaning search** under **Settings** is switched on. Scans started by folder watching do the same. Tagging requires meaning search to be set up.
