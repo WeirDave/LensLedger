@@ -12,20 +12,35 @@ import json
 import os
 import re
 import sqlite3
+import threading
 from pathlib import Path, PurePosixPath
+from typing import Callable
 
+from app_paths import data_root, write_json_atomically
+from console_log import log as console_log
 from generate_historical_folder_tags import infer_tags
+from ingest_pipeline import log_rename_failure
 from photo_index import MEDIA_EXTENSIONS, connect, rebuild_search_row, set_source_tags
 
 SEPARATOR = " - "
 DESCRIPTION_LIMIT = 100
 LIST_LIMIT = 20
+# How many times a waiting rename is tried while the disk or catalog refuses it.
+RETRY_LIMIT = 12
 # Rows these hold are found by a photo's path, so they have to move with it.
 PERSONAL_TABLES = ("asset_annotations", "asset_tag_exclusions", "asset_ratings", "asset_rating_sync")
 
 _NAMED = re.compile(r"^(\d{4}(?:[_.\-]?\d{2}){0,2})(?:\s+-+\s*|\s*-+\s+|\s+)(\S.*)$")
 _FULL_DATE = re.compile(r"\d{4}[_.\-]?\d{2}[_.\-]?\d{2}")
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+class FolderInUse(ValueError):
+    """The disk refused the rename for now, so it is worth trying again."""
+
+
+class FolderGone(ValueError):
+    """The folder is no longer one that can be named."""
 
 
 def split_folder_name(name: str, planned: str = "") -> tuple[str, str]:
@@ -239,6 +254,12 @@ def move_folder_records(con: sqlite3.Connection, root: Path, old: str, new: str)
     return len(assets)
 
 
+def check_name_free(folder: Path, name: str) -> None:
+    target = folder.with_name(name)
+    if target.exists() and not os.path.samefile(target, folder):
+        raise ValueError("A folder with that name is already there. Choose a different description.")
+
+
 def rename_folder(folder: Path, name: str, libraries: list[tuple[Path, Path]]) -> Path:
     """Rename ``folder`` on disk and in each library that holds it.
 
@@ -248,8 +269,7 @@ def rename_folder(folder: Path, name: str, libraries: list[tuple[Path, Path]]) -
     target = folder.with_name(name)
     if name == folder.name:
         return folder
-    if target.exists() and not os.path.samefile(target, folder):
-        raise ValueError("A folder with that name is already there. Choose a different description.")
+    check_name_free(folder, name)
     connections: list[sqlite3.Connection] = []
     try:
         for root, database in libraries:
@@ -261,7 +281,7 @@ def rename_folder(folder: Path, name: str, libraries: list[tuple[Path, Path]]) -
         try:
             os.rename(folder, target)
         except OSError as exc:
-            raise ValueError(
+            raise FolderInUse(
                 "The folder could not be renamed. Another program may have one of its files open. "
                 f"Close it and try again. ({exc.strerror or exc})"
             ) from exc
@@ -279,3 +299,115 @@ def rename_folder(folder: Path, name: str, libraries: list[tuple[Path, Path]]) -
         for con in connections:
             con.close()
     return target
+
+
+def waiting_path() -> Path:
+    """Resolved per call so the file follows the configured data folder."""
+    return data_root() / "waiting-renames.json"
+
+
+class WaitingRenames:
+    """Names entered while LensLedger was busy, applied once it is free.
+
+    They are saved to disk, so closing LensLedger does not lose them.
+    ``apply(path, description)`` returns False while LensLedger is still busy.
+    """
+
+    def __init__(self, apply: Callable[[str, str], bool], seconds: float = 5.0):
+        self._apply = apply
+        self._seconds = seconds
+        # Whoever holds this may go on to take the library lock, never the
+        # other way round.
+        self.lock = threading.RLock()
+        self._timer: threading.Timer | None = None
+        self._stopped = False
+
+    def items(self) -> dict[str, dict]:
+        with self.lock:
+            try:
+                data = json.loads(waiting_path().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+            if not isinstance(data, dict):
+                return {}
+            return {path: entry for path, entry in data.items() if isinstance(entry, dict)}
+
+    def add(self, path: str, description: str) -> None:
+        with self.lock:
+            items = self._without(path)
+            items[path] = {"description": description, "error": "", "attempts": 0}
+            write_json_atomically(waiting_path(), items)
+            self._schedule()
+
+    def discard(self, path: str) -> None:
+        with self.lock:
+            items = self._without(path)
+            if len(items) != len(self.items()):
+                write_json_atomically(waiting_path(), items)
+
+    def _without(self, path: str) -> dict[str, dict]:
+        wanted = os.path.normcase(path)
+        return {key: entry for key, entry in self.items().items() if os.path.normcase(key) != wanted}
+
+    def start(self) -> None:
+        with self.lock:
+            self._stopped = False
+            self._schedule()
+
+    def stop(self) -> None:
+        with self.lock:
+            self._stopped = True
+            if self._timer:
+                self._timer.cancel()
+                self._timer = None
+
+    def _schedule(self) -> None:
+        """Caller must hold the lock."""
+        if self._timer or self._stopped:
+            return
+        if all(entry.get("error") for entry in self.items().values()):
+            return
+        self._timer = threading.Timer(self._seconds, self._tick)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _tick(self) -> None:
+        with self.lock:
+            self._timer = None
+            try:
+                self.run_pending()
+            finally:
+                self._schedule()
+
+    def run_pending(self) -> None:
+        """Try each waiting rename once. One that cannot be done keeps the
+        reason, for the page to show, and is not tried again."""
+        with self.lock:
+            for path, entry in self.items().items():
+                if entry.get("error"):
+                    continue
+                try:
+                    if self._apply(path, str(entry.get("description", ""))):
+                        self.discard(path)
+                except FolderGone as exc:
+                    self.discard(path)
+                    self._report(path, str(exc))
+                except (FolderInUse, sqlite3.OperationalError) as exc:
+                    attempts = int(entry.get("attempts", 0)) + 1
+                    final = attempts >= RETRY_LIMIT
+                    self._update(path, {**entry, "attempts": attempts, "error": str(exc) if final else ""})
+                    if final:
+                        self._report(path, str(exc))
+                except Exception as exc:  # one failure must not strand the others
+                    self._update(path, {**entry, "error": str(exc)})
+                    self._report(path, str(exc))
+
+    def _update(self, path: str, entry: dict) -> None:
+        items = self.items()
+        items[path] = entry
+        write_json_atomically(waiting_path(), items)
+
+    @staticmethod
+    def _report(path: str, error: str) -> None:
+        console_log(f"Auto-import: waiting folder rename not done — {Path(path).name}: {error}")
+        log_rename_failure(Path(path), error)

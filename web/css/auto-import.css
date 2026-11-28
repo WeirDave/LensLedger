@@ -48,6 +48,10 @@ main{width:min(820px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:7
 .folder-rename label{font-size:12.5px;font-weight:650;color:var(--text);overflow-wrap:anywhere}
 .folder-rename input{width:100%;min-width:0;padding:7px 9px;font-size:12.5px;border:1px solid var(--border);border-radius:6px;background:var(--input-bg);color:var(--text)}
 .card .folder-busy{padding:8px 10px;border:1px solid var(--accent);border-radius:8px;color:var(--text)}
+.folder-waiting{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px;font-size:12px;line-height:1.5;color:var(--text)}
+.folder-waiting span{min-width:0;overflow-wrap:anywhere}
+.folder-waiting button{flex:0 0 auto;padding:5px 10px;font-size:11.5px}
+.folder-waiting.failed{padding:6px 8px;border:1px solid var(--danger);border-radius:6px}
 .log-list{max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;margin:6px 0;display:grid;gap:3px}
 .log-entry{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:6px 10px;background:var(--scan-card-bg,var(--surface2));border-radius:6px;font-size:11.5px}
 .log-entry .log-action{font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.04em;padding:2px 6px;border-radius:4px}

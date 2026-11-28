@@ -2674,6 +2674,7 @@ class ServerWorkflowTests(unittest.TestCase):
 
         def finishes(step, job_attr):
             def run(handler_class, *_args):
+                self.assertTrue(handler_class.automatic_scan_active.is_set())
                 order.append(step)
                 setattr(handler_class, job_attr, {"state": "complete"})
             return run
@@ -2700,6 +2701,7 @@ class ServerWorkflowTests(unittest.TestCase):
              patch.object(search, "get_setting", return_value=auto_classify), \
              patch.object(search, "classify_library", classify):
             result = search._run_automatic_scan(handler)
+        self.assertFalse(handler.automatic_scan_active.is_set())
         self.assertFalse(handler.classify_lock.locked())
         return result, order
 

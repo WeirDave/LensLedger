@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -258,10 +259,18 @@ class RenameRequestTests(ImportedFolderCase):
             self.addCleanup(patcher.stop)
         self.add_photos("2026-03-14 one.jpg", "2026-03-14 two.jpg")
         self.scan()
+        import imported_folders
+
         handler = photo_search.SearchHandler
+        # Tried by hand in these tests, so the timer is set never to fire.
+        self.waiting = imported_folders.WaitingRenames(
+            lambda path, description: handler.try_folder_rename(path, description)[1], seconds=3600,
+        )
+        self.addCleanup(self.waiting.stop)
         for name, value in (
             ("current_library", (self.library, self.database)), ("csrf_token", "test-csrf"),
-            ("ingest_pipeline", self.pipeline),
+            ("ingest_pipeline", self.pipeline), ("waiting_renames", self.waiting),
+            ("automatic_scan_active", threading.Event()),
             *((job, {"state": "idle", "message": ""}) for job in (
                 "library_job", "ocr_job", "semantic_job", "face_scan_job", "write_tags_job",
                 "classify_job", "scan_all_job")),
@@ -332,16 +341,141 @@ class RenameRequestTests(ImportedFolderCase):
         self.assertEqual(len(list((self.library / "2026" / "2026_03_14 - Beach day").glob("*.jpg"))), 2)
         self.assertFalse((self.library / "2026" / "2026_03_14").exists())
 
-    def test_renaming_is_refused_while_a_scan_is_running(self):
-        (folder,) = self.get_folders()["folders"]
+    def busy(self):
         self.handler.ocr_job = {"state": "running"}
+
+    def free(self):
+        self.handler.ocr_job = {"state": "complete"}
+
+    def names(self):
+        return sorted(item.name for item in (self.library / "2026").iterdir())
+
+    def test_a_name_entered_during_a_scan_is_applied_when_it_ends(self):
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
 
         self.assertEqual(self.get_folders()["busy"], "text recognition")
         status, reply = self.rename(folder["path"], "Beach day")
+        self.waiting.run_pending()
+
+        self.assertEqual((status, reply["waiting"]), (200, True))
+        self.assertEqual(self.names(), ["2026_03_14"])
+        (folder,) = self.get_folders()["folders"]
+        self.assertEqual((folder["waiting"], folder["waiting_error"]), ("Beach day", ""))
+
+        self.free()
+        self.waiting.run_pending()
+
+        self.assertEqual(self.names(), ["2026_03_14 - Beach day"])
+        self.assertEqual(self.waiting.items(), {})
+        (folder,) = self.get_folders()["folders"]
+        self.assertIsNone(folder["waiting"])
+        self.assertEqual(self.query("SELECT DISTINCT folder FROM assets"), [("2026/2026_03_14 - Beach day",)])
+
+    def test_a_waiting_name_survives_a_restart(self):
+        import imported_folders
+
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
+        self.rename(folder["path"], "Beach day")
+        self.free()
+        after_restart = imported_folders.WaitingRenames(
+            lambda path, description: self.handler.try_folder_rename(path, description)[1], seconds=0.05,
+        )
+        self.addCleanup(after_restart.stop)
+
+        after_restart.start()
+        deadline = time.monotonic() + 10
+        while after_restart.items() and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        self.assertEqual(self.names(), ["2026_03_14 - Beach day"])
+
+    def test_the_latest_name_wins_and_can_be_withdrawn(self):
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
+        self.rename(folder["path"], "Beach day")
+        self.rename(folder["path"], "Kite show")
+        self.assertEqual([item["description"] for item in self.waiting.items().values()], ["Kite show"])
+
+        status, _reply = self.post("/api/ingest/cancel-rename", {"path": folder["path"]})
+        self.assertEqual((status, self.waiting.items()), (200, {}))
+
+        # Entering the name the folder already has also withdraws it.
+        self.rename(folder["path"], "Beach day")
+        _status, reply = self.rename(folder["path"], "")
+        self.assertEqual((reply["waiting"], self.waiting.items()), (False, {}))
+        self.free()
+        self.waiting.run_pending()
+        self.assertEqual(self.names(), ["2026_03_14"])
+
+    def test_a_taken_name_is_refused_at_once_even_during_a_scan(self):
+        (folder,) = self.get_folders()["folders"]
+        (self.library / "2026" / "2026_03_14 - Beach day").mkdir()
+        self.busy()
+
+        status, reply = self.rename(folder["path"], "Beach day")
 
         self.assertEqual(status, 400)
-        self.assertIn("text recognition", reply["error"])
+        self.assertIn("already there", reply["error"])
+        self.assertEqual(self.waiting.items(), {})
+
+    def test_a_waiting_name_that_cannot_be_applied_says_why(self):
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
+        self.rename(folder["path"], "Beach day")
+        (self.library / "2026" / "2026_03_14 - Beach day").mkdir()
+        self.free()
+
+        self.waiting.run_pending()
+
+        listed = {item["display"]: item for item in self.get_folders()["folders"]}
+        self.assertIn("already there", listed["2026/2026_03_14"]["waiting_error"])
         self.assertTrue((self.library / "2026" / "2026_03_14").is_dir())
+        from ingest_pipeline import ingest_log_path
+
+        self.assertIn("Folder not renamed", ingest_log_path().read_text(encoding="utf-8"))
+
+    def test_a_folder_in_use_is_tried_again_before_giving_up(self):
+        import imported_folders
+
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
+        self.rename(folder["path"], "Beach day")
+        self.free()
+
+        with mock.patch("imported_folders.os.rename", side_effect=PermissionError(13, "in use")):
+            for _attempt in range(imported_folders.RETRY_LIMIT - 1):
+                self.waiting.run_pending()
+            (entry,) = self.waiting.items().values()
+            self.assertEqual(entry["error"], "")
+            self.waiting.run_pending()
+
+        (entry,) = self.waiting.items().values()
+        self.assertIn("could not be renamed", entry["error"])
+
+    def test_a_waiting_name_for_a_removed_folder_is_dropped(self):
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
+        self.rename(folder["path"], "Beach day")
+        old = self.library / "2026" / "2026_03_14"
+        for photo in old.iterdir():
+            photo.unlink()
+        old.rmdir()
+        self.free()
+
+        self.waiting.run_pending()
+
+        self.assertEqual(self.waiting.items(), {})
+
+    def test_the_gap_between_two_steps_of_an_automatic_scan_counts_as_busy(self):
+        (folder,) = self.get_folders()["folders"]
+        self.handler.automatic_scan_active.set()
+
+        _status, reply = self.rename(folder["path"], "Beach day")
+
+        self.assertTrue(reply["waiting"])
+        self.assertEqual(self.names(), ["2026_03_14"])
 
     def test_only_a_listed_folder_can_be_renamed(self):
         other = self.library / "Keep this"

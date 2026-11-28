@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.54.1 — 2026-11-28
+
+- A folder name entered under **Name your folders** while a scan, tag writing or publishing was running was saved and applied once that work had finished, in place of **Rename** being unavailable. **Cancel** beside the folder dropped it.
+
 ## 1.54.0 — 2026-11-28
 
 - The **Auto-import photos** page gained a **Name your folders** panel listing the folders auto-import had filled. A description typed there and applied with **Rename** was added after the folder's date.

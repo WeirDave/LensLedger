@@ -113,14 +113,30 @@ async function loadFolders(){
     foldersBusy=data.busy||'';
     // Redrawn only when something changed, so typing is not interrupted.
     const next=JSON.stringify(data.folders);
+    const waited=folders.filter(isWaiting).length;
     if(next!==folderData){folderData=next;folders=data.folders;renderFolders();}
+    const waiting=folders.filter(isWaiting).length;
+    if(waiting<waited)loadLog();
     const notice=$('folderBusy');
     notice.hidden=!foldersBusy;
-    notice.textContent=foldersBusy?'LensLedger is busy with '+foldersBusy+'. Rename becomes available when that has finished.':'';
+    notice.textContent=foldersBusy?'LensLedger is busy with '+foldersBusy+'. A name entered now is saved and applied when that has finished.':'';
     updateRenameButtons();
     clearTimeout(folderTimer);
-    if(foldersBusy)folderTimer=setTimeout(loadFolders,5000);
+    if(foldersBusy||waiting)folderTimer=setTimeout(loadFolders,5000);
   }catch(e){}
+}
+
+function isWaiting(folder){return folder.waiting!==null&&!folder.waiting_error;}
+
+function waitingNote(folder){
+  if(folder.waiting===null)return '';
+  const name=folder.base+(folder.waiting?' - '+folder.waiting:'');
+  const text=folder.waiting_error
+    ?'Not renamed to '+name+'. '+folder.waiting_error
+    :'Saved. This folder will be renamed to '+name+' when the current work has finished.';
+  return '<div class="folder-waiting'+(folder.waiting_error?' failed':'')+'"><span>'+esc(text)+'</span>'
+    +'<button type="button" class="secondary cancel-rename" data-path="'+esc(folder.path)+'">'
+    +(folder.waiting_error?'Dismiss':'Cancel')+'</button></div>';
 }
 
 function renderFolders(){
@@ -131,7 +147,7 @@ function renderFolders(){
     .map(d=>'<option value="'+esc(d)+'"></option>').join('');
   if(!folders.length){el.innerHTML='<p class="log-empty">No folders yet. A folder appears here once auto-import adds photos to it.</p>';return;}
   el.innerHTML=folders.map((f,i)=>{
-    const value=f.path in folderDrafts?folderDrafts[f.path]:f.description;
+    const value=f.path in folderDrafts?folderDrafts[f.path]:f.waiting??f.description;
     const when=f.imported_at?' · imported '+new Date(f.imported_at).toLocaleDateString():'';
     let thumbs=f.thumbnails.map(id=>'<img src="/thumb?id='+Number(id)+'&amp;size=160" alt="" loading="lazy">').join('');
     if(thumbs)thumbs='<div class="folder-thumbs">'+thumbs+'</div>';
@@ -143,7 +159,7 @@ function renderFolders(){
       +thumbs
       +'<form class="folder-rename" data-idx="'+i+'"><label for="folderName'+i+'">'+esc(f.base)+' -</label>'
       +'<input type="text" id="folderName'+i+'" list="folderDescriptions" maxlength="100" autocomplete="off" placeholder="What are these photos?" data-path="'+esc(f.path)+'" value="'+esc(value)+'">'
-      +'<button type="submit">Rename</button></form></div>';
+      +'<button type="submit">Rename</button></form>'+waitingNote(f)+'</div>';
   }).join('');
   if(focus){
     const input=[...el.querySelectorAll('input')].find(x=>x.dataset.path===focus.path);
@@ -154,7 +170,9 @@ function renderFolders(){
 function updateRenameButtons(){
   document.querySelectorAll('.folder-rename').forEach(form=>{
     const folder=folders[Number(form.dataset.idx)];
-    form.querySelector('button').disabled=!!foldersBusy||!folder||form.querySelector('input').value.trim()===folder.description;
+    // Nothing to send when the box already holds the current or waiting name.
+    form.querySelector('button').disabled=!folder
+      ||form.querySelector('input').value.trim()===(isWaiting(folder)?folder.waiting:folder.description);
   });
 }
 
@@ -169,10 +187,20 @@ async function renameFolder(form){
     else{
       delete folderDrafts[folder.path];
       folderData='';
-      toast('Folder renamed to '+res.name);
+      toast(res.waiting?'Saved. The folder will be renamed when the current work has finished.':'Folder renamed to '+res.name);
       loadLog();
     }
   }catch(e){toast('Rename failed: '+e.message,true);}
+  await loadFolders();
+}
+
+async function cancelRename(path){
+  try{
+    const res=await post('/api/ingest/cancel-rename',{path});
+    if(res.error){toast(res.error,true);return;}
+    delete folderDrafts[path];
+    folderData='';
+  }catch(e){toast('Cancel failed: '+e.message,true);}
   await loadFolders();
 }
 
@@ -237,6 +265,9 @@ $('folderList').addEventListener('input',e=>{
   updateRenameButtons();
 });
 $('folderList').addEventListener('submit',e=>{e.preventDefault();renameFolder(e.target);});
+$('folderList').addEventListener('click',e=>{
+  if(e.target.classList.contains('cancel-rename'))cancelRename(e.target.dataset.path);
+});
 
 updatePreview();
 renderRules();

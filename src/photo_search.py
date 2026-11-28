@@ -1003,6 +1003,7 @@ ACTION_LABELS = {
     "/api/ingest/save": "Save auto-import settings",
     "/api/ingest/run": "Run auto-import now",
     "/api/ingest/rename-folder": "Rename an imported folder",
+    "/api/ingest/cancel-rename": "Cancel a waiting folder rename",
     "/api/review-bin": "Move a photo to the Review Bin",
     "/api/review-bin/batch": "Move photos to the Review Bin",
     "/api/duplicates/keep-best": "Keep the best copy of each duplicate set",
@@ -1402,6 +1403,10 @@ def _configured_semantic_model() -> str:
     return model_id if model_id in SEMANTIC_SUPPORTED_MODELS else "ViT-B-32/openai"
 
 
+# Held while face crops are read from the photo files.
+face_crop_lock = threading.Lock()
+
+
 def _run_face_crop_pass(database, encoder=None, should_cancel=None):
     """Index the crop around each located face so a person's appearance (a
     beard, a bald head) can be searched. Quietly does nothing unless meaning
@@ -1425,8 +1430,9 @@ def _run_face_crop_pass(database, encoder=None, should_cancel=None):
             if int(counts["indexed"]):
                 action.progress(f"{int(counts['indexed']):,} of {int(counts['total']):,} faces indexed")
 
-        result = build_semantic_face_index(database, encoder=encoder, progress=report,
-                                           should_cancel=should_cancel)
+        with face_crop_lock:
+            result = build_semantic_face_index(database, encoder=encoder, progress=report,
+                                               should_cancel=should_cancel)
         summary = f"{int(result['indexed']):,} faces indexed"
         if int(result["errors"]):
             summary += f", {int(result['errors']):,} could not be read"
@@ -1851,7 +1857,8 @@ def _run_automatic_scan(handler_class):
     """
     def _any_scan_running():
         with handler_class.library_lock:
-            if handler_class.library_job.get("state") == "scanning":
+            if (handler_class.library_job.get("state") == "scanning"
+                    or handler_class.automatic_scan_active.is_set()):
                 return True
         for lock_attr, job_attr in (
             ("scan_all_lock", "scan_all_job"),
@@ -1881,6 +1888,7 @@ def _run_automatic_scan(handler_class):
     try:
         # Step 1: library/location scan
         with handler_class.library_lock:
+            handler_class.automatic_scan_active.set()
             handler_class.library_job = {
                 "state": "scanning", "message": "Discovering photos and videos…",
                 "target_root": str(root), "scanned": 0, "changed": 0,
@@ -1958,6 +1966,8 @@ def _run_automatic_scan(handler_class):
         watcher_action.finish("ran " + ", ".join(ran) if ran else "nothing needed doing")
     except Exception as exc:
         watcher_action.failed(str(exc))
+    finally:
+        handler_class.automatic_scan_active.clear()
 
 
 class _LibraryAttr:
@@ -2123,6 +2133,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         # version or one that predates the record of chosen libraries.
         return cls.root_given_at_launch or has_chosen_library() or Path(cls.db_path).exists()
     ingest_pipeline: IngestPipeline | None = None
+    automatic_scan_active = threading.Event()
+    waiting_renames = imported_folders.WaitingRenames(
+        lambda path, description: SearchHandler.try_folder_rename(path, description)[1],
+    )
 
     def db(self):
         return connect(self.db_path)
@@ -2541,6 +2555,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.ingest_run_now(body)
             if route == "/api/ingest/rename-folder":
                 return self.ingest_rename_folder(body)
+            if route == "/api/ingest/cancel-rename":
+                return self.ingest_cancel_rename(body)
             if route == "/api/settings/export":
                 return self.export_database(body)
             if route == "/api/settings/import":
@@ -3052,7 +3068,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <li>The folder is renamed on disk. Tags, people, ratings, recognized text and scan results stay with the photos, and the folder&rsquo;s automatic tags follow the new name. Tags added to the folder by hand are kept.</li>
 <li>Later imports for the same date go into the renamed folder.</li>
 <li>A folder renamed outside LensLedger is still listed when its name begins with the full date.</li>
-<li><strong>Rename</strong> is unavailable while a scan, tag writing or publishing is running, including the scan that follows an import. It becomes available when that work has finished.</li>
+<li>A name entered while a scan, tag writing or publishing is running, including the scan that follows an import, is saved and applied when that work has finished. The page can be closed in the meantime, and a saved name is kept if LensLedger is closed. <strong>Cancel</strong> beside the folder drops it. A name that cannot be applied is shown on the folder with the reason.</li>
 </ul>
 <h3>Controls</h3>
 <ul>
@@ -3387,11 +3403,18 @@ class SearchHandler(BaseHTTPRequestHandler):
                 pass
         self.send_json({"entries": entries[-100:]})
 
-    def _folder_rename_blockers(self) -> str:
+    @classmethod
+    def _folder_rename_blockers(cls) -> str:
         """The running work that holds photo paths, in the words the user knows."""
-        names = running_cancellable_jobs(type(self))
-        if type(self).publish_lock.locked():
+        names = running_cancellable_jobs(cls)
+        if cls.publish_lock.locked() or any(
+                thread.name == "LensLedger-people-rename-publish" for thread in threading.enumerate()):
             names.append("publishing names")
+        if face_crop_lock.locked():
+            names.append("indexing faces")
+        # An automatic scan is still under way between one step and the next.
+        if cls.automatic_scan_active.is_set() and not names:
+            names.append("an automatic scan")
         return ", ".join(names)
 
     def ingest_folders(self):
@@ -3401,8 +3424,10 @@ class SearchHandler(BaseHTTPRequestHandler):
         root = Path(self.library_root).resolve()
         catalogued = Path(self.db_path).is_file()
         folders = []
+        waiting = {os.path.normcase(path): entry for path, entry in type(self).waiting_renames.items().items()}
         with self.db() if catalogued else contextlib.nullcontext() as con:
             for record in records:
+                entry = waiting.get(os.path.normcase(str(record["folder"])))
                 folder = record["folder"].resolve()
                 relative = folder.relative_to(root).as_posix() if root in folder.parents else ""
                 thumbnails: list[int] = []
@@ -3416,12 +3441,16 @@ class SearchHandler(BaseHTTPRequestHandler):
                     "base": record["base"], "description": record["description"],
                     "items": record["items"], "imported_at": record["imported_at"],
                     "library_folder": relative, "thumbnails": thumbnails,
+                    # A name entered while busy, and why it could not be applied.
+                    "waiting": None if entry is None else str(entry.get("description", "")),
+                    "waiting_error": "" if entry is None else str(entry.get("error", "")),
                 })
         self.send_json({"folders": folders, "busy": self._folder_rename_blockers()})
 
-    def _libraries_holding(self, folder: Path) -> list[tuple[Path, Path]]:
+    @classmethod
+    def _libraries_holding(cls, folder: Path) -> list[tuple[Path, Path]]:
         """(root, database) of every library ``folder`` is inside."""
-        candidates = [(Path(self.library_root), Path(self.db_path))]
+        candidates = [(Path(cls.library_root), Path(cls.db_path))]
         candidates += [
             (Path(item["path"]), None) for item in load_all_known_libraries() if item["accessible"]
         ]
@@ -3439,40 +3468,61 @@ class SearchHandler(BaseHTTPRequestHandler):
                     found[root] = database
         return list(found.items())
 
-    def ingest_rename_folder(self, body):
+    @classmethod
+    def try_folder_rename(cls, path: str, description: str) -> tuple[str, bool]:
+        """Rename an imported folder unless LensLedger is busy.
+
+        Returns the new name and whether it has been applied. Every other reason
+        to refuse is raised, busy or not.
+        """
         from ingest_pipeline import ingest_log_path, log_rename
-        wanted = os.path.normcase(str(body.get("path", "")))
-        description = imported_folders.clean_description(str(body.get("description", "")))
-        handler = type(self)
-        pipeline = handler.ingest_pipeline
+        wanted = os.path.normcase(path)
+        pipeline = cls.ingest_pipeline
         # Holding the library lock keeps a scan from starting mid-rename.
-        with handler.library_lock:
-            busy = self._folder_rename_blockers()
-            if busy:
-                raise ValueError(f"LensLedger is busy with {busy}. Rename the folder when that has finished.")
-            with pipeline.files_lock if pipeline else contextlib.nullcontext():
-                # Only a folder Auto-import filled can be named here, never an
-                # arbitrary path from the request.
-                records = imported_folders.list_folders(
-                    imported_folders.read_log(ingest_log_path()), limit=imported_folders.LIST_LIMIT * 5,
-                )
-                record = next(
-                    (item for item in records if os.path.normcase(str(item["folder"])) == wanted), None,
-                )
-                if record is None:
-                    raise ValueError("That folder is no longer in the list. Reload the page.")
-                folder = record["folder"].resolve()
-                source = str(load_settings()["ingest"].get("source_folder", "")).strip()
-                if source:
-                    source_path = Path(source).resolve()
-                    if source_path == folder or folder in source_path.parents:
-                        raise ValueError("That folder holds the Auto-import source folder, so it keeps its name.")
-                name = imported_folders.folder_name(record["base"], description)
-                if name != folder.name:
-                    imported_folders.rename_folder(folder, name, self._libraries_holding(folder))
-                    log_rename(record["folder"], record["folder"].with_name(name))
-                    console_log(f"Auto-import: renamed folder {folder.name} → {name}")
-        self.send_json({"ok": True, "name": name})
+        with cls.library_lock, pipeline.files_lock if pipeline else contextlib.nullcontext():
+            # Only a folder Auto-import filled can be named here, never an
+            # arbitrary path from the request.
+            records = imported_folders.list_folders(
+                imported_folders.read_log(ingest_log_path()), limit=imported_folders.LIST_LIMIT * 5,
+            )
+            record = next(
+                (item for item in records if os.path.normcase(str(item["folder"])) == wanted), None,
+            )
+            if record is None:
+                raise imported_folders.FolderGone("That folder is no longer in the list. Reload the page.")
+            folder = record["folder"].resolve()
+            source = str(load_settings()["ingest"].get("source_folder", "")).strip()
+            if source:
+                source_path = Path(source).resolve()
+                if source_path == folder or folder in source_path.parents:
+                    raise ValueError("That folder holds the Auto-import source folder, so it keeps its name.")
+            name = imported_folders.folder_name(record["base"], description)
+            if name == folder.name:
+                return name, True
+            imported_folders.check_name_free(folder, name)
+            libraries = cls._libraries_holding(folder)
+            if cls._folder_rename_blockers():
+                return name, False
+            imported_folders.rename_folder(folder, name, libraries)
+            log_rename(record["folder"], record["folder"].with_name(name))
+            console_log(f"Auto-import: renamed folder {folder.name} → {name}")
+        return name, True
+
+    def ingest_rename_folder(self, body):
+        path = str(body.get("path", ""))
+        description = imported_folders.clean_description(str(body.get("description", "")))
+        waiting = type(self).waiting_renames
+        with waiting.lock:
+            name, applied = type(self).try_folder_rename(path, description)
+            if applied:
+                waiting.discard(path)
+            else:
+                waiting.add(path, description)
+        self.send_json({"ok": True, "name": name, "waiting": not applied})
+
+    def ingest_cancel_rename(self, body):
+        type(self).waiting_renames.discard(str(body.get("path", "")))
+        self.send_json({"ok": True})
 
     def remove_library(self, body):
         path = str(body.get("path", "")).strip()
@@ -9284,6 +9334,8 @@ def main():
     SearchHandler.ingest_pipeline = pipeline
     if ingest_cfg.get("enabled"):
         pipeline.start()
+    # Folder names saved during an earlier run are applied once nothing is busy.
+    SearchHandler.waiting_renames.start()
     print("\n" + "=" * 62, flush=True)
     if args.restarted:
         print(f"  {APP_NAME} v{APP_VERSION} — new version loaded.\n  {APP_TAGLINE}\n", flush=True)
@@ -9308,6 +9360,7 @@ def main():
     finally:
         watcher.stop()
         pipeline.stop()
+        SearchHandler.waiting_renames.stop()
         server.server_close(); print(f"{APP_NAME} stopped.", flush=True)
     # Start LensLedger.cmd relaunches in the same window on this code (or, for
     # an older launcher, closes itself while a helper opens a new one); a window

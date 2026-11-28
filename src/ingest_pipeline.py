@@ -115,6 +115,15 @@ def log_rename(old: Path, new: Path) -> None:
     })
 
 
+def log_rename_failure(folder: Path, error: str) -> None:
+    _log_action({
+        "action": "error",
+        "source": str(folder),
+        "error": f"Folder not renamed. {error}",
+        "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+    })
+
+
 def _settled(paths: list[Path]) -> list[Path]:
     """The files whose size did not change over one shared wait, meaning their
     upload has finished. One wait covers the whole batch rather than one per
