@@ -34,6 +34,20 @@ main{width:min(820px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:7
 .rule-item{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;background:var(--scan-card-bg,var(--surface2));border-radius:8px;font-size:12.5px}
 .rule-item input{border:1px solid var(--border);border-radius:5px;background:var(--input-bg);color:var(--text);padding:5px 7px;font-size:12px}
 .rule-item button{padding:4px 8px;font-size:11px}
+#foldersCard{scroll-margin-top:92px}
+.folder-list{display:grid;gap:6px;max-height:560px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;margin:6px 0 0}
+.folder-item{padding:9px 10px;background:var(--scan-card-bg,var(--surface2));border:1px solid transparent;border-radius:8px;min-width:0}
+.folder-item.unnamed{border-color:var(--accent)}
+.folder-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 10px}
+.folder-path{font-size:12.5px;font-weight:700;color:var(--text);overflow-wrap:anywhere}
+.folder-meta,.card .folder-meta{font-size:11px;color:var(--text-secondary)}
+.folder-head a{margin-left:auto;font-size:11.5px;font-weight:650;color:var(--accent)}
+.folder-thumbs{display:flex;gap:5px;margin-top:7px;overflow:hidden}
+.folder-thumbs img{width:72px;height:72px;flex:0 0 auto;object-fit:cover;border-radius:6px;background:var(--input-bg)}
+.folder-rename{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;margin-top:7px}
+.folder-rename label{font-size:12.5px;font-weight:650;color:var(--text);overflow-wrap:anywhere}
+.folder-rename input{width:100%;min-width:0;padding:7px 9px;font-size:12.5px;border:1px solid var(--border);border-radius:6px;background:var(--input-bg);color:var(--text)}
+.card .folder-busy{padding:8px 10px;border:1px solid var(--accent);border-radius:8px;color:var(--text)}
 .log-list{max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;margin:6px 0;display:grid;gap:3px}
 .log-entry{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:6px 10px;background:var(--scan-card-bg,var(--surface2));border-radius:6px;font-size:11.5px}
 .log-entry .log-action{font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.04em;padding:2px 6px;border-radius:4px}
@@ -48,7 +62,7 @@ main{width:min(820px,calc(100% - 32px));margin:10px auto 18px;display:grid;gap:7
 .toast.show{transform:translateY(0);opacity:1}
 .toast.error{background:var(--danger)}
 .section-divider{height:1px;background:var(--border);margin:12px 0}
-@media(max-width:700px){main{width:calc(100% - 22px)}.card{padding:11px 12px}.field{grid-template-columns:1fr;gap:4px}.field:has(.field-browse){grid-template-columns:1fr auto}.field .hint{grid-column:1}.rule-item{grid-template-columns:1fr;gap:4px}}
+@media(max-width:700px){main{width:calc(100% - 22px)}.card{padding:11px 12px}.field{grid-template-columns:1fr;gap:4px}.field:has(.field-browse){grid-template-columns:1fr auto}.field .hint{grid-column:1}.rule-item{grid-template-columns:1fr;gap:4px}.folder-rename{grid-template-columns:1fr auto}.folder-rename label{grid-column:1/-1}}
 
 .menu-panel .menu-item.active{background:var(--menu-hover);color:var(--accent);font-weight:700;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent)}.menu-library{padding:12px 16px;border-top:1px solid var(--border);margin-top:auto}.menu-library-label{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary);margin-bottom:3px}.menu-library-path{display:block;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;cursor:pointer}.menu-library-path:hover{color:var(--accent)}
 

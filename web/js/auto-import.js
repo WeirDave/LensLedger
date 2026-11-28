@@ -69,6 +69,12 @@ async function runNow(){
       (d.imported||0)+' imported, '+
       (d.errors||0)+' errors');
     refreshStatus();loadLog();
+    await loadFolders();
+    if(d.imported){
+      $('foldersCard').scrollIntoView({behavior:'smooth',block:'start'});
+      // The scan of the new photos starts a few seconds after the import.
+      setTimeout(loadFolders,7000);
+    }
   }catch(e){toast('Run failed: '+e.message,true);}
   finally{btn.disabled=false;btn.textContent='Run now';}
 }
@@ -93,6 +99,83 @@ async function refreshStatus(){
   }catch(e){}
 }
 
+let folders=[];
+let folderData='';
+let foldersBusy='';
+let folderTimer=null;
+const folderDrafts={};
+
+async function loadFolders(){
+  try{
+    const res=await fetch('/api/ingest/folders',{cache:'no-store'});
+    const data=await res.json();
+    if(!data.folders)return;
+    foldersBusy=data.busy||'';
+    // Redrawn only when something changed, so typing is not interrupted.
+    const next=JSON.stringify(data.folders);
+    if(next!==folderData){folderData=next;folders=data.folders;renderFolders();}
+    const notice=$('folderBusy');
+    notice.hidden=!foldersBusy;
+    notice.textContent=foldersBusy?'LensLedger is busy with '+foldersBusy+'. Rename becomes available when that has finished.':'';
+    updateRenameButtons();
+    clearTimeout(folderTimer);
+    if(foldersBusy)folderTimer=setTimeout(loadFolders,5000);
+  }catch(e){}
+}
+
+function renderFolders(){
+  const el=$('folderList');
+  const focused=el.contains(document.activeElement)?document.activeElement:null;
+  const focus=focused&&focused.tagName==='INPUT'?{path:focused.dataset.path,at:focused.selectionStart}:null;
+  $('folderDescriptions').innerHTML=[...new Set(folders.map(f=>f.description).filter(Boolean))]
+    .map(d=>'<option value="'+esc(d)+'"></option>').join('');
+  if(!folders.length){el.innerHTML='<p class="log-empty">No folders yet. A folder appears here once auto-import adds photos to it.</p>';return;}
+  el.innerHTML=folders.map((f,i)=>{
+    const value=f.path in folderDrafts?folderDrafts[f.path]:f.description;
+    const when=f.imported_at?' · imported '+new Date(f.imported_at).toLocaleDateString():'';
+    let thumbs=f.thumbnails.map(id=>'<img src="/thumb?id='+Number(id)+'&amp;size=160" alt="" loading="lazy">').join('');
+    if(thumbs)thumbs='<div class="folder-thumbs">'+thumbs+'</div>';
+    else if(f.library_folder)thumbs='<p class="folder-meta">Previews appear after these photos are scanned.</p>';
+    const view=f.library_folder?'<a href="/?folder='+encodeURIComponent(f.library_folder)+'">View photos</a>':'';
+    return '<div class="folder-item'+(f.description?'':' unnamed')+'">'
+      +'<div class="folder-head"><span class="folder-path">'+esc(f.display)+'</span>'
+      +'<span class="folder-meta">'+Number(f.items)+(f.items===1?' item':' items')+esc(when)+'</span>'+view+'</div>'
+      +thumbs
+      +'<form class="folder-rename" data-idx="'+i+'"><label for="folderName'+i+'">'+esc(f.base)+' -</label>'
+      +'<input type="text" id="folderName'+i+'" list="folderDescriptions" maxlength="100" autocomplete="off" placeholder="What are these photos?" data-path="'+esc(f.path)+'" value="'+esc(value)+'">'
+      +'<button type="submit">Rename</button></form></div>';
+  }).join('');
+  if(focus){
+    const input=[...el.querySelectorAll('input')].find(x=>x.dataset.path===focus.path);
+    if(input){input.focus();input.setSelectionRange(focus.at,focus.at);}
+  }
+}
+
+function updateRenameButtons(){
+  document.querySelectorAll('.folder-rename').forEach(form=>{
+    const folder=folders[Number(form.dataset.idx)];
+    form.querySelector('button').disabled=!!foldersBusy||!folder||form.querySelector('input').value.trim()===folder.description;
+  });
+}
+
+async function renameFolder(form){
+  const folder=folders[Number(form.dataset.idx)];
+  const button=form.querySelector('button');
+  if(!folder||button.disabled)return;
+  button.disabled=true;
+  try{
+    const res=await post('/api/ingest/rename-folder',{path:folder.path,description:form.querySelector('input').value});
+    if(res.error){toast(res.error,true);}
+    else{
+      delete folderDrafts[folder.path];
+      folderData='';
+      toast('Folder renamed to '+res.name);
+      loadLog();
+    }
+  }catch(e){toast('Rename failed: '+e.message,true);}
+  await loadFolders();
+}
+
 async function loadLog(){
   try{
     const res=await fetch('/api/ingest/log');
@@ -105,7 +188,7 @@ async function loadLog(){
       const div=document.createElement('div');div.className='log-entry';
       const action=entry.action||'unknown';
       let path=entry.source||'';
-      if(action==='ingested'&&entry.destination)path=entry.source+' → '+entry.destination;
+      if((action==='ingested'||action==='renamed')&&entry.destination)path=entry.source+' → '+entry.destination;
       if(action==='error'&&entry.error)path=entry.source+': '+entry.error;
       const time=entry.timestamp?new Date(entry.timestamp).toLocaleString():'';
       div.innerHTML='<span class="log-action '+esc(action)+'">'+esc(action.replace('_',' '))+'</span>'
@@ -148,12 +231,19 @@ document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{document.get
 document.getElementById('aboutClose').onclick=document.getElementById('aboutOverlay').onclick=function(e){if(e.target===this||e.target.id==='aboutClose')document.getElementById('aboutOverlay').classList.remove('open')};
 
 $('templateInput').addEventListener('input',updatePreview);
+$('folderList').addEventListener('input',e=>{
+  if(e.target.tagName!=='INPUT')return;
+  folderDrafts[e.target.dataset.path]=e.target.value;
+  updateRenameButtons();
+});
+$('folderList').addEventListener('submit',e=>{e.preventDefault();renameFolder(e.target);});
 
 updatePreview();
 renderRules();
 refreshStatus();
 loadLog();
-pollTimer=setInterval(refreshStatus,15000);
+loadFolders();
+pollTimer=setInterval(()=>{refreshStatus();loadFolders();},15000);
 
 function checkServerVersion(){
   fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(info=>{

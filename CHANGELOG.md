@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.54.0 — 2026-11-28
+
+- The **Auto-import photos** page gained a **Name your folders** panel listing the folders auto-import had filled. A description typed there and applied with **Rename** was added after the folder's date.
+- A folder renamed there kept its photos' tags, people, ratings, recognized text and scan results, and later imports for the same date went into it.
+
 ## 1.53.7 — 2026-11-28
 
 - A request that LensLedger refused, such as one that was too large, could arrive on Windows as a dropped connection with no explanation. The error message now arrives.

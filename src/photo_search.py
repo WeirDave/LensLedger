@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import html
 import io
@@ -66,6 +67,7 @@ from library_config import (
 )
 from folder_watcher import FolderWatcher
 from ingest_pipeline import IngestPipeline
+import imported_folders
 from settings_config import (
     AVAILABLE_MODELS, get_setting, load_settings, save_settings, validate_settings,
 )
@@ -1000,6 +1002,7 @@ ACTION_LABELS = {
     "/api/library/relocate": "Move a library",
     "/api/ingest/save": "Save auto-import settings",
     "/api/ingest/run": "Run auto-import now",
+    "/api/ingest/rename-folder": "Rename an imported folder",
     "/api/review-bin": "Move a photo to the Review Bin",
     "/api/review-bin/batch": "Move photos to the Review Bin",
     "/api/duplicates/keep-best": "Keep the best copy of each duplicate set",
@@ -2316,6 +2319,8 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.ingest_status()
         if url.path == "/api/ingest/log":
             return self.ingest_log()
+        if url.path == "/api/ingest/folders":
+            return self.ingest_folders()
         if url.path != "/":
             return self.send_error(404)
         return self.viewer_page(params)
@@ -2534,6 +2539,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                 return self.save_ingest_config(body)
             if route == "/api/ingest/run":
                 return self.ingest_run_now(body)
+            if route == "/api/ingest/rename-folder":
+                return self.ingest_rename_folder(body)
             if route == "/api/settings/export":
                 return self.export_database(body)
             if route == "/api/settings/import":
@@ -3039,6 +3046,14 @@ class SearchHandler(BaseHTTPRequestHandler):
 <p>The default template <code>{{year}}/{{year}}_{{month}}_{{day}}</code> creates folders like <code>2026/2026_08_28</code>.</p>
 <h3>Override rules</h3>
 <p>Route specific files to different destinations based on filename matching. For example, photos with &ldquo;Screenshot&rdquo; in the name could go to a Screenshots folder. Rules are checked in order; the first match wins.</p>
+<h3>Naming your folders</h3>
+<p><strong>Name your folders</strong>, near the top of the Auto-import page, lists up to 20 folders that auto-import has added photos to, most recent first, with a few photos from each and a <strong>View photos</strong> link for folders inside the open library. Type what the photos are and click <strong>Rename</strong>: <code>2026_08_28</code> becomes <code>2026_08_28 - Beach day</code>. Descriptions already used in the list are suggested as you type, which helps with an event that covers several days.</p>
+<ul>
+<li>The folder is renamed on disk. Tags, people, ratings, recognized text and scan results stay with the photos, and the folder&rsquo;s automatic tags follow the new name. Tags added to the folder by hand are kept.</li>
+<li>Later imports for the same date go into the renamed folder.</li>
+<li>A folder renamed outside LensLedger is still listed when its name begins with the full date.</li>
+<li><strong>Rename</strong> is unavailable while a scan, tag writing or publishing is running, including the scan that follows an import. It becomes available when that work has finished.</li>
+</ul>
 <h3>Controls</h3>
 <ul>
 <li><strong>Enable/disable toggle</strong> &mdash; when enabled, the pipeline checks at the configured interval (default: every 10 minutes)</li>
@@ -3256,6 +3271,10 @@ class SearchHandler(BaseHTTPRequestHandler):
 <main>
 <section class="card"><h2>Status</h2>
 <div class="status-grid"><div><strong id="statusEnabled">—</strong><span>Pipeline</span></div><div><strong id="statImported">0</strong><span>Imported</span></div><div><strong id="statErrors">0</strong><span>Errors</span></div></div></section>
+<section class="card" id="foldersCard"><h2>Name your folders</h2><p>Folders that auto-import has added photos to, most recent first. Describe the photos and click <strong>Rename</strong>; the description is added after the date. Later imports for the same date still go into the renamed folder.</p>
+<p class="folder-busy" id="folderBusy" hidden></p>
+<datalist id="folderDescriptions"></datalist>
+<div class="folder-list" id="folderList"><p class="log-empty">Loading…</p></div></section>
 <section class="card"><h2>Pipeline</h2><p>When enabled, the pipeline periodically checks the source folder for new photos and moves them into the destination folder, sorted by date.</p>
 <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="ingestEnabled" {"checked" if ingest.get("enabled") else ""}><span class="slider"></span></label><label for="ingestEnabled">Enable auto-import pipeline</label></div>
 <div class="field"><label for="ingestSource">Source folder</label><input type="text" id="ingestSource" value="{html.escape(str(ingest.get('source_folder', '')))}" placeholder="e.g. C:\\Users\\you\\Dropbox\\Camera Uploads"><button type="button" class="secondary field-browse" id="browseIngestSource">Browse…</button></div>
@@ -3367,6 +3386,93 @@ class SearchHandler(BaseHTTPRequestHandler):
             except OSError:
                 pass
         self.send_json({"entries": entries[-100:]})
+
+    def _folder_rename_blockers(self) -> str:
+        """The running work that holds photo paths, in the words the user knows."""
+        names = running_cancellable_jobs(type(self))
+        if type(self).publish_lock.locked():
+            names.append("publishing names")
+        return ", ".join(names)
+
+    def ingest_folders(self):
+        """The folders Auto-import has filled, with a few photos from each."""
+        from ingest_pipeline import ingest_log_path
+        records = imported_folders.list_folders(imported_folders.read_log(ingest_log_path()))
+        root = Path(self.library_root).resolve()
+        catalogued = Path(self.db_path).is_file()
+        folders = []
+        with self.db() if catalogued else contextlib.nullcontext() as con:
+            for record in records:
+                folder = record["folder"].resolve()
+                relative = folder.relative_to(root).as_posix() if root in folder.parents else ""
+                thumbnails: list[int] = []
+                if relative and con is not None:
+                    thumbnails = [int(row[0]) for row in con.execute(
+                        "SELECT id FROM assets WHERE folder=? AND in_review_bin=0 ORDER BY filename LIMIT 6",
+                        (relative,),
+                    )]
+                folders.append({
+                    "path": str(record["folder"]), "display": record["display"],
+                    "base": record["base"], "description": record["description"],
+                    "items": record["items"], "imported_at": record["imported_at"],
+                    "library_folder": relative, "thumbnails": thumbnails,
+                })
+        self.send_json({"folders": folders, "busy": self._folder_rename_blockers()})
+
+    def _libraries_holding(self, folder: Path) -> list[tuple[Path, Path]]:
+        """(root, database) of every library ``folder`` is inside."""
+        candidates = [(Path(self.library_root), Path(self.db_path))]
+        candidates += [
+            (Path(item["path"]), None) for item in load_all_known_libraries() if item["accessible"]
+        ]
+        found: dict[Path, Path] = {}
+        for root, database in candidates:
+            root = root.resolve()
+            if root == folder or folder in root.parents:
+                raise ValueError(
+                    "That folder is a photo library, or holds one. Move a library with "
+                    "Relocate on the Settings page."
+                )
+            if root in folder.parents and root not in found:
+                database = database or library_db_path(root)
+                if database.is_file():
+                    found[root] = database
+        return list(found.items())
+
+    def ingest_rename_folder(self, body):
+        from ingest_pipeline import ingest_log_path, log_rename
+        wanted = os.path.normcase(str(body.get("path", "")))
+        description = imported_folders.clean_description(str(body.get("description", "")))
+        handler = type(self)
+        pipeline = handler.ingest_pipeline
+        # Holding the library lock keeps a scan from starting mid-rename.
+        with handler.library_lock:
+            busy = self._folder_rename_blockers()
+            if busy:
+                raise ValueError(f"LensLedger is busy with {busy}. Rename the folder when that has finished.")
+            with pipeline.files_lock if pipeline else contextlib.nullcontext():
+                # Only a folder Auto-import filled can be named here, never an
+                # arbitrary path from the request.
+                records = imported_folders.list_folders(
+                    imported_folders.read_log(ingest_log_path()), limit=imported_folders.LIST_LIMIT * 5,
+                )
+                record = next(
+                    (item for item in records if os.path.normcase(str(item["folder"])) == wanted), None,
+                )
+                if record is None:
+                    raise ValueError("That folder is no longer in the list. Reload the page.")
+                folder = record["folder"].resolve()
+                source = str(load_settings()["ingest"].get("source_folder", "")).strip()
+                if source:
+                    source_path = Path(source).resolve()
+                    if source_path == folder or folder in source_path.parents:
+                        raise ValueError("That folder holds the Auto-import source folder, so it keeps its name.")
+                name = imported_folders.folder_name(record["base"], description)
+                if name != folder.name:
+                    imported_folders.rename_folder(folder, name, self._libraries_holding(folder))
+                    log_rename(record["folder"], record["folder"].with_name(name))
+                    console_log(f"Auto-import: renamed folder {folder.name} → {name}")
+        self.send_json({"ok": True, "name": name})
 
     def remove_library(self, body):
         path = str(body.get("path", "")).strip()

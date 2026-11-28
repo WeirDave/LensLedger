@@ -105,6 +105,16 @@ def _log_action(action: dict) -> None:
         f.write(json.dumps(action) + "\n")
 
 
+def log_rename(old: Path, new: Path) -> None:
+    """Record that an imported folder was renamed, so it is still listed."""
+    _log_action({
+        "action": "renamed",
+        "source": str(old),
+        "destination": str(new),
+        "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+    })
+
+
 def _settled(paths: list[Path]) -> list[Path]:
     """The files whose size did not change over one shared wait, meaning their
     upload has finished. One wait covers the whole batch rather than one per
@@ -155,6 +165,9 @@ class IngestPipeline:
         self._timer: threading.Timer | None = None
         self._running = False
         self._lock = threading.Lock()
+        # Held while a file is placed, so a destination folder cannot be
+        # renamed between choosing it and moving the file in.
+        self.files_lock = threading.Lock()
         self._stats: dict[str, int] = {"imported": 0, "errors": 0, "already_in_library": 0}
 
     @property
@@ -322,49 +335,54 @@ class IngestPipeline:
         for path in settled:
             if self._is_known(path):
                 continue
+            with self.files_lock:
+                self._place(path)
 
-            capture = _capture_date(path)
-            subfolder = _apply_sorting_rules(path, capture, self._rules, self._default_template)
-            dest_dir = self._find_existing_folder(subfolder)
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest_path = dest_dir / path.name
+    def _place(self, path: Path) -> None:
+        """Move one new file into its destination folder."""
+        capture = _capture_date(path)
+        subfolder = _apply_sorting_rules(path, capture, self._rules, self._default_template)
+        dest_dir = self._find_existing_folder(subfolder)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / path.name
 
-            if dest_path.exists():
-                try:
-                    if path.stat().st_size == dest_path.stat().st_size:
-                        console_log(f"Auto-import: already exists — {path.name}")
-                        continue
-                except OSError:
-                    pass
-                counter = 1
-                while dest_path.exists():
-                    dest_path = dest_dir / f"{path.stem}_{counter}{path.suffix}"
-                    counter += 1
-
+        if dest_path.exists():
             try:
-                shutil.move(str(path), str(dest_path))
-                self._stats["imported"] += 1
-                actual_subfolder = dest_dir.relative_to(self._destination).as_posix()
-                console_log(f"Auto-import: imported {path.name} → {actual_subfolder}")
-                _log_action({
-                    "action": "imported",
-                    "source": str(path),
-                    "destination": str(dest_path),
-                    "capture_date": capture.isoformat() if capture else None,
-                    "subfolder": actual_subfolder,
-                    "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
-                })
-                if self._on_file_ingested:
-                    self._on_file_ingested(str(path), str(dest_path))
-            except (OSError, shutil.Error) as exc:
-                self._stats["errors"] += 1
-                console_log(f"Auto-import: error — {path.name}: {exc}")
-                _log_action({
-                    "action": "error",
-                    "source": str(path),
-                    "error": str(exc),
-                    "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
-                })
+                if path.stat().st_size == dest_path.stat().st_size:
+                    console_log(f"Auto-import: already exists — {path.name}")
+                    return
+            except OSError:
+                pass
+            counter = 1
+            while dest_path.exists():
+                dest_path = dest_dir / f"{path.stem}_{counter}{path.suffix}"
+                counter += 1
+
+        try:
+            shutil.move(str(path), str(dest_path))
+            self._stats["imported"] += 1
+            actual_subfolder = dest_dir.relative_to(self._destination).as_posix()
+            console_log(f"Auto-import: imported {path.name} → {actual_subfolder}")
+            _log_action({
+                "action": "imported",
+                "source": str(path),
+                "destination": str(dest_path),
+                "capture_date": capture.isoformat() if capture else None,
+                "subfolder": actual_subfolder,
+                "planned": subfolder,
+                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            })
+            if self._on_file_ingested:
+                self._on_file_ingested(str(path), str(dest_path))
+        except (OSError, shutil.Error) as exc:
+            self._stats["errors"] += 1
+            console_log(f"Auto-import: error — {path.name}: {exc}")
+            _log_action({
+                "action": "error",
+                "source": str(path),
+                "error": str(exc),
+                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            })
 
     def status(self) -> dict[str, object]:
         return {
