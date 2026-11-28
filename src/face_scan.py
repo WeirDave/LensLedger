@@ -19,7 +19,7 @@ from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from face_learning import encode_vector
-from face_locations import is_available, load_insightface_runtime
+from face_locations import is_available, load_insightface_runtime, read_photo_bgr
 from photo_index import connect, unsupported_image_extensions, utc_now
 
 
@@ -114,19 +114,7 @@ def scan_for_faces(
                 result["cancelled"] = True
                 break
             try:
-                path = library_root / Path(asset["relative_path"])
-                image_bytes = np.fromfile(str(path), dtype=np.uint8)
-                image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
-                if image is None:
-                    from PIL import Image
-                    try:
-                        from pillow_heif import register_heif_opener
-                        register_heif_opener()
-                    except ImportError:
-                        pass
-                    with Image.open(path) as pil_img:
-                        rgb = pil_img.convert("RGB")
-                        image = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
+                image = read_photo_bgr(library_root / Path(asset["relative_path"]), cv2, np)
                 height, width = image.shape[:2]
                 faces = analyzer.get(image)
                 known_boxes: list[tuple[float, float, float, float]] = []

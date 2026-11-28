@@ -14,14 +14,76 @@ import contextlib
 import math
 import os
 import sqlite3
+import warnings
 from pathlib import Path
 from typing import Callable
+
+from PIL import Image
 
 from photo_index import connect, utc_now
 from semantic_index import (
     cuda_wheel_tag, describe_device, distribution_version, installed_torch_version,
     nvidia_gpu_name, onnx_gpu_requirement, run_pip,
 )
+
+# Pillow's notes about oddities in a readable file (damaged camera data, a very
+# large picture) otherwise print to the console as if something had failed.
+for _category in (UserWarning, Image.DecompressionBombWarning):
+    warnings.filterwarnings("ignore", category=_category, module=r"PIL\.")
+
+_PILLOW_FIRST = {".jpg", ".jpeg", ".png"}
+_UPRIGHT = {
+    2: "FLIP_LEFT_RIGHT", 3: "ROTATE_180", 4: "FLIP_TOP_BOTTOM", 5: "TRANSPOSE",
+    6: "ROTATE_270", 7: "TRANSVERSE", 8: "ROTATE_90",
+}
+
+
+def _exif_orientation(image) -> int:
+    # Not image.getexif(): that also reads an orientation from XMP, which OpenCV
+    # ignores, and stored face boxes follow OpenCV's reading.
+    try:
+        exif = Image.Exif()
+        exif.load(image.info["exif"])
+        return int(exif.get(274, 1))
+    except Exception:
+        return 1
+
+
+def _read_upright_with_pillow(path: Path, cv2, np):
+    with Image.open(path) as source:
+        # Pillow clips 16-bit greyscale to white instead of scaling it down.
+        if source.mode.startswith("I"):
+            raise ValueError("16-bit greyscale is read by OpenCV")
+        source.load()
+        turn = _UPRIGHT.get(_exif_orientation(source))
+        rgb = source if source.mode == "RGB" else source.convert("RGB")
+        if turn:
+            rgb = rgb.transpose(getattr(Image.Transpose, turn))
+        return cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
+
+
+def read_photo_bgr(path: Path, cv2, np):
+    """The photo as the upright BGR array face detection reads.
+
+    JPEG and PNG go to Pillow first. The libraries inside OpenCV print their
+    warnings straight to the console, where a harmless quirk in a file reads as
+    a program fault; Pillow reads the same pixels without printing them.
+    """
+    if path.suffix.lower() in _PILLOW_FIRST:
+        try:
+            return _read_upright_with_pillow(path, cv2, np)
+        except Exception:
+            pass
+    image = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is not None:
+        return image
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+    except ImportError:
+        pass
+    with Image.open(path) as source:
+        return cv2.cvtColor(np.array(source.convert("RGB")), cv2.COLOR_RGB2BGR)
 
 
 def _unit(values) -> list[float]:
@@ -168,6 +230,9 @@ def load_insightface_runtime(model_name: str, model_root: Path | None):
             "with this Python interpreter first."
         ) from exc
     _patch_face_align()
+    # OpenCV's own notices, such as an unrecognised tag in a TIFF.
+    with contextlib.suppress(AttributeError):
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
     providers, device_id = _gpu_providers()
     options = {
         "name": model_name, "providers": providers,
@@ -249,19 +314,7 @@ def recover_face_locations(
                    )""",
                 (asset["asset_id"],),
             ).fetchall()
-            path = library_root / Path(asset["relative_path"])
-            image_bytes = np.fromfile(str(path), dtype=np.uint8)
-            image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
-            if image is None:
-                from PIL import Image
-                try:
-                    from pillow_heif import register_heif_opener
-                    register_heif_opener()
-                except ImportError:
-                    pass
-                with Image.open(path) as pil_img:
-                    rgb = pil_img.convert("RGB")
-                    image = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
+            image = read_photo_bgr(library_root / Path(asset["relative_path"]), cv2, np)
             height, width = image.shape[:2]
             faces = analyzer.get(image)
             candidates = []

@@ -6,6 +6,11 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.5 — 2026-11-27
+
+- Face detection no longer printed image decoder warnings, such as **Invalid SOS parameters for sequential JPEG**, to the console. They described harmless oddities in photo files and looked like program errors.
+- Reading a JPEG for face detection took slightly longer, about 35–40 ms for a 12-megapixel photo on the test computer.
+
 ## 1.53.4 — 2026-11-27
 
 - Automatic checks from folder watching and **Auto-import** now start text recognition, meaning search and face detection only when photos are waiting for them. Videos, camera RAW files, GIFs and photos a scan had already failed on were counted as waiting, so those scans could start on every check with nothing to finish.
