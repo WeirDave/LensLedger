@@ -8166,7 +8166,7 @@ class SearchHandler(BaseHTTPRequestHandler):
         device = face_device_status() if coverage.get("installed") else {}
         self.send_json({**coverage, **job, "install": install, "model_cache": cache,
                         "device_summary": device.get("summary", ""),
-                        "gpu_switch_available": face_gpu_switch_available() if device else False})
+                        "gpu_switch_available": face_gpu_switch_available() if device.get("device") == "cpu" else False})
 
     def face_scan_errors(self):
         self.send_json({"errors": face_scan_list_errors(type(self).db_path)})

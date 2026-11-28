@@ -183,9 +183,12 @@ def update_plan(path: Path, installed, cuda_tag: str) -> list[list[str]]:
     PyTorch and onnxruntime need care: pip's default index carries only the
     processor builds for Windows, so upgrading a graphics-card build from it
     would silently replace it with the slower one. They are upgraded from the
-    index their installed build came from."""
+    index their installed build came from. insightface depends on the processor
+    onnxruntime by name, so beside the graphics-card one it is upgraded without
+    its dependencies, or pip would install the processor build over it."""
     plan: list[list[str]] = [["install", "--upgrade", "pip"], ["install", "--upgrade", "-r", str(path)]]
     specs: list[str] = []
+    without_dependencies: list[str] = []
     torch_requirement = None
     for requirements in optional_sections(path).values():
         for requirement in requirements:
@@ -198,7 +201,8 @@ def update_plan(path: Path, installed, cuda_tag: str) -> list[list[str]]:
                 elif installed("onnxruntime"):
                     specs.append(requirement)
             elif installed(name):
-                specs.append(requirement)
+                gpu_faces = name == "insightface" and installed("onnxruntime-gpu")
+                (without_dependencies if gpu_faces else specs).append(requirement)
     torch_version = installed("torch")
     if torch_requirement and torch_version:
         if "+cu" in torch_version and cuda_tag:
@@ -207,6 +211,8 @@ def update_plan(path: Path, installed, cuda_tag: str) -> list[list[str]]:
             plan.append(["install", "--upgrade", torch_requirement, *(["torchvision"] if installed("torchvision") else [])])
     if specs:
         plan.append(["install", "--upgrade", *specs])
+    if without_dependencies:
+        plan.append(["install", "--upgrade", "--no-deps", *without_dependencies])
     return plan
 
 

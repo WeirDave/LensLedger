@@ -161,14 +161,23 @@ class WeeklyPackageUpdates(unittest.TestCase):
 
     def test_the_graphics_card_onnx_runtime_is_not_swapped_for_the_processor_one(self):
         plan = self.plan({"insightface": "1.0.1", "onnxruntime-gpu": "1.32.0"})
-        step = next(args for args in plan if any(a.startswith("insightface") for a in args))
-        self.assertIn("onnxruntime-gpu>=1.28,<2", step)
-        self.assertNotIn("onnxruntime>=1.28,<2", step)
+        asked_for = [argument for args in plan for argument in args]
+        self.assertIn("onnxruntime-gpu>=1.28,<2", asked_for)
+        self.assertNotIn("onnxruntime>=1.28,<2", asked_for)
+
+    def test_updating_insightface_never_pulls_the_processor_runtime_over_the_graphics_card_one(self):
+        for installed in ({"insightface": "1.0.1", "onnxruntime-gpu": "1.32.0"},
+                          {"insightface": "1.0.1", "onnxruntime-gpu": "1.32.0", "onnxruntime": "1.32.0"}):
+            with self.subTest(installed=sorted(installed)):
+                steps = [args for args in self.plan(installed) if "insightface>=1.0.1,<2" in args]
+                self.assertEqual(steps, [["install", "--upgrade", "--no-deps", "insightface>=1.0.1,<2"]],
+                                 "insightface names onnxruntime as a dependency, so pip must not follow it")
 
     def test_the_processor_onnx_runtime_stays_as_it_is(self):
         plan = self.plan({"insightface": "1.0.1", "onnxruntime": "1.29.0"})
         step = next(args for args in plan if any(a.startswith("insightface") for a in args))
         self.assertIn("onnxruntime>=1.28,<2", step)
+        self.assertNotIn("--no-deps", step)
 
     def test_an_update_is_due_a_week_after_the_last_success(self):
         now = 100 * self.DAY

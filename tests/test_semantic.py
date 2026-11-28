@@ -401,8 +401,23 @@ class FaceGraphicsCardTests(unittest.TestCase):
                     patch.object(face_locations, "installed_torch_version", return_value=torch_version), \
                     patch.object(face_locations, "run_pip", return_value=(True, "")) as pip:
                 face_locations.switch_faces_to_gpu(self.PACKAGES)
-                self.assertEqual(pip.call_args_list[0][0][0], ["uninstall", "-y", "onnxruntime"])
+                self.assertEqual(pip.call_args_list[0][0][0],
+                                 ["uninstall", "-y", "onnxruntime", "onnxruntime-gpu"])
                 self.assertEqual(pip.call_args_list[1][0][0], ["install", expected])
+
+    def test_the_switch_is_offered_whenever_the_processor_runtime_is_installed(self):
+        import face_locations
+        from unittest.mock import patch
+
+        for runtimes, offered in ((("onnxruntime",), True),
+                                  (("onnxruntime", "onnxruntime-gpu"), True),
+                                  (("onnxruntime-gpu",), False)):
+            installed = {"insightface", *runtimes}
+            with self.subTest(runtimes=runtimes), \
+                    patch.object(face_locations, "cuda_wheel_tag", return_value="cu130"), \
+                    patch.object(face_locations, "distribution_version",
+                                 side_effect=lambda name: "1.32.0" if name in installed else ""):
+                self.assertEqual(face_locations.face_gpu_switch_available(), offered)
 
     def test_a_failed_switch_puts_the_processor_runtime_back(self):
         import face_locations

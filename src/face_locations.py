@@ -110,10 +110,13 @@ def is_available() -> bool:
 def face_gpu_switch_available() -> bool:
     """True when face detection is installed without graphics-card support on a
     computer whose NVIDIA card and driver could give it. onnxruntime-gpu's
-    PyPI build needs CUDA 13, hence the driver check."""
+    PyPI build needs CUDA 13, hence the driver check.
+
+    The processor package counts against it even beside the graphics-card one:
+    both write into the same folder, so installing it replaces the card's files."""
     return bool(
         cuda_wheel_tag() == "cu130" and distribution_version("insightface")
-        and not distribution_version("onnxruntime-gpu")
+        and (not distribution_version("onnxruntime-gpu") or distribution_version("onnxruntime"))
     )
 
 
@@ -140,7 +143,9 @@ def switch_faces_to_gpu(packages: list[str]) -> tuple[bool, str]:
     detection keeps working. Must run while onnxruntime is not loaded."""
     requirement = onnx_gpu_requirement(packages, "+cu130" not in installed_torch_version())
     cpu_requirement = next((p for p in packages if p.lower().startswith("onnxruntime")), "onnxruntime")
-    run_pip(["uninstall", "-y", "onnxruntime"], timeout=600)
+    # Both go: removing one deletes files they share, and pip would leave an
+    # already installed graphics-card package as it is.
+    run_pip(["uninstall", "-y", "onnxruntime", "onnxruntime-gpu"], timeout=600)
     ok, tail = run_pip(["install", requirement], timeout=3600, stream=True)
     if not ok:
         run_pip(["uninstall", "-y", "onnxruntime-gpu"], timeout=600)

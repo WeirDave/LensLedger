@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.6 — 2026-11-28
+
+- The weekly package update no longer replaced the graphics-card face-detection runtime with the processor one, which had left face detection running on the processor.
+- On an affected computer, the **Use my graphics card** button under **Face detection** on **Scan your photos** appeared again. It had been hidden while the status line still asked for it to be pressed.
+- **Use my graphics card** removed both face-detection runtimes before installing the graphics-card one, so the switch also repaired a mixed installation.
+
 ## 1.53.5 — 2026-11-27
 
 - Face detection no longer printed image decoder warnings, such as **Invalid SOS parameters for sequential JPEG**, to the console. They described harmless oddities in photo files and looked like program errors.
