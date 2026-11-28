@@ -168,6 +168,42 @@ class ServerWorkflowTests(unittest.TestCase):
             status, payload = self.raw_json("POST", "/api/reveal-path", headers={**base, **extra}, body=body)
             self.assertEqual(json.loads(payload)["error"], "invalid request token", extra)
 
+    def test_refusals_arrive_when_the_body_is_still_on_its_way(self):
+        # http.client sends the headers and the body separately. The pause
+        # lets the refusal go out in between, as it can on a busy machine.
+        class SlowBody(http.client.HTTPConnection):
+            def send(self, data):
+                if not data.startswith(b"POST "):
+                    time.sleep(0.1)
+                super().send(data)
+
+        port = self.server.server_port
+        host = f"127.0.0.1:{port}"
+        small = json.dumps({"csrf": "test-csrf"}).encode("utf-8")
+        large = json.dumps({"csrf": "test-csrf", "pad": "x" * 2_000_000}).encode("utf-8")
+        cases = (
+            ({"Host": f"rebound.example:{port}"}, small, 403),
+            ({"Host": host, "Origin": "http://evil.example"}, small, 403),
+            ({"Host": host}, large, 400),
+        )
+        for headers, body, expected in cases:
+            connection = SlowBody("127.0.0.1", port, timeout=10)
+            try:
+                connection.request("POST", "/api/reveal-path", body=body, headers=headers)
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, expected, headers)
+            finally:
+                connection.close()
+
+    def test_a_refusal_does_not_wait_for_a_body_that_never_comes(self):
+        headers = {"Host": f"127.0.0.1:{self.server.server_port}", "Origin": "http://evil.example",
+                   "Content-Length": "100"}
+        with patch.object(self.photo_search, "REFUSED_BODY_SECONDS", 30.0):
+            status, payload = self.raw_json("POST", "/api/reveal-path", headers=headers)
+        self.assertEqual(status, 403)
+        self.assertEqual(json.loads(payload)["error"], "request came from another site")
+
     def test_same_origin_check_rules(self):
         from photo_search import is_same_origin_request as same
         self.assertTrue(same(None, "127.0.0.1:8765"))

@@ -1107,6 +1107,10 @@ def is_same_origin_request(origin: str | None, host: str | None, fetch_site: str
 
 
 MEDIA_CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox"
+# How much of a refused request's body is taken in, and for how long, before
+# the connection is closed anyway.
+REFUSED_BODY_LIMIT = 16 * 1024 * 1024
+REFUSED_BODY_SECONDS = 5.0
 
 
 def resolve_inside(root: Path, relative) -> Path:
@@ -2316,7 +2320,33 @@ class SearchHandler(BaseHTTPRequestHandler):
             return self.send_error(404)
         return self.viewer_page(params)
 
+    def discard_request_body(self):
+        """Take in, unparsed, the body of a POST that was refused without it.
+
+        Closing the connection while a body is unread, or still on its way,
+        makes Windows reset it, and the client loses the reply it was sent.
+        Call this after replying. Size and time are both capped."""
+        deadline = time.monotonic() + REFUSED_BODY_SECONDS
+        try:
+            remaining = min(int(self.headers.get("Content-Length", "0")), REFUSED_BODY_LIMIT)
+            while remaining > 0:
+                self.connection.settimeout(max(deadline - time.monotonic(), 0.001))
+                chunk = self.rfile.read1(min(remaining, 65536))
+                if not chunk or time.monotonic() >= deadline:
+                    return
+                remaining -= len(chunk)
+        except (ValueError, OSError):
+            return
+
     def do_POST(self):
+        self.body_was_read = False
+        try:
+            return self._route_post()
+        finally:
+            if not self.body_was_read:
+                self.discard_request_body()
+
+    def _route_post(self):
         if not is_local_host_header(self.headers.get("Host")):
             return self.send_error(403)
         if not is_same_origin_request(self.headers.get("Origin"), self.headers.get("Host"), self.headers.get("Sec-Fetch-Site")):
@@ -2325,7 +2355,9 @@ class SearchHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > 100_000:
                 raise ValueError("invalid request size")
-            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            raw = self.rfile.read(length)
+            self.body_was_read = True
+            body = json.loads(raw.decode("utf-8"))
             if not secrets.compare_digest(str(body.get("csrf", "")), self.csrf_token):
                 return self.send_json({"error": "invalid request token"}, 403)
             route = urllib.parse.urlparse(self.path).path

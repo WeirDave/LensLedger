@@ -6,6 +6,10 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.53.7 — 2026-11-28
+
+- A request that LensLedger refused, such as one that was too large, could arrive on Windows as a dropped connection with no explanation. The error message now arrives.
+
 ## 1.53.6 — 2026-11-28
 
 - The weekly package update no longer replaced the graphics-card face-detection runtime with the processor one, which had left face detection running on the processor.
