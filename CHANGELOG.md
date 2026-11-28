@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.55.0 — 2026-11-28
+
+- The main page showed a notice, with a few of the photos, when a folder filled by auto-import was still named only for a date. **Name folders** opened the list; **Not now** hid the notice until another folder was filled.
+- **Name your folders** listed folders still needing a name first, including ones older than the 20 most recent.
+- Renaming a folder with many photos became faster in a large library.
+
 ## 1.54.2 — 2026-11-28
 
 - A library scan removed photos that were no longer in the library folder very slowly in a large library. Removal became many times faster.

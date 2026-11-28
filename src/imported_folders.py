@@ -20,11 +20,15 @@ from app_paths import data_root, write_json_atomically
 from console_log import log as console_log
 from generate_historical_folder_tags import infer_tags
 from ingest_pipeline import log_rename_failure
-from photo_index import MEDIA_EXTENSIONS, connect, rebuild_search_row, set_source_tags
+from photo_index import (
+    MEDIA_EXTENSIONS, connect, delete_search_rows, rebuild_search_row, set_source_tags,
+)
 
 SEPARATOR = " - "
 DESCRIPTION_LIMIT = 100
 LIST_LIMIT = 20
+# Folders still waiting for a name are listed however long ago they were filled.
+UNNAMED_LIMIT = 100
 # How many times a waiting rename is tried while the disk or catalog refuses it.
 RETRY_LIMIT = 12
 # Rows these hold are found by a photo's path, so they have to move with it.
@@ -32,6 +36,7 @@ PERSONAL_TABLES = ("asset_annotations", "asset_tag_exclusions", "asset_ratings",
 
 _NAMED = re.compile(r"^(\d{4}(?:[_.\-]?\d{2}){0,2})(?:\s+-+\s*|\s*-+\s+|\s+)(\S.*)$")
 _FULL_DATE = re.compile(r"\d{4}[_.\-]?\d{2}[_.\-]?\d{2}")
+_DATE_ONLY = re.compile(r"\d{4}[_.\-]?\d{2}(?:[_.\-]?\d{2})?")
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -148,26 +153,31 @@ def _media_count(folder: Path) -> int:
 
 
 def list_folders(entries: list[dict], limit: int = LIST_LIMIT) -> list[dict]:
+    """The folders still named only for a date, then the ``limit`` most recently
+    filled of the others. Each group is most recent first."""
     listings: dict[Path, list[Path]] = {}
     seen: set[Path] = set()
-    result: list[dict] = []
+    unnamed: list[dict] = []
+    others: list[dict] = []
     for record in _replay(entries):
         for folder in _current_folders(record, listings):
             if folder in seen:
                 continue
             seen.add(folder)
+            base, description = split_folder_name(folder.name, record["planned"])
+            needs_name = not description and bool(_DATE_ONLY.fullmatch(base))
+            group, room = (unnamed, UNNAMED_LIMIT) if needs_name else (others, limit)
+            if len(group) >= room:
+                continue
             items = _media_count(folder)
             if not items:
                 continue
-            base, description = split_folder_name(folder.name, record["planned"])
-            result.append({
-                "folder": folder, "base": base, "description": description,
+            group.append({
+                "folder": folder, "base": base, "description": description, "needs_name": needs_name,
                 "display": "/".join(folder.parts[-record["depth"]:]),
                 "items": items, "imported_at": record["imported_at"],
             })
-        if len(result) >= limit:
-            break
-    return result[:limit]
+    return unnamed + others
 
 
 def _below(prefix: str) -> tuple[str, str]:
@@ -246,11 +256,13 @@ def move_folder_records(con: sqlite3.Connection, root: Path, old: str, new: str)
         for name in names:
             con.execute("INSERT OR IGNORE INTO folder_tags(folder, tag) VALUES (?, ?)", (target, name))
 
+    # One delete for all of them: each one reads the whole search table.
+    delete_search_rows(con, [asset["id"] for asset in assets])
     for asset in assets:
         folder = new + asset["folder"][len(old):]
         names = [row[0] for row in con.execute("SELECT tag FROM folder_tags WHERE folder=?", (folder,))]
         set_source_tags(con, asset["id"], "folder_rule", names)
-        rebuild_search_row(con, asset["id"])
+        rebuild_search_row(con, asset["id"], replace=False)
     return len(assets)
 
 

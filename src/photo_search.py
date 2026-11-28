@@ -3064,7 +3064,8 @@ class SearchHandler(BaseHTTPRequestHandler):
 <h3>Override rules</h3>
 <p>Route specific files to different destinations based on filename matching. For example, photos with &ldquo;Screenshot&rdquo; in the name could go to a Screenshots folder. Rules are checked in order; the first match wins.</p>
 <h3>Naming your folders</h3>
-<p><strong>Name your folders</strong>, near the top of the Auto-import page, lists up to 20 folders that auto-import has added photos to, most recent first, with a few photos from each and a <strong>View photos</strong> link for folders inside the open library. Type what the photos are and click <strong>Rename</strong>: <code>2026_08_28</code> becomes <code>2026_08_28 - Beach day</code>. Descriptions already used in the list are suggested as you type, which helps with an event that covers several days.</p>
+<p>When a folder auto-import has filled is still named only for a date, the main page shows a notice with a few of the photos. <strong>Name folders</strong> opens the list described below. <strong>Not now</strong> hides the notice in that browser until auto-import fills another folder.</p>
+<p><strong>Name your folders</strong>, near the top of the Auto-import page, lists every folder still waiting for a name (up to 100), followed by the 20 most recently filled folders that have one, with a few photos from each and a <strong>View photos</strong> link for folders inside the open library. Type what the photos are and click <strong>Rename</strong>: <code>2026_08_28</code> becomes <code>2026_08_28 - Beach day</code>. Descriptions already used in the list are suggested as you type, which helps with an event that covers several days.</p>
 <ul>
 <li>The folder is renamed on disk. Tags, people, ratings, recognized text and scan results stay with the photos, and the folder&rsquo;s automatic tags follow the new name. Tags added to the folder by hand are kept.</li>
 <li>Later imports for the same date go into the renamed folder.</li>
@@ -3288,7 +3289,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <main>
 <section class="card"><h2>Status</h2>
 <div class="status-grid"><div><strong id="statusEnabled">—</strong><span>Pipeline</span></div><div><strong id="statImported">0</strong><span>Imported</span></div><div><strong id="statErrors">0</strong><span>Errors</span></div></div></section>
-<section class="card" id="foldersCard"><h2>Name your folders</h2><p>Folders that auto-import has added photos to, most recent first. Describe the photos and click <strong>Rename</strong>; the description is added after the date. Later imports for the same date still go into the renamed folder.</p>
+<section class="card" id="foldersCard"><h2>Name your folders</h2><p>Folders that auto-import has added photos to, with those still named only for a date first. Describe the photos and click <strong>Rename</strong>; the description is added after the date. Later imports for the same date still go into the renamed folder.</p>
 <p class="folder-busy" id="folderBusy" hidden></p>
 <datalist id="folderDescriptions"></datalist>
 <div class="folder-list" id="folderList"><p class="log-empty">Loading…</p></div></section>
@@ -3445,6 +3446,8 @@ class SearchHandler(BaseHTTPRequestHandler):
                     # A name entered while busy, and why it could not be applied.
                     "waiting": None if entry is None else str(entry.get("description", "")),
                     "waiting_error": "" if entry is None else str(entry.get("error", "")),
+                    # False once a name is saved and on its way.
+                    "needs_name": record["needs_name"] and (entry is None or bool(entry.get("error"))),
                 })
         self.send_json({"folders": folders, "busy": self._folder_rename_blockers()})
 
@@ -4280,6 +4283,15 @@ class SearchHandler(BaseHTTPRequestHandler):
             + '<button type="button" class="secondary" id="saveCollection">Save as collection…</button></div>'
             if filter_chips and not gallery_mode else ""
         )
+        # Filled in by the page when an imported folder is waiting for a name.
+        folder_notice_html = "" if gallery_mode else (
+            '<div class="folder-notice" id="folderNotice" role="status" hidden>'
+            '<div class="folder-notice-photos" id="folderNoticePhotos"></div>'
+            '<span class="folder-notice-text" id="folderNoticeText"></span>'
+            '<a class="button" href="/auto-import#foldersCard">Name folders</a>'
+            '<button type="button" class="secondary" id="folderNoticeLater" '
+            'title="Hide this until auto-import fills another folder">Not now</button></div>'
+        )
 
         def choice(name, label, options, current):
             return (
@@ -4367,7 +4379,7 @@ class SearchHandler(BaseHTTPRequestHandler):
 <form class="toolbar" id="viewerToolbar" role="search">{person_hidden}<input type="hidden" name="scope" id="scopePicker" value="{scope}">
 <div class="search-row"><label class="search-field"><span class="visually-hidden">Search</span><input type="search" name="q" value="{html.escape(query, quote=True)}" placeholder="{search_placeholder}" autocomplete="off"></label><button class="search-submit">Search</button>{filter_controls_html}</div>
 <div class="scope-row"><div class="scope-pills" role="radiogroup" aria-label="Search in">{scope_pills}</div><label class="view-field"><span class="visually-hidden">Special views</span><select id="viewPicker" aria-label="Special views">{special_view_options}</select></label>{year_field_html}<label class="sort-field">Sort<select name="sort" id="sortPicker">{sort_options}</select></label></div>
-{filter_panel_html}</form>{filter_chips_html}</header>
+{filter_panel_html}</form>{filter_chips_html}{folder_notice_html}</header>
 {nav_menu("people-directory" if gallery_mode else "home", str(self.library_root))}
 {people_gallery_html}{people_result_bar}<main class="viewer{viewer_hidden_class}"><section class="upper"><div class="stage" id="stage"><button type="button" class="secondary back-to-results" id="backToResults">← Back to results</button><div class="empty">{stage_empty_text}</div><button type="button" class="stage-nav" id="previousPhoto" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L6 10L12 16"/></svg></button><button type="button" class="stage-nav" id="nextPhoto" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L14 10L8 16"/></svg></button><div class="zoom-controls" id="zoomControls"><span class="zoom-level" id="zoomLevel">100%</span><button type="button" class="zoom-reset" id="zoomReset">Reset zoom</button></div><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Show photo details" aria-expanded="false" aria-controls="sidebar">Details</button></div><aside class="sidebar" id="sidebar">
 <button type="button" class="sidebar-close" id="sidebarClose">Close details</button>

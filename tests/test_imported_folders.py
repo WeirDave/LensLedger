@@ -114,6 +114,35 @@ class ListingTests(ImportedFolderCase):
         self.assertEqual(listed["2026/2026_03_14"]["base"], "2026_03_14")
         self.assertEqual(listed["2026/2026_03_14"]["description"], "")
 
+    def test_unnamed_folders_come_first_and_are_never_crowded_out(self):
+        from imported_folders import list_folders, read_log
+        from ingest_pipeline import ingest_log_path
+
+        self.add_photos("2026-03-14 one.jpg")
+        self.add_photos("2026-03-15 two.jpg")
+        self.add_photos("2026-03-16 three.jpg")
+        year = self.library / "2026"
+        for day, name in (("15", "Kite show"), ("16", "Beach day")):
+            (year / f"2026_03_{day}").rename(year / f"2026_03_{day} - {name}")
+
+        listed = list_folders(read_log(ingest_log_path()), limit=1)
+
+        self.assertEqual(
+            [(item["folder"].name, item["needs_name"]) for item in listed],
+            [("2026_03_14", True), ("2026_03_16 - Beach day", False)],
+        )
+
+    def test_a_folder_not_named_for_a_date_needs_no_name(self):
+        self.pipeline.update_config(
+            source_folder=str(self.source), destination_folder=str(self.library),
+            rules=[{"match": "screen", "destination": "Screenshots"}],
+        )
+        self.add_photos("screen 2026-03-14.jpg")
+
+        (item,) = self.listed()
+
+        self.assertFalse(item["needs_name"])
+
     def test_a_folder_renamed_outside_the_app_is_still_listed(self):
         self.add_photos("2026-03-14 one.jpg")
         year = self.library / "2026"
@@ -349,6 +378,33 @@ class RenameRequestTests(ImportedFolderCase):
 
     def names(self):
         return sorted(item.name for item in (self.library / "2026").iterdir())
+
+    def main_page(self, query=""):
+        with urllib.request.urlopen(self.base_url + "/" + query, timeout=10) as response:
+            return response.read().decode("utf-8")
+
+    def test_the_main_page_can_say_a_folder_needs_a_name(self):
+        self.assertIn('href="/auto-import#foldersCard"', self.main_page())
+        self.assertNotIn('id="folderNotice"', self.main_page("?scope=people"))
+        (folder,) = self.get_folders()["folders"]
+        self.assertTrue(folder["needs_name"])
+
+        self.rename(folder["path"], "Beach day")
+
+        (folder,) = self.get_folders()["folders"]
+        self.assertFalse(folder["needs_name"])
+
+    def test_a_saved_name_stops_the_reminder_unless_it_fails(self):
+        (folder,) = self.get_folders()["folders"]
+        self.busy()
+        self.rename(folder["path"], "Beach day")
+        self.assertFalse(self.get_folders()["folders"][0]["needs_name"])
+
+        (self.library / "2026" / "2026_03_14 - Beach day").mkdir()
+        self.free()
+        self.waiting.run_pending()
+
+        self.assertTrue(self.get_folders()["folders"][0]["needs_name"])
 
     def test_a_name_entered_during_a_scan_is_applied_when_it_ends(self):
         (folder,) = self.get_folders()["folders"]
