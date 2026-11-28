@@ -116,7 +116,7 @@ def rebuild_search(path: Path) -> int:
         asset_ids = [int(row[0]) for row in con.execute("SELECT id FROM assets")]
         con.execute("DELETE FROM search_fts")
         for asset_id in asset_ids:
-            rebuild_search_row(con, asset_id)
+            rebuild_search_row(con, asset_id, replace=False)
     print(f"Search rows rebuilt: {len(asset_ids)}")
     return 0
 

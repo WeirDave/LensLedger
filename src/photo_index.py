@@ -21,6 +21,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -48,6 +49,14 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".mkv"}
 IMAGE_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_EXTENSIONS - RAW_EXTENSIONS
 SCHEMA_VERSION = 28
 SQLITE_BUSY_TIMEOUT_MS = 30_000
+# Photos removed from the index in one transaction. The pause between two
+# transactions lets work that is waiting to write get its turn: SQLite does not
+# queue writers, and retries at intervals of up to a tenth of a second.
+REMOVAL_BATCH = 500
+REMOVAL_PAUSE_SECONDS = 0.1
+# Photos named in one delete from the search table. asset_id is not indexed
+# there, so each statement reads the whole table however many photos it names.
+SEARCH_DELETE_CHUNK = 10_000
 SKIP_DIRECTORIES = {"!LensLedger", "_FaceData", "_PhotoIndex"}
 # An opening tag is matched on its own and its closing tag is looked for after
 # it. Matching both in one lazy pattern rescans to the end of the data for every
@@ -232,6 +241,7 @@ CREATE TABLE IF NOT EXISTS asset_full_hashes (
     sha256 TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_metadata_publications_asset ON metadata_publications(asset_id);
+CREATE INDEX IF NOT EXISTS idx_review_bin_asset ON review_bin(asset_id);
 
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY,
@@ -312,6 +322,7 @@ CREATE TABLE IF NOT EXISTS people_review_actions (
     undone_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_people_review_actions_active ON people_review_actions(id, undone_at);
+CREATE INDEX IF NOT EXISTS idx_people_review_actions_asset ON people_review_actions(asset_id);
 
 CREATE TABLE IF NOT EXISTS person_review_deferrals (
     person_id INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
@@ -1192,7 +1203,18 @@ def apply_asset_annotation(con: sqlite3.Connection, asset_id: int, relative_path
     set_source_tags(con, asset_id, "asset_rule", extra)
 
 
-def rebuild_search_row(con: sqlite3.Connection, asset_id: int) -> None:
+def delete_search_rows(con: sqlite3.Connection, asset_ids: list[int]) -> None:
+    for start in range(0, len(asset_ids), SEARCH_DELETE_CHUNK):
+        chunk = asset_ids[start:start + SEARCH_DELETE_CHUNK]
+        con.execute(f"DELETE FROM search_fts WHERE asset_id IN ({','.join('?' * len(chunk))})", chunk)
+
+
+def rebuild_search_row(con: sqlite3.Connection, asset_id: int, *, replace: bool = True) -> None:
+    """Write the photo's row in the search table.
+
+    ``replace=False`` is for a caller that knows the photo has no row there,
+    because looking for one reads the whole table.
+    """
     row = con.execute(
         """
         SELECT a.relative_path, a.folder,
@@ -1215,12 +1237,33 @@ def rebuild_search_row(con: sqlite3.Connection, asset_id: int) -> None:
         """,
         (asset_id,),
     ).fetchone()
-    con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
+    if replace:
+        delete_search_rows(con, [asset_id])
     if row:
         con.execute(
             "INSERT INTO search_fts(asset_id, path, folder, tags, ocr_text, caption) VALUES (?, ?, ?, ?, ?, ?)",
             (asset_id, row["relative_path"], row["folder"], row["tags"], row["ocr_text"], row["caption"]),
         )
+
+
+def _remove_missing_assets(con: sqlite3.Connection, asset_ids: list[int]) -> int:
+    """Remove one batch of photos that a scan did not find, and save it."""
+    # The list of missing photos was taken before the walk. A photo trashed or
+    # put back since then must not be removed on that old view, or its tags and
+    # people go with it. Taking the write lock first keeps that from changing
+    # between the check and the delete.
+    con.execute("BEGIN IMMEDIATE")
+    rows = con.execute(
+        f"SELECT id, path, in_review_bin FROM assets WHERE id IN ({','.join('?' * len(asset_ids))})",
+        asset_ids,
+    ).fetchall()
+    gone = [int(row["id"]) for row in rows
+            if not row["in_review_bin"] and not Path(row["path"]).exists()]
+    if gone:
+        delete_search_rows(con, gone)
+        con.execute(f"DELETE FROM assets WHERE id IN ({','.join('?' * len(gone))})", gone)
+    con.commit()
+    return len(gone)
 
 
 def scan_library(
@@ -1238,6 +1281,9 @@ def scan_library(
     con = connect(db_path)
     started = utc_now()
     run_id = con.execute("INSERT INTO runs(started_at) VALUES (?)", (started,)).lastrowid
+    # A new photo is given its search row without looking for an old one, so
+    # none may be left over under an id that SQLite can hand out again.
+    con.execute("DELETE FROM search_fts WHERE asset_id NOT IN (SELECT id FROM assets)")
     known = {row["relative_path"]: row for row in con.execute(
         "SELECT id, relative_path, size_bytes, mtime_ns, metadata_scanned, "
         "location_scanned, tags_scanned, date_scanned, visual_scanned, facets_scanned, in_review_bin FROM assets"
@@ -1302,6 +1348,12 @@ def scan_library(
             folder = rel.parent.as_posix()
             latitude, longitude = (None, None) if placeholder else extract_gps_coordinates(path)
             file_hash = "" if placeholder else content_hash(path)
+            if not con.in_transaction:
+                # So nothing else can add this photo between the check and the insert.
+                con.execute("BEGIN IMMEDIATE")
+            new_photo = con.execute(
+                "SELECT 1 FROM assets WHERE relative_path = ?", (rel_text,)
+            ).fetchone() is None
             con.execute(
                 """
                 INSERT INTO assets(path, relative_path, folder, filename, extension, media_type,
@@ -1346,7 +1398,7 @@ def scan_library(
             set_source_tags(con, asset_id, "folder_rule", folder_names)
             apply_asset_annotation(con, asset_id, rel_text)
             con.execute("INSERT OR IGNORE INTO text_data(asset_id) VALUES (?)", (asset_id,))
-            rebuild_search_row(con, asset_id)
+            rebuild_search_row(con, asset_id, replace=not new_photo)
             counts["changed"] += 1
             if counts["changed"] % 500 == 0:
                 con.commit()
@@ -1433,15 +1485,20 @@ def scan_library(
                 if len(olds) == 1 and len(news) == 1:
                     pairs.append((olds[0], news[0]))
             remapped = 0
+            new_rows = {new_rel: con.execute(
+                "SELECT id, content_hash FROM assets WHERE relative_path=?", (new_rel,)
+            ).fetchone() for _old_rel, new_rel in pairs}
+            # The moved photos' search rows go in one pass. This stays in the
+            # same transaction as the remapping below, with no save or pause
+            # inside it: a later scan could not pair up whatever was left over.
+            delete_search_rows(con, [int(known[old_rel]["id"]) for old_rel, _new_rel in pairs]
+                               + [int(row["id"]) for row in new_rows.values() if row])
             for old_rel, new_rel in pairs:
                 old_id = int(known[old_rel]["id"])
-                new_row = con.execute(
-                    "SELECT id, content_hash FROM assets WHERE relative_path=?", (new_rel,)
-                ).fetchone()
+                new_row = new_rows[new_rel]
                 if new_row:
                     con.execute("UPDATE assets SET content_hash=? WHERE id=?", (new_row["content_hash"], old_id))
                     new_id = int(new_row["id"])
-                    con.execute("DELETE FROM search_fts WHERE asset_id=?", (new_id,))
                     con.execute("DELETE FROM assets WHERE id=?", (new_id,))
                 new_path = str(root / new_rel)
                 new_folder = str(Path(new_rel).parent.as_posix())
@@ -1487,28 +1544,25 @@ def scan_library(
                             con.execute("INSERT OR IGNORE INTO folder_tags(folder,tag) VALUES(?,?)", (new_folder, tag))
                         folder_names = inferred
                 set_source_tags(con, old_id, "folder_rule", folder_names)
-                rebuild_search_row(con, old_id)
+                rebuild_search_row(con, old_id, replace=False)
                 missing.discard(old_rel)
                 remapped += 1
             if remapped:
                 counts["changed"] += remapped
         counts["removing_total"] = len(missing)
         report()
-        for rel_text in missing:
-            asset_id = int(known[rel_text]["id"])
-            # The list of missing photos was taken before the walk. A photo
-            # trashed or put back since then must not be removed on that old
-            # view, or its tags and people go with it.
-            current = con.execute(
-                "SELECT path, in_review_bin FROM assets WHERE id = ?", (asset_id,)
-            ).fetchone()
-            if current is None or current["in_review_bin"] or Path(current["path"]).exists():
-                continue
-            con.execute("DELETE FROM search_fts WHERE asset_id = ?", (asset_id,))
-            con.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
-            counts["removed"] += 1
-            if int(counts["removed"]) % 100 == 0:
-                report()
+        # Everything up to here is saved, so that removal holds the write lock
+        # for one batch at a time.
+        con.commit()
+        remove_ids = sorted(int(known[rel_text]["id"]) for rel_text in missing)
+        for start in range(0, len(remove_ids), REMOVAL_BATCH):
+            if start:
+                time.sleep(REMOVAL_PAUSE_SECONDS)
+            if should_cancel and should_cancel():
+                counts["cancelled"] = True
+                break
+            counts["removed"] += _remove_missing_assets(con, remove_ids[start:start + REMOVAL_BATCH])
+            report()
 
     con.execute(
         """UPDATE runs SET finished_at=?, scanned=?, changed=?, unchanged=?, removed=?, errors=?, cancelled=? WHERE id=?""",

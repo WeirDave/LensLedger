@@ -80,6 +80,7 @@ from video_frames import video_frame
 import metadata_backups
 from photo_index import (
     EMBEDDED_TAG_EXTENSIONS, EMBEDDED_TAGS_VERSION, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, SCHEMA_VERSION, VIDEO_EXTENSIONS, content_hash, SQLITE_BUSY_TIMEOUT_MS, connect,
+    REMOVAL_BATCH, REMOVAL_PAUSE_SECONDS, delete_search_rows,
     extract_embedded_rating, extract_embedded_tags, is_cloud_placeholder, record_file_rating,
     refresh_embedded_tags, relink_people_from_embedded_names, store_embedded_tags, ocr_assets,
     ocr_is_available, pending_scan_counts, rebuild_search_row, scan_library,
@@ -9014,30 +9015,47 @@ class SearchHandler(BaseHTTPRequestHandler):
         missing = 0
         refused = 0
         with self.db() as con:
-            rows = con.execute("SELECT * FROM review_bin WHERE restored_at IS NULL").fetchall()
-            action = Action("Empty the Review Bin", f"{len(rows):,} photos to delete permanently")
-            for row in rows:
-                try:
-                    source = review_bin_file(row["review_path"])
-                except ValueError as exc:
-                    refused += 1
-                    action.failure(row["original_relative_path"], str(exc))
-                    continue
-                # Deleting a photo cannot be undone, so each one is named as it
-                # goes. This log is the only remaining record afterwards.
-                if source.is_file():
-                    source.unlink()
-                    action.note(f"deleted permanently: {row['original_relative_path']}")
-                else:
-                    missing += 1
-                    action.failure(row["original_relative_path"], "the file was already gone")
-                con.execute("DELETE FROM asset_tags WHERE asset_id=?", (row["asset_id"],))
-                con.execute("DELETE FROM asset_people WHERE asset_id=?", (row["asset_id"],))
-                con.execute("DELETE FROM face_embeddings WHERE asset_id=?", (row["asset_id"],))
-                con.execute("DELETE FROM search_fts WHERE asset_id=?", (row["asset_id"],))
-                con.execute("DELETE FROM assets WHERE id=?", (row["asset_id"],))
-                con.execute("DELETE FROM review_bin WHERE id=?", (row["id"],))
-                deleted += 1
+            ids = [row["id"] for row in con.execute(
+                "SELECT id FROM review_bin WHERE restored_at IS NULL ORDER BY id")]
+            action = Action("Empty the Review Bin", f"{len(ids):,} photos to delete permanently")
+            for start in range(0, len(ids), REMOVAL_BATCH):
+                if start:
+                    time.sleep(REMOVAL_PAUSE_SECONDS)
+                batch = ids[start:start + REMOVAL_BATCH]
+                # Each batch is saved on its own so other work can write in
+                # between, and is read again so that a photo restored in the
+                # meantime is left alone.
+                con.execute("BEGIN IMMEDIATE")
+                rows = con.execute(
+                    "SELECT * FROM review_bin WHERE restored_at IS NULL "
+                    f"AND id IN ({','.join('?' * len(batch))}) ORDER BY id", batch,
+                ).fetchall()
+                gone = []
+                for row in rows:
+                    try:
+                        source = review_bin_file(row["review_path"])
+                    except ValueError as exc:
+                        refused += 1
+                        action.failure(row["original_relative_path"], str(exc))
+                        continue
+                    # Deleting a photo cannot be undone, so each one is named as it
+                    # goes. This log is the only remaining record afterwards.
+                    if source.is_file():
+                        source.unlink()
+                        action.note(f"deleted permanently: {row['original_relative_path']}")
+                    else:
+                        missing += 1
+                        action.failure(row["original_relative_path"], "the file was already gone")
+                    gone.append(row)
+                    deleted += 1
+                asset_ids = [(row["asset_id"],) for row in gone]
+                delete_search_rows(con, [row["asset_id"] for row in gone])
+                con.executemany("DELETE FROM asset_tags WHERE asset_id=?", asset_ids)
+                con.executemany("DELETE FROM asset_people WHERE asset_id=?", asset_ids)
+                con.executemany("DELETE FROM face_embeddings WHERE asset_id=?", asset_ids)
+                con.executemany("DELETE FROM assets WHERE id=?", asset_ids)
+                con.executemany("DELETE FROM review_bin WHERE id=?", [(row["id"],) for row in gone])
+                con.commit()
         summary = f"{deleted:,} photos deleted permanently"
         if missing:
             summary += f", {missing:,} were already gone"

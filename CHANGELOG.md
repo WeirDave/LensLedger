@@ -6,6 +6,12 @@ LensLedger uses semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new backward-compatible features
 - **PATCH** — corrections and small backward-compatible improvements
 
+## 1.54.2 — 2026-11-28
+
+- A library scan removed photos that were no longer in the library folder very slowly in a large library. Removal became many times faster.
+- Removal was saved in batches, so other changes could be saved while it ran. **Pause scan** stopped it between batches, and the next scan removed the rest.
+- Scans that found many photos moved to other folders, **Empty trash**, and the command-line search index rebuild became faster for the same reason.
+
 ## 1.54.1 — 2026-11-28
 
 - A folder name entered under **Name your folders** while a scan, tag writing or publishing was running was saved and applied once that work had finished, in place of **Rename** being unavailable. **Cancel** beside the folder dropped it.

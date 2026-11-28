@@ -144,6 +144,34 @@ class TestPhotoFileActionsAreRecorded(unittest.TestCase):
         for photo in self.photos:
             self.assertIn(photo.name, self.log)
 
+    def test_a_large_bin_is_emptied_in_batches_and_a_restore_in_between_is_kept(self):
+        review_ids = self.post("/api/review-bin/batch", {"ids": self.asset_ids})["review_ids"]
+        pause = 0.0123
+        real_sleep = self.photo_search.time.sleep
+        restored = []
+
+        def restore_between_batches(seconds):
+            if seconds == pause and not restored:
+                restored.append(self.post("/api/review-bin/restore", {"review_id": review_ids[2]}))
+            real_sleep(seconds)
+
+        with patch.object(self.photo_search, "REMOVAL_BATCH", 1), \
+                patch.object(self.photo_search, "REMOVAL_PAUSE_SECONDS", pause), \
+                patch.object(self.photo_search.time, "sleep", restore_between_batches):
+            result = self.post("/api/review-bin/empty")
+
+        self.assertEqual(result["deleted"], 2)
+        self.assertEqual(restored, [{"ok": True}])
+        self.assertEqual([photo.exists() for photo in self.photos], [False, False, True])
+        con = sqlite3.connect(self.database)
+        kept = [int(row[0]) for row in con.execute("SELECT id FROM assets")]
+        searchable = [int(row[0]) for row in con.execute("SELECT asset_id FROM search_fts")]
+        waiting = con.execute("SELECT COUNT(*) FROM review_bin WHERE restored_at IS NULL").fetchone()[0]
+        con.close()
+        self.assertEqual(kept, [self.asset_ids[2]])
+        self.assertEqual(searchable, [self.asset_ids[2]])
+        self.assertEqual(waiting, 0)
+
     def test_restoring_a_photo_is_recorded(self):
         moved = self.post("/api/review-bin/batch", {"ids": self.asset_ids[:1]})
         self.logged.clear()
